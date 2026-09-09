@@ -110,6 +110,8 @@ science, computer vision, and storage of old captures.
 | `CamSettings.java` | The control state, the ROI maths, the parameters, and the JSON |
 | `HttpServer.java` | HTTP/1.1 on a `ServerSocket`, the routes, and the MJPEG parts |
 | `WebUi.java` | The browser panel and the `/api/help` document |
+| `Sensors.java` | Gravity and ambient light, giving the tilt of the optical axis |
+| `Tar.java` | A small USTAR writer, for a burst in one response |
 | `CamService.java` | The foreground service, the life cycle, the notice, and the address |
 | `MainActivity.java` | The permissions, start and stop, and the headless start |
 | `BootReceiver.java` | The restart attempt after a reboot. Refer to section 4.4. |
@@ -195,6 +197,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
 | `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
 | `/api/burst` | `application/x-tar` | `n` frames with identical settings. The headers give the frame count, the time, and the rate. |
+| `/api/orientation` | JSON | The tilt of the camera from the gravity sensor, and the ambient light. |
 | `/api/shadingmap` | JSON | The lens shading map, if the device delivers one. Refer to section 4.3. |
 | `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
 | `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. |

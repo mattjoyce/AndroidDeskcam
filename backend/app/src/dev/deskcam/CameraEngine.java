@@ -657,8 +657,7 @@ public class CameraEngine {
         }
         byte[] jpeg = stillQueue.poll(timeoutMs, TimeUnit.MILLISECONDS);
         if (jpeg == null) throw new IllegalStateException("still capture timed out after " + timeoutMs + "ms");
-        if (s.stillIsPristine()) return jpeg;
-        return cropJpeg(jpeg, s);
+        return withExif(s.stillIsPristine() ? jpeg : cropJpeg(jpeg, s), s);
     }
 
     /**
@@ -753,6 +752,7 @@ public class CameraEngine {
 
             try (DngCreator dng = new DngCreator(ch, res)) {
                 dng.setOrientation(exifOrientation(s.rotate));
+                dng.setDescription(provenance(s));
                 ByteArrayOutputStream out = new ByteArrayOutputStream(1 << 23);
                 dng.writeImage(out, img);
                 return out.toByteArray();
@@ -798,6 +798,75 @@ public class CameraEngine {
             }
             if (frames.isEmpty()) throw new IllegalStateException("burst produced no frames");
             return frames;
+        }
+    }
+
+    /**
+     * A compact record of how a picture was taken, for embedding in the file itself.
+     *
+     * The sidecar holds the same thing, but a sidecar gets separated from its image when
+     * files are copied or sent on. Anything needed to trust a measurement later should
+     * travel inside the file.
+     */
+    private String provenance(CamSettings s) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("tool", "DeskCam");
+            o.put("zoom", CamSettings.round2(s.zoom));
+            o.put("cx", CamSettings.round3(s.cx));
+            o.put("cy", CamSettings.round3(s.cy));
+            o.put("rotate", s.rotate);
+            o.put("measure", s.measure);
+            if (sensors != null) o.put("orientation", sensors.toJson());
+            TotalCaptureResult r = lastResult;
+            if (r != null) {
+                JSONObject m = new JSONObject();
+                Long en = r.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+                if (en != null) { m.put("exposure_ns", en); m.put("exposure", CamSettings.humanExposure(en)); }
+                putIf(m, "iso", r.get(CaptureResult.SENSOR_SENSITIVITY));
+                Float fd = r.get(CaptureResult.LENS_FOCUS_DISTANCE);
+                if (fd != null) {
+                    m.put("focus_diopters", CamSettings.round2(fd));
+                    // APPROXIMATE calibration, so this is indicative and not a measurement.
+                    if (fd > 0.001f) m.put("focus_metres_approx", CamSettings.round3(1f / fd));
+                }
+                o.put("measured", m);
+            }
+            return o.toString();
+        } catch (Exception e) {
+            return "{\"tool\":\"DeskCam\"}";
+        }
+    }
+
+    /** Writes the provenance into the JPEG's EXIF UserComment. Pixels are untouched. */
+    private byte[] withExif(byte[] jpeg, CamSettings s) {
+        java.io.File tmp = null;
+        try {
+            tmp = java.io.File.createTempFile("deskcam", ".jpg", ctx.getCacheDir());
+            try (java.io.FileOutputStream fo = new java.io.FileOutputStream(tmp)) {
+                fo.write(jpeg);
+            }
+            ExifInterface ex = new ExifInterface(tmp.getAbsolutePath());
+            ex.setAttribute(ExifInterface.TAG_USER_COMMENT, provenance(s));
+            ex.setAttribute(ExifInterface.TAG_SOFTWARE, "DeskCam");
+            ex.setAttribute(ExifInterface.TAG_ORIENTATION,
+                    String.valueOf(ExifInterface.ORIENTATION_NORMAL));
+            ex.saveAttributes();
+            byte[] out = new byte[(int) tmp.length()];
+            try (java.io.FileInputStream fi = new java.io.FileInputStream(tmp)) {
+                int read = 0;
+                while (read < out.length) {
+                    int n = fi.read(out, read, out.length - read);
+                    if (n < 0) break;
+                    read += n;
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            Log.w(TAG, "could not embed exif, returning the plain image: " + e);
+            return jpeg;
+        } finally {
+            if (tmp != null) tmp.delete();
         }
     }
 

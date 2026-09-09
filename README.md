@@ -21,6 +21,7 @@ The documents use ASD-STE100 Simplified Technical English. Refer to
 | `backend/` | The phone | The Android app and its build script |
 | `frontend/` | The workstation | The `deskcam` CLI |
 | `docs/` | | The specification |
+| `skill/` | Claude Code | The agent skill |
 
 The backend makes true pixels and reports its state. The frontend decides what to do with
 the pixels. The HTTP contract is the only connection between them.
@@ -80,7 +81,13 @@ adb install -r -g backend/build/deskcam.apk   # -g gives the permissions immedia
 The `-g` option is important. Without it you must give the camera permission and the local
 network permission by hand.
 
-Put `frontend/deskcam` on your `PATH`. The CLI stores the target in
+Put `frontend/deskcam` on your `PATH`. For an agent, link the skill as well:
+
+```sh
+ln -s "$PWD/frontend/deskcam" ~/.local/bin/deskcam
+ln -s "$PWD/skill" ~/.claude/skills/deskcam
+```
+ The CLI stores the target in
 `~/.config/deskcam/url`. The variable `DESKCAM_URL` replaces the stored value.
 
 ## The CLI
@@ -241,6 +248,33 @@ than the noise of one frame. The square root of 6 is 2.45, so the result is 92% 
 prediction. Two effects explain the difference. JPEG compression makes the noise of
 neighbouring frames a little alike. Fixed pattern noise is the same in each frame, so an
 average never removes it. Subtract a dark frame to remove that part.
+
+## What each capture records
+
+Every capture writes a JSON sidecar beside the image, and the same record goes into the
+file itself. A sidecar is easier to read, but it gets separated from its image when files
+are copied. Anything you need to trust a measurement later travels in both places.
+
+| Where | Field |
+|---|---|
+| `NAME.json` | The full settings, the measured values, the pipeline state, the orientation |
+| JPEG | EXIF `UserComment` and `Software` |
+| DNG | `ImageDescription` |
+
+The record holds the tilt of the camera, from the gravity sensor:
+
+```
+tilt 1.57 deg, straight down, square to a level surface
+gravity {x: 0.22, y: 0.16, z: 9.81}   ambient 85 lux
+```
+
+A tilted camera stretches one side of a flat subject, which corrupts a measurement of
+size. The angle belongs with the picture. `deskcam status` and `/api/orientation` report
+it live.
+
+**The sensors give the angle only.** They give no distance and no position, so a picture
+still needs a scale reference in the frame, such as a ruler or graph paper, before you can
+measure real sizes.
 
 ## Examples
 
