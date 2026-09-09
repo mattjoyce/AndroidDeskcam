@@ -170,6 +170,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_image(st, path[7:], thumb=True)
             return
 
+        if path.startswith("/sidecar/"):
+            name = os.path.basename(path[9:])
+            f = (st.shots / name).with_suffix(".json")
+            if f.is_file():
+                self.send(200, "application/json", f.read_bytes())
+            else:
+                self.send_json({"error": "no sidecar for " + name}, 404)
+            return
+
         if path.startswith("/img/"):
             self.send_image(st, path[5:], thumb=False)
             return
@@ -411,9 +420,28 @@ def page(st):
  .shot img{display:block;width:100%;height:auto}
  .shot .m{padding:5px 7px;font:10px/1.35 ui-monospace,monospace;color:#8b949e}
  .shot:hover{border-color:#2f81f7}
- dialog{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
-        max-width:94vw;max-height:94vh;padding:10px}
- dialog img{max-width:88vw;max-height:78vh;display:block}
+ dialog{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
+        padding:0;width:min(1150px,94vw);max-height:90vh;overflow:hidden}
+ dialog::backdrop{background:rgba(0,0,0,.65)}
+ .dlg{display:flex;flex-direction:column;max-height:90vh;min-height:0}
+ .dlgmain{display:grid;grid-template-columns:minmax(0,1fr) 320px;min-height:0;flex:1}
+ @media(max-width:820px){.dlgmain{grid-template-columns:1fr}}
+ .frame{background:#0d1117;border-right:1px solid #21262d;padding:12px;
+        display:flex;align-items:center;justify-content:center;min-height:0}
+ /* contain keeps the whole picture inside the frame at any aspect ratio */
+ .frame img{max-width:100%;max-height:62vh;object-fit:contain;display:block;border-radius:4px}
+ .side{overflow:auto;padding:12px 14px;min-height:0;max-height:62vh}
+ .side h3{margin:12px 0 5px;font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+          color:#8b949e;font-weight:600}
+ .side h3:first-child{margin-top:0}
+ .side table{width:100%;border-collapse:collapse;font:11px/1.5 ui-monospace,monospace}
+ .side td{padding:1px 0;vertical-align:top;word-break:break-word}
+ .side td:first-child{color:#8b949e;width:44%;padding-right:8px}
+ .side .raw{width:100%;background:#0d1117;color:#8b949e;border:1px solid #21262d;
+            border-radius:5px;font:10px/1.4 ui-monospace,monospace;padding:7px;
+            height:150px;resize:vertical}
+ .dlgbar{display:flex;gap:10px;align-items:center;padding:10px 14px;flex-wrap:wrap}
+ .dlgbar .info{font:11px/1.5 ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
  code{font:11px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
  details summary{cursor:pointer;color:#8b949e;font-size:12px}
  .qr img{width:100%;max-width:210px;display:block;margin:10px auto}
@@ -457,11 +485,22 @@ def page(st):
     </div>
   </div>
 </main>
-<dialog id="big"><img id="bigimg"><div style="text-align:right;margin-top:8px">
-  <button onclick="document.getElementById('big').close()">Close</button></div></dialog>
+<dialog id="big">
+  <div class="dlg">
+    <div class="dlgmain">
+      <div class="frame"><img id="bigimg" alt="capture"></div>
+      <div class="side" id="side"></div>
+    </div>
+    <div class="dlgbar">
+      <div class="info" id="biginfo"></div>
+      <button onclick="recall()">Shoot this again</button>
+      <button onclick="document.getElementById('big').close()">Close</button>
+    </div>
+  </div>
+</dialog>
 
 <script>
-let S = {}, rotate = 180, streamUrl = '';
+let S = {}, rotate = 180, streamUrl = '', ROLL = [];
 
 async function cam(q){
   try{ await fetch('/api/cam?' + q); }catch(e){}
@@ -496,8 +535,9 @@ async function loadRoll(){
     const r = await (await fetch('/api/roll')).json();
     const el = document.getElementById('roll');
     document.getElementById('empty').style.display = r.captures.length ? 'none' : 'block';
-    el.innerHTML = r.captures.map(c => `
-      <div class="shot" onclick="show('${c.name}')">
+    ROLL = r.captures;
+    el.innerHTML = r.captures.map((c, i) => `
+      <div class="shot" onclick="show('${c.name}', ROLL[${i}])">
         <img loading="lazy" src="/thumb/${encodeURIComponent(c.name)}">
         <div class="m">${c.summary||c.name}<br>${c.exposure||''} ${c.iso?('iso '+c.iso):''}
         ${c.tilt!==undefined&&c.tilt!==null?('<br>tilt '+c.tilt+'&deg;'):''}</div>
@@ -505,9 +545,68 @@ async function loadRoll(){
   }catch(e){}
 }
 
-function show(n){
+let shown = null;
+function show(n, c){
+  shown = c || null;
   document.getElementById('bigimg').src = '/img/' + encodeURIComponent(n);
+  const bits = [n];
+  if(c){
+    if(c.summary) bits.push(c.summary);
+    if(c.exposure) bits.push(c.exposure);
+    if(c.iso) bits.push('iso ' + c.iso);
+    if(c.tilt !== undefined && c.tilt !== null) bits.push('tilt ' + c.tilt + '\u00b0');
+    if(c.bytes) bits.push((c.bytes/1024/1024).toFixed(1) + ' MB');
+  }
+  document.getElementById('biginfo').textContent = bits.join('   ');
+  document.getElementById('side').innerHTML = '<p class="muted">loading sidecar...</p>';
+  loadSidecar(n);
   document.getElementById('big').showModal();
+}
+
+function rows(obj){
+  if(!obj || !Object.keys(obj).length) return '';
+  return '<table>' + Object.entries(obj).map(([k, v]) => {
+    if(v !== null && typeof v === 'object') v = JSON.stringify(v);
+    if(v === null) v = 'null';
+    return `<tr><td>${k}</td><td>${String(v)}</td></tr>`;
+  }).join('') + '</table>';
+}
+
+async function loadSidecar(n){
+  const el = document.getElementById('side');
+  try{
+    const d = await (await fetch('/sidecar/' + encodeURIComponent(n))).json();
+    if(d.error){ el.innerHTML = '<p class="muted">' + d.error + '</p>'; return; }
+    const top = {image: d.image, captured_at: d.captured_at, target: d.target,
+                 bytes: d.bytes};
+    el.innerHTML =
+      '<h3>Capture</h3>' + rows(top) +
+      (d.orientation && Object.keys(d.orientation).length ? '<h3>Orientation</h3>' + rows(d.orientation) : '') +
+      '<h3>Measured</h3>' + rows(d.measured) +
+      '<h3>Settings</h3>' + rows(d.settings) +
+      (d.pipeline && Object.keys(d.pipeline).length ? '<h3>Pipeline</h3>' + rows(d.pipeline) : '') +
+      (d.sensor && Object.keys(d.sensor).length ? '<h3>Sensor</h3>' + rows(d.sensor) : '') +
+      '<h3>Raw sidecar</h3><textarea class="raw" readonly>' +
+        JSON.stringify(d, null, 2).replace(/</g,'&lt;') + '</textarea>';
+  }catch(e){
+    el.innerHTML = '<p class="muted">could not read the sidecar: ' + e + '</p>';
+  }
+}
+
+// Put the camera back to the settings of the capture on screen.
+function recall(){
+  if(!shown || !shown.settings) return;
+  const g = shown.settings, q = [];
+  q.push('reset=1', 'zoom=' + g.zoom, 'cx=' + g.cx, 'cy=' + g.cy, 'rotate=' + g.rotate);
+  if(g.measure) q.push('measure=1');
+  if(g.torch) q.push('torch=' + g.torch);
+  if(g.focus_diopters !== null && g.focus_diopters !== undefined) q.push('focus=' + g.focus_diopters);
+  if(g.ae === 'manual'){
+    if(g.exposure_ns) q.push('exposure=' + g.exposure_ns);
+    if(g.iso) q.push('iso=' + g.iso);
+  }
+  cam(q.join('&'));
+  document.getElementById('big').close();
 }
 
 // drag a box on the live view to frame it
@@ -558,6 +657,9 @@ async function newcode(){
   document.getElementById('qr').src = '/qr.svg?t=' + Date.now();
   refresh();
 }
+
+const dlg = document.getElementById('big');
+dlg.addEventListener('click', e => { if(e.target === dlg) dlg.close(); });
 
 refresh(); loadRoll();
 setInterval(refresh, 2000);
