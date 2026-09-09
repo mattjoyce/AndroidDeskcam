@@ -395,311 +395,320 @@ def page(st):
 <style>
  :root{color-scheme:dark}
  *{box-sizing:border-box}
- body{margin:0;background:#0d1117;color:#e6edf3;
+ html,body{height:100%;margin:0;overflow:hidden}      /* the page itself never scrolls */
+ body{background:#0d1117;color:#e6edf3;display:flex;flex-direction:column;
       font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
- header{padding:10px 18px;border-bottom:1px solid #21262d;display:flex;gap:14px;
-        align-items:center;flex-wrap:wrap}
- header h1{margin:0;font-size:15px;font-weight:600}
+ header{flex:0 0 auto;padding:7px 14px;border-bottom:1px solid #21262d;display:flex;
+        gap:12px;align-items:center;flex-wrap:wrap}
+ header h1{margin:0;font-size:14px;font-weight:600}
  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
  .on{background:#3fb950}.off{background:#f85149}
  .muted{color:#8b949e}
- main{display:flex;flex-direction:column;gap:16px;padding:16px}
- .livewrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0;min-height:0}
- @media(max-width:900px){.livewrap{grid-template-columns:1fr}}
- .card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px}
- .card h2{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
-          color:#8b949e;font-weight:600}
- .view{position:relative;background:#000;border:1px solid #21262d;border-radius:8px;overflow:hidden}
- .view img{display:block;width:100%;height:auto;cursor:crosshair;user-select:none;-webkit-user-drag:none}
- #box{position:absolute;border:2px solid #2f81f7;background:rgba(47,129,247,.15);display:none;pointer-events:none}
- .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);border:1px solid #30363d;
-       border-radius:5px;padding:3px 8px;font-size:11px;color:#8b949e;pointer-events:none}
- .btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+
+ /* Three columns filling the window. Each scrolls on its own. */
+ main{flex:1 1 auto;display:grid;gap:9px;padding:9px;min-height:0;
+      grid-template-columns:166px 286px minmax(0,1fr)}
+ @media(max-width:1000px){main{grid-template-columns:132px 240px minmax(0,1fr)}}
+ @media(max-width:760px){main{grid-template-columns:1fr;overflow:auto}}
+ .col{min-height:0;display:flex;flex-direction:column;background:#161b22;
+      border:1px solid #21262d;border-radius:9px;overflow:hidden}
+ .col>h2{flex:0 0 auto;margin:0;padding:7px 11px;font-size:10px;text-transform:uppercase;
+         letter-spacing:.07em;color:#8b949e;font-weight:600;border-bottom:1px solid #21262d}
+ .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0}
+
+ #roll{display:flex;flex-direction:column;gap:7px;padding:8px}
+ .shot{background:#0d1117;border:1px solid #21262d;border-radius:6px;overflow:hidden;
+       cursor:pointer;flex:0 0 auto}
+ .shot img{display:block;width:100%;height:auto}
+ .shot .m{padding:3px 6px;font:9px/1.3 ui-monospace,monospace;color:#8b949e}
+ .shot:hover,.shot.sel{border-color:#2f81f7}
+
+ details.grp{border-bottom:1px solid #21262d}
+ details.grp>summary{cursor:pointer;padding:6px 11px;font:11px ui-monospace,monospace;
+        color:#8b949e;list-style:none;display:flex;justify-content:space-between;gap:8px}
+ details.grp>summary::-webkit-details-marker{display:none}
+ details.grp>summary::after{content:"+";color:#484f58}
+ details.grp[open]>summary::after{content:"\\2212"}
+ details.grp[open]>summary{color:#e6edf3;background:#0d1117}
+ details.grp .body{padding:4px 11px 9px}
+ table.kv{width:100%;border-collapse:collapse;font:11px/1.45 ui-monospace,monospace}
+ table.kv td{padding:1px 0;vertical-align:top;word-break:break-word}
+ table.kv td:first-child{color:#8b949e;width:46%;padding-right:6px}
+ .raw{width:100%;background:#0d1117;color:#8b949e;border:1px solid #21262d;border-radius:5px;
+      font:10px/1.35 ui-monospace,monospace;padding:6px;height:130px;resize:vertical}
+
+ .view{position:relative;background:#000;flex:1 1 auto;display:flex;align-items:center;
+       justify-content:center;min-height:0;overflow:hidden}
+ .view img{max-width:100%;max-height:100%;object-fit:contain;display:block;
+           cursor:crosshair;user-select:none;-webkit-user-drag:none}
+ #box{position:absolute;border:2px solid #2f81f7;background:rgba(47,129,247,.15);
+      display:none;pointer-events:none}
+ .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
+       border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
+       color:#8b949e;pointer-events:none}
+ .btns{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:8px;
+       border-top:1px solid #21262d}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
-        padding:5px 11px;font-size:12px;cursor:pointer}
+        padding:4px 10px;font-size:11px;cursor:pointer}
  button:hover{background:#30363d}
  button.p{background:#1f6feb;border-color:#1f6feb} button.p:hover{background:#388bfd}
- #roll{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;
-       max-height:46vh;overflow:auto}
- .shot{background:#0d1117;border:1px solid #21262d;border-radius:7px;overflow:hidden;cursor:pointer}
- .shot img{display:block;width:100%;height:auto}
- .shot .m{padding:5px 7px;font:10px/1.35 ui-monospace,monospace;color:#8b949e}
- .shot:hover{border-color:#2f81f7}
- dialog{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
-        padding:0;width:min(1150px,94vw);max-height:90vh;overflow:hidden}
- dialog::backdrop{background:rgba(0,0,0,.65)}
- .dlg{display:flex;flex-direction:column;max-height:90vh;min-height:0}
- .dlgmain{display:grid;grid-template-columns:minmax(0,1fr) 320px;min-height:0;flex:1}
- @media(max-width:820px){.dlgmain{grid-template-columns:1fr}}
- .frame{background:#0d1117;border-right:1px solid #21262d;padding:12px;
-        display:flex;align-items:center;justify-content:center;min-height:0}
- .livewrap .frame{border:1px solid #21262d;border-right:none;border-radius:8px 0 0 8px;padding:0}
- .livewrap .side{border:1px solid #21262d;border-left:none;border-radius:0 8px 8px 0;
-                 max-height:none;background:#161b22}
- @media(max-width:900px){
-   .livewrap .frame{border-radius:8px 8px 0 0;border-right:1px solid #21262d}
-   .livewrap .side{border-radius:0 0 8px 8px;border-left:1px solid #21262d;border-top:none}
- }
- /* contain keeps the whole picture inside the frame at any aspect ratio */
- .frame img{max-width:100%;max-height:62vh;object-fit:contain;display:block;border-radius:4px}
- .side{overflow:auto;padding:12px 14px;min-height:0;max-height:62vh}
- .side h3{margin:12px 0 5px;font-size:10px;text-transform:uppercase;letter-spacing:.07em;
-          color:#8b949e;font-weight:600}
- .side h3:first-child{margin-top:0}
- .side table{width:100%;border-collapse:collapse;font:11px/1.5 ui-monospace,monospace}
- .side td{padding:1px 0;vertical-align:top;word-break:break-word}
- .side td:first-child{color:#8b949e;width:44%;padding-right:8px}
- .side .raw{width:100%;background:#0d1117;color:#8b949e;border:1px solid #21262d;
-            border-radius:5px;font:10px/1.4 ui-monospace,monospace;padding:7px;
-            height:150px;resize:vertical}
- .dlgbar{display:flex;gap:10px;align-items:center;padding:10px 14px;flex-wrap:wrap}
- .dlgbar .info{font:11px/1.5 ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
  code{font:11px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
- details summary{cursor:pointer;color:#8b949e;font-size:12px}
- .qr img{width:100%;max-width:210px;display:block;margin:10px auto}
+
+ dialog{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
+        padding:0;width:min(1150px,94vw);max-height:92vh;overflow:hidden}
+ dialog::backdrop{background:rgba(0,0,0,.7)}
+ .dlg{display:flex;flex-direction:column;max-height:92vh;min-height:0}
+ .dlgmain{display:grid;grid-template-columns:296px minmax(0,1fr);min-height:0;flex:1}
+ @media(max-width:820px){.dlgmain{grid-template-columns:1fr}}
+ .dlgside{overflow:auto;min-height:0;max-height:66vh;border-right:1px solid #21262d}
+ .frame{background:#0d1117;padding:10px;display:flex;align-items:center;
+        justify-content:center;min-height:0}
+ .frame img{max-width:100%;max-height:66vh;object-fit:contain;display:block;border-radius:4px}
+ .dlgbar{display:flex;gap:8px;align-items:center;padding:8px 12px;flex-wrap:wrap;
+         border-top:1px solid #21262d}
+ .dlgbar .info{font:11px ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
+ .qr img{width:100%;max-width:170px;display:block;margin:6px auto}
 </style></head><body>
 <header>
   <h1>DeskCam</h1>
-  <span id="hdr" class="muted">loading...</span>
-  <span id="meta" class="muted" style="margin-left:auto;font:12px ui-monospace,monospace"></span>
+  <span id="hdr" class="muted"></span>
+  <span id="meta" class="muted" style="margin-left:auto;font:11px ui-monospace,monospace"></span>
 </header>
 <main>
-  <div>
-    <div class="livewrap">
-      <div class="frame">
-        <div class="view" id="wrap" style="width:100%">
-          <img id="live" alt="live view">
-          <div id="box"></div>
-          <div class="hint">drag a box to frame it &middot; click to centre &middot; shift-click to reset</div>
-        </div>
-      </div>
-      <div class="side" id="liveside"></div>
+  <div class="col">
+    <h2>Captures</h2>
+    <div class="scroll"><div id="roll"></div>
+      <p id="empty" class="muted" style="font-size:11px;padding:0 10px">
+        None yet. <code>deskcam snap</code></p></div>
+  </div>
+  <div class="col">
+    <h2 id="sidetitle">Live</h2>
+    <div class="scroll" id="side"></div>
+  </div>
+  <div class="col">
+    <div class="view" id="wrap">
+      <img id="live" alt="live view">
+      <div id="box"></div>
+      <div class="hint">drag a box to frame &middot; click to centre &middot; shift-click resets</div>
     </div>
     <div class="btns">
       <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
-      <button onclick="cam('zoomby=1.5')">Zoom in</button>
-      <button onclick="cam('zoomby=0.667')">Zoom out</button>
-      <button onclick="cam('measure=1')">Measure mode</button>
+      <button onclick="cam('zoomby=1.5')">In</button>
+      <button onclick="cam('zoomby=0.667')">Out</button>
+      <button onclick="cam('measure=1')">Measure</button>
       <button onclick="cam('measure=0')">Normal</button>
-      <button onclick="rot()">Rotate 180</button>
-      <button onclick="restream()">Restart stream</button>
+      <button onclick="rot()">Rotate</button>
+      <button onclick="restream()">Restream</button>
+      <button onclick="document.getElementById('pair').showModal()">Pair</button>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>Captures</h2>
-    <div id="roll"></div>
-    <p id="empty" class="muted" style="font-size:12px">
-      Nothing yet. Take one with <code>deskcam snap</code>.</p>
-  </div>
-
-  <div class="card">
-    <details id="pairwrap">
-      <summary>Pair a phone</summary>
-      <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
-      <p><code id="purl"></code></p>
-      <button onclick="newcode()">New code</button>
-    </details>
   </div>
 </main>
-<dialog id="big">
-  <div class="dlg">
-    <div class="dlgmain">
-      <div class="frame"><img id="bigimg" alt="capture"></div>
-      <div class="side" id="side"></div>
-    </div>
-    <div class="dlgbar">
-      <div class="info" id="biginfo"></div>
-      <button onclick="recall()">Shoot this again</button>
-      <button onclick="document.getElementById('big').close()">Close</button>
-    </div>
+
+<dialog id="big"><div class="dlg">
+  <div class="dlgmain">
+    <div class="dlgside scroll" id="dside"></div>
+    <div class="frame"><img id="bigimg" alt="capture"></div>
   </div>
-</dialog>
+  <div class="dlgbar">
+    <div class="info" id="biginfo"></div>
+    <button onclick="recall()">Shoot this again</button>
+    <button onclick="document.getElementById('big').close()">Close</button>
+  </div>
+</div></dialog>
+
+<dialog id="pair"><div style="padding:16px;text-align:center">
+  <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
+  <p style="font-size:11px"><code id="purl"></code></p>
+  <button onclick="newcode()">New code</button>
+  <button onclick="document.getElementById('pair').close()">Close</button>
+</div></dialog>
 
 <script>
-let S = {}, rotate = 180, streamUrl = '', ROLL = [];
+let S={}, rotate=180, streamUrl='', ROLL=[], shown=null, selName=null;
+// Which groups are open. Held here so the two second refresh does not shut them.
+const OPEN={Framing:true, Exposure:true};
 
-async function cam(q){
-  try{ await fetch('/api/cam?' + q); }catch(e){}
-  refresh();
+function esc(v){return String(v).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+
+function kv(o){
+  const e=Object.entries(o||{}).filter(([,v])=>v!==undefined);
+  if(!e.length) return '';
+  return '<table class="kv">'+e.map(([k,v])=>{
+    if(v!==null&&typeof v==='object') v=JSON.stringify(v);
+    return '<tr><td>'+esc(k)+'</td><td>'+esc(v===null?'null':v)+'</td></tr>';
+  }).join('')+'</table>';
 }
+function grp(n,inner){
+  if(!inner) return '';
+  return '<details class="grp" data-g="'+n+'"'+(OPEN[n]?' open':'')+'><summary>'+n+
+         '</summary><div class="body">'+inner+'</div></details>';
+}
+/* One shape for the live state and for a capture, because they carry the same blocks.
+   Grouped by what a person is deciding about, not by where the value came from. */
+function sections(d,extra){
+  const g=d.settings||{}, m=d.measured||{}, o=d.orientation||{};
+  return (extra||'')
+    + grp('Framing', kv({zoom:g.zoom, cx:g.cx, cy:g.cy, rotate:g.rotate,
+                         out_w:g.out_w, out_h:g.out_h}))
+    + grp('Exposure', kv({mode:g.ae, exposure:m.exposure_human||g.exposure_human,
+                          iso:(m.iso!=null?m.iso:g.iso), ev:g.ev, ae_lock:g.ae_lock,
+                          awb:g.awb, awb_lock:g.awb_lock, measure:g.measure}))
+    + grp('Focus', kv({mode:g.af, dioptres:(m.focus_diopters!=null?m.focus_diopters:g.focus_diopters),
+                       metres_approx:g.focus_metres, af_state:m.af_state}))
+    + grp('Light', kv({torch:g.torch, ambient_lux:o.ambient_lux}))
+    + grp('Orientation', kv({tilt_degrees:o.tilt_degrees, aim:o.aim,
+                             pitch:o.pitch_degrees, roll:o.roll_degrees, gravity:o.gravity}))
+    + grp('Pipeline', kv(d.pipeline))
+    + grp('Sensor', kv(d.sensor))
+    + grp('Raw', '<textarea class="raw" readonly>'+esc(JSON.stringify(d,null,1))+'</textarea>');
+}
+document.addEventListener('toggle', e=>{
+  const el=e.target;
+  if(el.classList && el.classList.contains('grp')) OPEN[el.dataset.g]=el.open;
+}, true);
 
+async function cam(q){ try{ await fetch('/api/cam?'+q); }catch(e){} refresh(); }
 function restream(){
   if(!S.phone) return;
-  const u = S.phone + '/api/stream?fps=10&rotate=' + rotate + '&t=' + Date.now();
-  if(u !== streamUrl){ streamUrl = u; document.getElementById('live').src = u; }
+  const u=S.phone+'/api/stream?fps=10&rotate='+rotate+'&t='+Date.now();
+  if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
 }
-function rot(){ rotate = (rotate + 180) % 360; streamUrl=''; restream(); }
+function rot(){ rotate=(rotate+180)%360; streamUrl=''; restream(); }
 
 async function refresh(){
   try{
-    S = await (await fetch('/api/state')).json();
-    const dot = S.online ? '<span class="dot on"></span>' : '<span class="dot off"></span>';
-    document.getElementById('hdr').innerHTML = dot +
-      (S.phone ? (S.online ? S.phone : 'paired, not answering') : 'no phone paired');
-    document.getElementById('purl').textContent = S.pair_qr || '';
-    if(!S.phone) document.getElementById('pairwrap').open = true;
-    const g = S.settings || {}, m = S.measured || {};
-    document.getElementById('meta').textContent =
-      (g.zoom!==undefined ? 'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ' : '') +
-      (m.exposure_human||'') + (m.iso? '  iso '+m.iso : '') + (g.measure? '  measure':'');
+    S=await (await fetch('/api/state')).json();
+    const dot=S.online?'<span class="dot on"></span>':'<span class="dot off"></span>';
+    document.getElementById('hdr').innerHTML=dot+
+      (S.phone?(S.online?S.phone:'paired, not answering'):'no phone paired');
+    document.getElementById('purl').textContent=S.pair_qr||'';
+    const g=S.settings||{}, m=S.measured||{};
+    document.getElementById('meta').textContent=
+      (g.zoom!==undefined?'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ':'')+
+      (m.exposure_human||'')+(m.iso?'  iso '+m.iso:'')+(g.measure?'  measure':'');
     if(S.online) restream();
-    renderLive();
+    if(!selName){
+      document.getElementById('sidetitle').textContent='Live';
+      document.getElementById('side').innerHTML = S.online ? sections(S)
+        : '<p class="muted" style="padding:10px;font-size:11px">'+
+          (S.phone?'paired, not answering':'no phone paired')+'</p>';
+    }
   }catch(e){}
-}
-
-// The live panel uses the same sections as the one beside a capture, so what you read
-// while aiming is what gets written into the sidecar when you shoot.
-function renderLive(){
-  const el = document.getElementById('liveside');
-  if(!S.online){
-    el.innerHTML = '<h3>Camera</h3><p class="muted" style="font:11px ui-monospace,monospace">'
-      + (S.phone ? 'paired but not answering' : 'no phone paired') + '</p>';
-    return;
-  }
-  el.innerHTML =
-    '<h3>Now</h3>' + rows({state: S.state, address: S.phone}) +
-    (S.orientation && Object.keys(S.orientation).length ? '<h3>Orientation</h3>' + rows(S.orientation) : '') +
-    '<h3>Measured</h3>' + rows(S.measured) +
-    '<h3>Settings</h3>' + rows(S.settings) +
-    (S.pipeline && Object.keys(S.pipeline).length ? '<h3>Pipeline</h3>' + rows(S.pipeline) : '') +
-    (S.sensor && Object.keys(S.sensor).length ? '<h3>Sensor</h3>' + rows(S.sensor) : '');
 }
 
 async function loadRoll(){
   try{
-    const r = await (await fetch('/api/roll')).json();
-    const el = document.getElementById('roll');
-    document.getElementById('empty').style.display = r.captures.length ? 'none' : 'block';
-    ROLL = r.captures;
-    el.innerHTML = r.captures.map((c, i) => `
-      <div class="shot" onclick="show('${c.name}', ROLL[${i}])">
-        <img loading="lazy" src="/thumb/${encodeURIComponent(c.name)}">
-        <div class="m">${c.summary||c.name}<br>${c.exposure||''} ${c.iso?('iso '+c.iso):''}
-        ${c.tilt!==undefined&&c.tilt!==null?('<br>tilt '+c.tilt+'&deg;'):''}</div>
-      </div>`).join('');
+    ROLL=(await (await fetch('/api/roll')).json()).captures;
+    document.getElementById('empty').style.display=ROLL.length?'none':'block';
+    document.getElementById('roll').innerHTML=ROLL.map((c,i)=>
+      '<div class="shot'+(c.name===selName?' sel':'')+'" onclick="pick('+i+')">'+
+      '<img loading="lazy" src="/thumb/'+encodeURIComponent(c.name)+'">'+
+      '<div class="m">'+esc(c.summary||c.name)+'<br>'+esc(c.exposure||'')+'</div></div>').join('');
   }catch(e){}
 }
+/* First click loads the capture into the middle column. A second opens it full size. */
+function pick(i){
+  const c=ROLL[i];
+  if(selName===c.name){ show(c.name,c); return; }
+  selName=c.name;
+  document.getElementById('sidetitle').textContent='Capture';
+  loadSidecar(c.name,'side');
+  loadRoll();
+}
+function clearPick(){ selName=null; refresh(); loadRoll(); }
 
-let shown = null;
-function show(n, c){
-  shown = c || null;
-  document.getElementById('bigimg').src = '/img/' + encodeURIComponent(n);
-  const bits = [n];
-  if(c){
-    if(c.summary) bits.push(c.summary);
-    if(c.exposure) bits.push(c.exposure);
-    if(c.iso) bits.push('iso ' + c.iso);
-    if(c.tilt !== undefined && c.tilt !== null) bits.push('tilt ' + c.tilt + '\u00b0');
-    if(c.bytes) bits.push((c.bytes/1024/1024).toFixed(1) + ' MB');
-  }
-  document.getElementById('biginfo').textContent = bits.join('   ');
-  document.getElementById('side').innerHTML = '<p class="muted">loading sidecar...</p>';
-  loadSidecar(n);
+async function loadSidecar(n,target){
+  const el=document.getElementById(target);
+  el.innerHTML='<p class="muted" style="padding:10px;font-size:11px">loading...</p>';
+  try{
+    const d=await (await fetch('/sidecar/'+encodeURIComponent(n))).json();
+    if(d.error){ el.innerHTML='<p class="muted" style="padding:10px">'+esc(d.error)+'</p>'; return; }
+    const head=grp('Capture', kv({image:d.image, at:d.captured_at, bytes:d.bytes}));
+    el.innerHTML=(target==='side'
+      ? '<div style="padding:6px 10px"><button onclick="clearPick()">Back to live</button></div>'
+      : '')+sections(d,head);
+  }catch(e){ el.innerHTML='<p class="muted" style="padding:10px">no sidecar</p>'; }
+}
+
+function show(n,c){
+  shown=c||null;
+  document.getElementById('bigimg').src='/img/'+encodeURIComponent(n);
+  const b=[n];
+  if(c){ if(c.summary)b.push(c.summary); if(c.exposure)b.push(c.exposure);
+         if(c.iso)b.push('iso '+c.iso); if(c.tilt!=null)b.push('tilt '+c.tilt+'\\u00b0'); }
+  document.getElementById('biginfo').textContent=b.join('   ');
+  loadSidecar(n,'dside');
   document.getElementById('big').showModal();
 }
-
-function rows(obj){
-  if(!obj || !Object.keys(obj).length) return '';
-  return '<table>' + Object.entries(obj).map(([k, v]) => {
-    if(v !== null && typeof v === 'object') v = JSON.stringify(v);
-    if(v === null) v = 'null';
-    return `<tr><td>${k}</td><td>${String(v)}</td></tr>`;
-  }).join('') + '</table>';
-}
-
-async function loadSidecar(n){
-  const el = document.getElementById('side');
-  try{
-    const d = await (await fetch('/sidecar/' + encodeURIComponent(n))).json();
-    if(d.error){ el.innerHTML = '<p class="muted">' + d.error + '</p>'; return; }
-    const top = {image: d.image, captured_at: d.captured_at, target: d.target,
-                 bytes: d.bytes};
-    el.innerHTML =
-      '<h3>Capture</h3>' + rows(top) +
-      (d.orientation && Object.keys(d.orientation).length ? '<h3>Orientation</h3>' + rows(d.orientation) : '') +
-      '<h3>Measured</h3>' + rows(d.measured) +
-      '<h3>Settings</h3>' + rows(d.settings) +
-      (d.pipeline && Object.keys(d.pipeline).length ? '<h3>Pipeline</h3>' + rows(d.pipeline) : '') +
-      (d.sensor && Object.keys(d.sensor).length ? '<h3>Sensor</h3>' + rows(d.sensor) : '') +
-      '<h3>Raw sidecar</h3><textarea class="raw" readonly>' +
-        JSON.stringify(d, null, 2).replace(/</g,'&lt;') + '</textarea>';
-  }catch(e){
-    el.innerHTML = '<p class="muted">could not read the sidecar: ' + e + '</p>';
-  }
-}
-
-// Put the camera back to the settings of the capture on screen.
 function recall(){
-  if(!shown || !shown.settings) return;
-  const g = shown.settings, q = [];
-  q.push('reset=1', 'zoom=' + g.zoom, 'cx=' + g.cx, 'cy=' + g.cy, 'rotate=' + g.rotate);
+  if(!shown||!shown.settings) return;
+  const g=shown.settings, q=['reset=1','zoom='+g.zoom,'cx='+g.cx,'cy='+g.cy,'rotate='+g.rotate];
   if(g.measure) q.push('measure=1');
-  if(g.torch) q.push('torch=' + g.torch);
-  if(g.focus_diopters !== null && g.focus_diopters !== undefined) q.push('focus=' + g.focus_diopters);
-  if(g.ae === 'manual'){
-    if(g.exposure_ns) q.push('exposure=' + g.exposure_ns);
-    if(g.iso) q.push('iso=' + g.iso);
-  }
+  if(g.torch) q.push('torch='+g.torch);
+  if(g.focus_diopters!=null) q.push('focus='+g.focus_diopters);
+  if(g.ae==='manual'){ if(g.exposure_ns)q.push('exposure='+g.exposure_ns);
+                       if(g.iso)q.push('iso='+g.iso); }
   cam(q.join('&'));
   document.getElementById('big').close();
 }
 
-// drag a box on the live view to frame it
-const live = document.getElementById('live'), box = document.getElementById('box');
+const live=document.getElementById('live'), box=document.getElementById('box');
 let sx=0, sy=0, dragging=false;
 function frac(e){
-  const b = live.getBoundingClientRect();
-  return [(e.clientX-b.left)/b.width, (e.clientY-b.top)/b.height];
+  const b=live.getBoundingClientRect();
+  return [(e.clientX-b.left)/b.width,(e.clientY-b.top)/b.height];
 }
-live.addEventListener('mousedown', e => {
+live.addEventListener('mousedown', e=>{
   if(e.shiftKey){ cam('zoom=1&cx=0.5&cy=0.5'); return; }
-  [sx,sy] = frac(e); dragging = true;
-  box.style.display='block'; box.style.left=(sx*100)+'%'; box.style.top=(sy*100)+'%';
-  box.style.width='0'; box.style.height='0'; e.preventDefault();
+  [sx,sy]=frac(e); dragging=true;
+  const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
+  box.style.display='block';
+  box.dataset.ox=b.left-w.left; box.dataset.oy=b.top-w.top;
+  box.dataset.bw=b.width; box.dataset.bh=b.height;
+  e.preventDefault();
 });
-window.addEventListener('mousemove', e => {
+window.addEventListener('mousemove', e=>{
   if(!dragging) return;
-  const [x,y] = frac(e);
-  box.style.left = (Math.min(sx,x)*100)+'%'; box.style.top = (Math.min(sy,y)*100)+'%';
-  box.style.width = (Math.abs(x-sx)*100)+'%'; box.style.height = (Math.abs(y-sy)*100)+'%';
+  const [x,y]=frac(e), ox=+box.dataset.ox, oy=+box.dataset.oy,
+        bw=+box.dataset.bw, bh=+box.dataset.bh;
+  box.style.left=(ox+Math.min(sx,x)*bw)+'px';
+  box.style.top=(oy+Math.min(sy,y)*bh)+'px';
+  box.style.width=(Math.abs(x-sx)*bw)+'px';
+  box.style.height=(Math.abs(y-sy)*bh)+'px';
 });
-window.addEventListener('mouseup', e => {
+window.addEventListener('mouseup', e=>{
   if(!dragging) return;
-  dragging = false; box.style.display='none';
-  const [x,y] = frac(e);
-  const g = S.settings || {};
-  const z = Math.max(1, g.zoom || 1), w = 1/z;
-  const left = Math.min(Math.max((g.cx??0.5) - w/2, 0), 1-w);
-  const top  = Math.min(Math.max((g.cy??0.5) - w/2, 0), 1-w);
-  const dx = Math.abs(x-sx), dy = Math.abs(y-sy);
-  if(dx < 0.02 && dy < 0.02){            // a click, not a drag: centre here
+  dragging=false; box.style.display='none';
+  const [x,y]=frac(e), g=S.settings||{};
+  const z=Math.max(1,g.zoom||1), w=1/z;
+  const left=Math.min(Math.max((g.cx!=null?g.cx:0.5)-w/2,0),1-w);
+  const top =Math.min(Math.max((g.cy!=null?g.cy:0.5)-w/2,0),1-w);
+  const dx=Math.abs(x-sx), dy=Math.abs(y-sy);
+  if(dx<0.02&&dy<0.02){
     cam('cx='+(left+Math.min(sx,x)*w).toFixed(4)+'&cy='+(top+Math.min(sy,y)*w).toFixed(4));
     return;
   }
-  // The view already shows the crop, so the box maps inside the CURRENT region.
-  // Take the looser of the two axes so the whole box stays visible.
-  const nz = Math.min(1/(dx*w), 1/(dy*w));
-  const cx = left + (Math.min(sx,x) + dx/2) * w;
-  const cy = top  + (Math.min(sy,y) + dy/2) * w;
-  cam('zoom='+Math.min(nz,20).toFixed(2)+'&cx='+cx.toFixed(4)+'&cy='+cy.toFixed(4));
+  const nz=Math.min(1/(dx*w),1/(dy*w));
+  cam('zoom='+Math.min(nz,20).toFixed(2)+
+      '&cx='+(left+(Math.min(sx,x)+dx/2)*w).toFixed(4)+
+      '&cy='+(top+(Math.min(sy,y)+dy/2)*w).toFixed(4));
 });
-live.addEventListener('wheel', e => {
-  e.preventDefault(); cam('zoomby=' + (e.deltaY<0 ? 1.25 : 0.8));
-}, {passive:false});
+live.addEventListener('wheel', e=>{
+  e.preventDefault(); cam('zoomby='+(e.deltaY<0?1.25:0.8));
+},{passive:false});
 
 async function newcode(){
   await fetch('/api/newcode');
-  document.getElementById('qr').src = '/qr.svg?t=' + Date.now();
+  document.getElementById('qr').src='/qr.svg?t='+Date.now();
   refresh();
 }
-
-const dlg = document.getElementById('big');
-dlg.addEventListener('click', e => { if(e.target === dlg) dlg.close(); });
-
+for(const id of ['big','pair']){
+  const d=document.getElementById(id);
+  d.addEventListener('click', e=>{ if(e.target===d) d.close(); });
+}
 refresh(); loadRoll();
-setInterval(refresh, 2000);
-setInterval(loadRoll, 3000);
+setInterval(refresh,2000);
+setInterval(loadRoll,3000);
 </script>
 </body></html>"""
 
