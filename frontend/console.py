@@ -162,12 +162,72 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json(console_state(st))
             return
 
+        if path == "/api/roll":
+            self.send_json({"captures": roll(st.shots)})
+            return
+
+        if path.startswith("/thumb/"):
+            self.send_image(st, path[7:], thumb=True)
+            return
+
+        if path.startswith("/img/"):
+            self.send_image(st, path[5:], thumb=False)
+            return
+
+        if path == "/api/cam":
+            # Forward a control request to the phone, so the page only ever talks to
+            # the console. The live stream still comes straight from the phone,
+            # because relaying MJPEG would cost far more than it is worth.
+            if not st.phone:
+                self.send_json({"ok": False, "error": "no phone paired"}, 400)
+                return
+            q = self.path.split("?", 1)[1] if "?" in self.path else ""
+            url = f"{st.phone}/api/set" + (f"?{q}" if q else "")
+            if st.token:
+                url += ("&" if "?" in url else "?") + f"token={st.token}"
+            try:
+                with urllib.request.urlopen(url, timeout=8) as r:
+                    self.send(200, "application/json", r.read())
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, 502)
+            return
+
         if path == "/api/newcode":
             st.new_nonce()
             self.send_json({"ok": True, "pair_url": pair_url(st), "pair_qr": pair_qr(st)})
             return
 
         self.send(404, "text/plain", "no such page")
+
+    def send_image(self, st, name, thumb):
+        # Only ever serve out of the shots directory, and never a path that climbs out.
+        name = os.path.basename(name)
+        f = st.shots / name
+        if not f.is_file():
+            self.send(404, "text/plain", "no such capture")
+            return
+        if not thumb:
+            ctype = "image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg") else "application/octet-stream"
+            self.send(200, ctype, f.read_bytes())
+            return
+        try:
+            from PIL import Image
+            import io
+            key = (str(f), f.stat().st_mtime)
+            hit = THUMBS.get(key)
+            if hit is None:
+                im = Image.open(f)
+                im.draft("RGB", (400, 400))       # cheap partial JPEG decode
+                im.thumbnail((300, 300))
+                buf = io.BytesIO()
+                im.convert("RGB").save(buf, "JPEG", quality=80)
+                hit = buf.getvalue()
+                if len(THUMBS) > 400:
+                    THUMBS.clear()
+                THUMBS[key] = hit
+            self.send(200, "image/jpeg", hit)
+        except Exception as e:
+            self.send(500, "text/plain", f"thumbnail failed: {e}")
 
     # --------------------------------------------------------------- pairing
 
@@ -214,6 +274,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send(200, "text/html; charset=utf-8", phone_page(
             "Paired", f"This phone is now the camera at {url}. "
                       f"You can close this page.", True))
+
+
+THUMBS = {}
+
+
+def roll(shots, limit=60):
+    """
+    The captures of this session, newest first.
+
+    The sidecar written by the CLI is the only index. A directory listing plus those
+    files is enough, so there is no database to keep in step with the files.
+    """
+    out = []
+    try:
+        files = sorted(shots.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+    except OSError:
+        return out
+    for f in files[:limit]:
+        item = {"name": f.name, "mtime": f.stat().st_mtime, "bytes": f.stat().st_size}
+        side = f.with_suffix(".json")
+        if side.is_file():
+            try:
+                d = json.loads(side.read_text())
+                g = d.get("settings", {})
+                m = d.get("measured", {})
+                o = d.get("orientation", {})
+                item["when"] = d.get("captured_at")
+                item["summary"] = (f"zoom {g.get('zoom')}x  {g.get('cx')},{g.get('cy')}"
+                                   + ("  measure" if g.get("measure") else ""))
+                item["exposure"] = m.get("exposure_human")
+                item["iso"] = m.get("iso")
+                item["tilt"] = o.get("tilt_degrees")
+                item["settings"] = g
+            except Exception:
+                pass
+        out.append(item)
+    return out
 
 
 def pair_url(st):
@@ -287,87 +384,184 @@ def page(st):
  *{box-sizing:border-box}
  body{margin:0;background:#0d1117;color:#e6edf3;
       font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
- header{padding:12px 20px;border-bottom:1px solid #21262d;display:flex;gap:14px;align-items:baseline}
+ header{padding:10px 18px;border-bottom:1px solid #21262d;display:flex;gap:14px;
+        align-items:center;flex-wrap:wrap}
  header h1{margin:0;font-size:15px;font-weight:600}
  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
  .on{background:#3fb950}.off{background:#f85149}
- main{padding:20px;display:grid;grid-template-columns:340px minmax(0,1fr);gap:20px;align-items:start}
- @media(max-width:820px){main{grid-template-columns:1fr}}
- .card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:18px}
- .card h2{margin:0 0 14px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;
+ .muted{color:#8b949e}
+ main{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;padding:16px;align-items:start}
+ @media(max-width:900px){main{grid-template-columns:1fr}}
+ .card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px}
+ .card h2{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
           color:#8b949e;font-weight:600}
- .qr{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:14px;
-     display:flex;justify-content:center}
- .qr img{width:100%;max-width:260px;height:auto;display:block}
- code{font:12px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
+ .view{position:relative;background:#000;border:1px solid #21262d;border-radius:8px;overflow:hidden}
+ .view img{display:block;width:100%;height:auto;cursor:crosshair;user-select:none;-webkit-user-drag:none}
+ #box{position:absolute;border:2px solid #2f81f7;background:rgba(47,129,247,.15);display:none;pointer-events:none}
+ .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);border:1px solid #30363d;
+       border-radius:5px;padding:3px 8px;font-size:11px;color:#8b949e;pointer-events:none}
+ .btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
-        padding:6px 12px;font-size:12px;cursor:pointer;margin-top:10px}
+        padding:5px 11px;font-size:12px;cursor:pointer}
  button:hover{background:#30363d}
- table{width:100%;border-collapse:collapse;font:12px ui-monospace,monospace}
- td{padding:3px 0;vertical-align:top} td:first-child{color:#8b949e;width:130px}
- .muted{color:#8b949e} .warn{color:#d29922}
- .steps{margin:12px 0 0;padding-left:18px;color:#8b949e;font-size:13px}
- .steps li{margin:4px 0}
+ button.p{background:#1f6feb;border-color:#1f6feb} button.p:hover{background:#388bfd}
+ #roll{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;
+       max-height:74vh;overflow:auto}
+ .shot{background:#0d1117;border:1px solid #21262d;border-radius:7px;overflow:hidden;cursor:pointer}
+ .shot img{display:block;width:100%;height:auto}
+ .shot .m{padding:5px 7px;font:10px/1.35 ui-monospace,monospace;color:#8b949e}
+ .shot:hover{border-color:#2f81f7}
+ dialog{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
+        max-width:94vw;max-height:94vh;padding:10px}
+ dialog img{max-width:88vw;max-height:78vh;display:block}
+ code{font:11px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
+ details summary{cursor:pointer;color:#8b949e;font-size:12px}
+ .qr img{width:100%;max-width:210px;display:block;margin:10px auto}
 </style></head><body>
 <header>
-  <h1>DeskCam console</h1>
-  <span class="muted" id="hdr">loading...</span>
+  <h1>DeskCam</h1>
+  <span id="hdr" class="muted">loading...</span>
+  <span id="meta" class="muted" style="margin-left:auto;font:12px ui-monospace,monospace"></span>
 </header>
 <main>
-  <div class="card">
-    <h2>Pair a phone</h2>
-    <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
-    <ol class="steps">
-      <li>Open the camera on the phone and point it at this code.</li>
-      <li>Tap the link that appears.</li>
-      <li>The code opens DeskCam directly. It does not use the browser.</li>
-    </ol>
-    <p style="margin:12px 0 0"><code id="purl"></code></p>
-    <button onclick="newcode()">New code</button>
+  <div>
+    <div class="view" id="wrap">
+      <img id="live" alt="live view">
+      <div id="box"></div>
+      <div class="hint">drag a box to frame it &middot; click to centre &middot; shift-click to reset</div>
+    </div>
+    <div class="btns">
+      <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
+      <button onclick="cam('zoomby=1.5')">Zoom in</button>
+      <button onclick="cam('zoomby=0.667')">Zoom out</button>
+      <button onclick="fetch('/api/cam?_=1').then(refresh)">Refresh</button>
+      <button onclick="rot()">Rotate 180</button>
+      <button onclick="restream()">Restart stream</button>
+    </div>
   </div>
 
-  <div class="card">
-    <h2>Camera</h2>
-    <table>
-      <tr><td>address</td><td id="phone" class="muted">not paired</td></tr>
-      <tr><td>state</td><td id="state" class="muted">-</td></tr>
-      <tr><td>framing</td><td id="framing" class="muted">-</td></tr>
-      <tr><td>exposure</td><td id="expo" class="muted">-</td></tr>
-      <tr><td>access key</td><td id="tok" class="muted">-</td></tr>
-      <tr><td>workstation</td><td id="ws" class="muted">-</td></tr>
-    </table>
-    <p id="err" class="warn" style="margin:12px 0 0"></p>
+  <div>
+    <div class="card">
+      <h2>Captures</h2>
+      <div id="roll"></div>
+      <p id="empty" class="muted" style="font-size:12px">
+        Nothing yet. Take one with <code>deskcam snap</code>.</p>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <details id="pairwrap">
+        <summary>Pair a phone</summary>
+        <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
+        <p><code id="purl"></code></p>
+        <button onclick="newcode()">New code</button>
+      </details>
+    </div>
   </div>
 </main>
+<dialog id="big"><img id="bigimg"><div style="text-align:right;margin-top:8px">
+  <button onclick="document.getElementById('big').close()">Close</button></div></dialog>
+
 <script>
+let S = {}, rotate = 180, streamUrl = '';
+
+async function cam(q){
+  try{ await fetch('/api/cam?' + q); }catch(e){}
+  refresh();
+}
+
+function restream(){
+  if(!S.phone) return;
+  const u = S.phone + '/api/stream?fps=10&rotate=' + rotate + '&t=' + Date.now();
+  if(u !== streamUrl){ streamUrl = u; document.getElementById('live').src = u; }
+}
+function rot(){ rotate = (rotate + 180) % 360; streamUrl=''; restream(); }
+
 async function refresh(){
   try{
-    const s = await (await fetch('/api/state')).json();
-    document.getElementById('purl').textContent = s.pair_qr;
-    document.getElementById('ws').textContent = s.workstation + ':' + s.port;
-    document.getElementById('tok').textContent = s.token_set ? 'set' : 'none';
-    const dot = s.online ? '<span class="dot on"></span>' : '<span class="dot off"></span>';
-    document.getElementById('hdr').innerHTML =
-      dot + (s.phone ? (s.online ? 'connected to ' + s.phone : 'paired but not answering') : 'no phone paired');
-    document.getElementById('phone').textContent = s.phone || 'not paired';
-    document.getElementById('state').textContent = s.online ? 'running' : (s.phone ? 'not answering' : '-');
-    if (s.settings){
-      const g = s.settings;
-      document.getElementById('framing').textContent =
-        'zoom ' + g.zoom + 'x  at ' + g.cx + ',' + g.cy + (g.measure ? '  measure' : '');
-      const m = s.measured || {};
-      document.getElementById('expo').textContent =
-        (m.exposure_human || '-') + '  iso ' + (m.iso ?? '-') + '  af ' + (g.af || '-');
-    }
-    document.getElementById('err').textContent = s.last_error || '';
-  }catch(e){ document.getElementById('hdr').textContent = 'console error: ' + e; }
+    S = await (await fetch('/api/state')).json();
+    const dot = S.online ? '<span class="dot on"></span>' : '<span class="dot off"></span>';
+    document.getElementById('hdr').innerHTML = dot +
+      (S.phone ? (S.online ? S.phone : 'paired, not answering') : 'no phone paired');
+    document.getElementById('purl').textContent = S.pair_qr || '';
+    if(!S.phone) document.getElementById('pairwrap').open = true;
+    const g = S.settings || {}, m = S.measured || {};
+    document.getElementById('meta').textContent =
+      (g.zoom!==undefined ? 'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ' : '') +
+      (m.exposure_human||'') + (m.iso? '  iso '+m.iso : '') + (g.measure? '  measure':'');
+    if(S.online) restream();
+  }catch(e){}
 }
+
+async function loadRoll(){
+  try{
+    const r = await (await fetch('/api/roll')).json();
+    const el = document.getElementById('roll');
+    document.getElementById('empty').style.display = r.captures.length ? 'none' : 'block';
+    el.innerHTML = r.captures.map(c => `
+      <div class="shot" onclick="show('${c.name}')">
+        <img loading="lazy" src="/thumb/${encodeURIComponent(c.name)}">
+        <div class="m">${c.summary||c.name}<br>${c.exposure||''} ${c.iso?('iso '+c.iso):''}
+        ${c.tilt!==undefined&&c.tilt!==null?('<br>tilt '+c.tilt+'&deg;'):''}</div>
+      </div>`).join('');
+  }catch(e){}
+}
+
+function show(n){
+  document.getElementById('bigimg').src = '/img/' + encodeURIComponent(n);
+  document.getElementById('big').showModal();
+}
+
+// drag a box on the live view to frame it
+const live = document.getElementById('live'), box = document.getElementById('box');
+let sx=0, sy=0, dragging=false;
+function frac(e){
+  const b = live.getBoundingClientRect();
+  return [(e.clientX-b.left)/b.width, (e.clientY-b.top)/b.height];
+}
+live.addEventListener('mousedown', e => {
+  if(e.shiftKey){ cam('zoom=1&cx=0.5&cy=0.5'); return; }
+  [sx,sy] = frac(e); dragging = true;
+  box.style.display='block'; box.style.left=(sx*100)+'%'; box.style.top=(sy*100)+'%';
+  box.style.width='0'; box.style.height='0'; e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if(!dragging) return;
+  const [x,y] = frac(e);
+  box.style.left = (Math.min(sx,x)*100)+'%'; box.style.top = (Math.min(sy,y)*100)+'%';
+  box.style.width = (Math.abs(x-sx)*100)+'%'; box.style.height = (Math.abs(y-sy)*100)+'%';
+});
+window.addEventListener('mouseup', e => {
+  if(!dragging) return;
+  dragging = false; box.style.display='none';
+  const [x,y] = frac(e);
+  const g = S.settings || {};
+  const z = Math.max(1, g.zoom || 1), w = 1/z;
+  const left = Math.min(Math.max((g.cx??0.5) - w/2, 0), 1-w);
+  const top  = Math.min(Math.max((g.cy??0.5) - w/2, 0), 1-w);
+  const dx = Math.abs(x-sx), dy = Math.abs(y-sy);
+  if(dx < 0.02 && dy < 0.02){            // a click, not a drag: centre here
+    cam('cx='+(left+Math.min(sx,x)*w).toFixed(4)+'&cy='+(top+Math.min(sy,y)*w).toFixed(4));
+    return;
+  }
+  // The view already shows the crop, so the box maps inside the CURRENT region.
+  // Take the looser of the two axes so the whole box stays visible.
+  const nz = Math.min(1/(dx*w), 1/(dy*w));
+  const cx = left + (Math.min(sx,x) + dx/2) * w;
+  const cy = top  + (Math.min(sy,y) + dy/2) * w;
+  cam('zoom='+Math.min(nz,20).toFixed(2)+'&cx='+cx.toFixed(4)+'&cy='+cy.toFixed(4));
+});
+live.addEventListener('wheel', e => {
+  e.preventDefault(); cam('zoomby=' + (e.deltaY<0 ? 1.25 : 0.8));
+}, {passive:false});
+
 async function newcode(){
   await fetch('/api/newcode');
   document.getElementById('qr').src = '/qr.svg?t=' + Date.now();
   refresh();
 }
-refresh(); setInterval(refresh, 2000);
+
+refresh(); loadRoll();
+setInterval(refresh, 2000);
+setInterval(loadRoll, 3000);
 </script>
 </body></html>"""
 

@@ -84,6 +84,7 @@ out = {
     "measured": st.get("measured", {}),
     "pipeline": st.get("pipeline", {}),
     "sensor": st.get("sensor", {}),
+    "orientation": st.get("orientation", {}),
 }
 with open(os.path.splitext(img)[0] + ".json", "w") as f:
     json.dump(out, f, indent=2)
