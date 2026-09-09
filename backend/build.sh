@@ -38,9 +38,24 @@ echo ">> aapt2 link"
     --version-code 1 --version-name 0.1 \
     "$OUT/res.zip"
 
+# The pure logic runs on the workstation, before anything is packaged. The ROI maths,
+# the parsers, the clamp and the tar writer need no device, and every one of them has
+# been wrong at some point in a way a compiler cannot see.
+echo ">> tests"
+mkdir -p "$OUT/testclasses"
+javac -Xlint:all -Werror -encoding UTF-8 --release 17 \
+    -d "$OUT/testclasses" \
+    "$ROOT/app/src/dev/deskcam/Geom.java" \
+    "$ROOT/app/src/dev/deskcam/Parse.java" \
+    "$ROOT/app/src/dev/deskcam/Tar.java" \
+    "$ROOT/test/dev/deskcam/Tests.java"
+java -cp "$OUT/testclasses" dev.deskcam.Tests "$OUT/testwork"
+
 echo ">> javac"
+# Warnings are on and fatal. They were off, with -nowarn, for the whole life of the
+# project.
 find "$ROOT/app/src" "$OUT/gen" -name '*.java' > "$OUT/sources.txt"
-if ! javac -nowarn -encoding UTF-8 --release 17 \
+if ! javac -Xlint:all -Werror -encoding UTF-8 --release 17 \
     -classpath "$ANDROID_JAR" \
     -d "$OUT/classes" \
     @"$OUT/sources.txt"; then
@@ -75,8 +90,8 @@ echo ">> sign"
 
 "$BT/apksigner" verify --min-sdk-version "$MIN_SDK" "$APK" >/dev/null
 
-rm -f "$OUT/unaligned.apk" "$OUT/aligned.apk" "$OUT/base.apk" "$OUT/res.zip" \
-      "$OUT/sources.txt" "$OUT/classes.txt"
+rm -rf "$OUT/unaligned.apk" "$OUT/aligned.apk" "$OUT/base.apk" "$OUT/res.zip" \
+       "$OUT/sources.txt" "$OUT/classes.txt" "$OUT/testclasses" "$OUT/testwork"
 
 echo
 echo "built: $APK  ($(du -h "$APK" | cut -f1))"

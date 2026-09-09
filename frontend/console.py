@@ -14,112 +14,189 @@ which is the exact thing that failed silently before.
 
 import argparse
 import http.server
+import io
+import ipaddress
 import json
+import logging
 import os
+import re
 import secrets
 import socket
 import socketserver
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
+
+log = logging.getLogger("deskcam.console")
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "deskcam"
 URL_FILE = CONFIG_DIR / "url"
 TOKEN_FILE = CONFIG_DIR / "token"
 
 PHONE_PORT = 8080
-NONCE_TTL = 600           # a pairing code is dead after ten minutes
+NONCE_TTL = 600  # a pairing code is dead after ten minutes
+
+# The console serves the captures it wrote and nothing else. It listens on every
+# interface, because the phone has to reach it, so "a file in the working directory" is
+# a file offered to the whole network.
+SERVABLE = frozenset({".jpg", ".jpeg", ".dng", ".json"})
 
 
 class State:
     """Everything the console knows. Guarded by a lock, mutated from request threads."""
 
-    def __init__(self, port, shots):
+    def __init__(self, port: int, shots: str) -> None:
         self.lock = threading.Lock()
         self.port = port
-        self.shots = Path(shots)
-        self.nonce = None
-        self.nonce_born = 0
+        self.shots = Path(shots).resolve()
+        self.nonce: str | None = None
+        self.nonce_born: float = 0.0
         self.phone = self.load_url()
         self.token = self.load_token()
-        self.last_pair = None
-        self.last_error = None
+        self.last_pair: dict[str, Any] | None = None
+        self.last_error: str | None = None
         self.new_nonce()
 
     # ---------------------------------------------------------------- config
 
     @staticmethod
-    def load_url():
+    def load_url() -> str | None:
         try:
-            return URL_FILE.read_text().strip() or None
-        except OSError:
+            saved = URL_FILE.read_text().strip()
+        except OSError as e:
+            log.debug("no saved phone address: %s", e)
             return None
+        if saved and not phone_url_ok(saved):
+            # A saved file is not a trusted file. Everything downstream builds a URL out
+            # of this, so it has to be a plain http address of a literal IP.
+            log.warning("ignoring the saved phone address %r: not an http address of an IP", saved)
+            return None
+        return saved or None
 
     @staticmethod
-    def load_token():
+    def load_token() -> str | None:
         try:
             return TOKEN_FILE.read_text().strip() or None
-        except OSError:
+        except OSError as e:
+            log.debug("no saved token: %s", e)
             return None
 
-    def save_url(self, url):
+    def save_url(self, url: str) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         URL_FILE.write_text(url + "\n")
         self.phone = url
 
     # ----------------------------------------------------------------- nonce
 
-    def new_nonce(self):
+    def new_nonce(self) -> str:
         with self.lock:
             self.nonce = secrets.token_urlsafe(9)
             self.nonce_born = time.time()
             return self.nonce
 
-    def nonce_valid(self, n):
+    def nonce_valid(self, n: str | None) -> bool:
         with self.lock:
-            return (n and n == self.nonce
-                    and (time.time() - self.nonce_born) < NONCE_TTL)
+            return bool(n and n == self.nonce and (time.time() - self.nonce_born) < NONCE_TTL)
 
-    def nonce_age(self):
+    def spend_nonce(self, n: str | None) -> bool:
+        """Checks a code and burns it in the same breath, so it works exactly once."""
+        with self.lock:
+            ok = bool(n and n == self.nonce and (time.time() - self.nonce_born) < NONCE_TTL)
+            if ok:
+                self.nonce = secrets.token_urlsafe(9)
+                self.nonce_born = time.time()
+            return ok
+
+    def nonce_age(self) -> int:
         with self.lock:
             return int(time.time() - self.nonce_born)
 
 
-def lan_address():
+def lan_address() -> str:
     """The address of this machine on the route out, not a docker bridge."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(("8.8.8.8", 80))       # no packet is sent, this only picks a route
-        return s.getsockname()[0]
-    except OSError:
+        s.connect(("8.8.8.8", 80))  # no packet is sent, this only picks a route
+        return str(s.getsockname()[0])
+    except OSError as e:
+        log.debug("no route out, falling back to loopback: %s", e)
         return "127.0.0.1"
     finally:
         s.close()
 
 
-def probe_phone(ip, token=None, timeout=4, port=PHONE_PORT):
-    """Ask a candidate address for its status. This confirms it really is DeskCam."""
-    url = f"http://{ip}:{port}/api/status"
-    if token:
-        url += f"?token={token}"
+def ip_ok(host: str) -> bool:
+    """True for a literal IP address. Names, schemes and paths are not addresses."""
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def phone_url_ok(url: str) -> bool:
+    """
+    True for `http://IP:PORT` and nothing else.
+
+    Every request the console makes to the phone is built from this string, so a value
+    that reached it from anywhere but the source address of a paired request could point
+    the console, and the token it carries, somewhere else. bandit reports the same thing
+    from the other side as B310: urlopen will happily open file: or ftp: if it is given
+    one.
+    """
+    return re.fullmatch(r"http://[0-9a-fA-F.:\[\]]+:\d{1,5}", url) is not None and (
+        ip_ok(url.rsplit(":", 1)[0][len("http://") :].strip("[]"))
+    )
+
+
+def fetch_json(url: str, timeout: float) -> Any:
+    """Opens an http URL the console built itself, and refuses any other scheme."""
+    if not url.startswith("http://"):
+        raise ValueError(f"refusing to open {url!r}: only plain http is allowed")
+    # B310 asks whether this can be handed a file: or a custom scheme. It cannot: the
+    # line above refuses anything but http, and every URL that reaches here was built by
+    # this module out of an IP that ip_ok accepted and a port in range.
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310
+        return json.loads(r.read().decode())
+
+
+def probe_phone(
+    ip: str, token: str | None = None, timeout: float = 4, port: int = PHONE_PORT
+) -> dict[str, Any] | None:
+    """Ask a candidate address for its status. This confirms it really is DeskCam."""
+    if not ip_ok(ip) or not 1 <= port <= 65535:
+        log.warning("refusing to probe %r:%r, which is not an address and a port", ip, port)
         return None
+    host = f"[{ip}]" if ":" in ip else ip
+    url = f"http://{host}:{port}/api/status"
+    if token:
+        url += f"?token={urllib.parse.quote(token)}"
+    try:
+        result = fetch_json(url, timeout)
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
+        log.debug("no answer from %s: %s", url.split("?", 1)[0], e)
+        return None
+    return result if isinstance(result, dict) else None
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    state: State                 # set on the server class below, before serving
+    state: State  # set on the server class below, before serving
 
-    def log_message(self, fmt, *args):
-        pass                     # the console is not a web server log
+    def log_message(self, fmt: str, *args: Any) -> None:
+        # The console is not a web server log, but a request that went wrong should not
+        # vanish either. It goes to the logger at debug, where -v can find it.
+        log.debug("%s %s", self.address_string(), fmt % args)
 
     # ------------------------------------------------------------- responses
 
-    def send(self, code, ctype, body, extra=None):
+    def send(
+        self, code: int, ctype: str, body: bytes | str, extra: dict[str, str] | None = None
+    ) -> None:
         if isinstance(body, str):
             body = body.encode()
         self.send_response(code)
@@ -131,12 +208,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_json(self, obj, code=200):
+    def send_json(self, obj: Any, code: int = 200) -> None:
         self.send(code, "application/json", json.dumps(obj, indent=2))
 
     # --------------------------------------------------------------- routing
 
-    def do_GET(self):
+    # The capitals are BaseHTTPRequestHandler's naming, not a choice made here.
+    def do_GET(self) -> None:
         st = self.state
         path = self.path.split("?", 1)[0]
 
@@ -145,13 +223,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/qr.svg":
-            import io
-
+            # The QR image may carry the token, because it is a picture on the operator's
+            # own screen. The JSON of /api/state may not, because anyone on the network
+            # can read that.
             import segno
+
             qr = segno.make(pair_qr(st), error="m")
-            buf = io.BytesIO()          # segno writes bytes, not str
-            qr.save(buf, kind="svg", scale=6, border=2,
-                    dark="#e6edf3", light=None)
+            buf = io.BytesIO()  # segno writes bytes, not str
+            qr.save(buf, kind="svg", scale=6, border=2, dark="#e6edf3", light=None)
             self.send(200, "image/svg+xml", buf.getvalue())
             return
 
@@ -172,9 +251,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if path.startswith("/sidecar/"):
-            name = os.path.basename(path[9:])
-            f = (st.shots / name).with_suffix(".json")
-            if f.is_file():
+            name = os.path.basename(urllib.parse.unquote(path[9:]))
+            f = in_shots(st, Path(name).with_suffix(".json").name)
+            if f is not None:
                 self.send(200, "application/json", f.read_bytes())
             else:
                 self.send_json({"error": "no sidecar for " + name}, 404)
@@ -196,24 +275,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if st.token:
                 url += ("&" if "?" in url else "?") + f"token={st.token}"
             try:
-                with urllib.request.urlopen(url, timeout=8) as r:
-                    self.send(200, "application/json", r.read())
-            except Exception as e:
+                self.send_json(fetch_json(url, timeout=8))
+            except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
+                log.warning("relaying to the phone failed: %s", e)
                 self.send_json({"ok": False, "error": str(e)}, 502)
             return
 
         if path == "/api/newcode":
+            # The reply says a new code exists. It does not say what the code is: this
+            # endpoint has no password either, and the pairing text carries both the
+            # nonce and the token. Read the code off the QR image.
             st.new_nonce()
-            self.send_json({"ok": True, "pair_url": pair_url(st), "pair_qr": pair_qr(st)})
+            self.send_json({"ok": True, "code_age_seconds": st.nonce_age()})
             return
 
         self.send(404, "text/plain", "no such page")
 
-    def send_image(self, st, name, thumb):
-        # Only ever serve out of the shots directory, and never a path that climbs out.
-        name = os.path.basename(name)
-        f = st.shots / name
-        if not f.is_file():
+    def send_image(self, st: State, name: str, thumb: bool) -> None:
+        f = in_shots(st, urllib.parse.unquote(name))
+        if f is None:
             self.send(404, "text/plain", "no such capture")
             return
         # The phone writes NAME.thumb.jpg beside the capture, so there is nothing to
@@ -223,43 +303,82 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if t.is_file():
                 self.send(200, "image/jpeg", t.read_bytes())
                 return
-        ctype = ("image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg")
-                 else "application/octet-stream")
+        ctype = (
+            "image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg") else "application/octet-stream"
+        )
         self.send(200, ctype, f.read_bytes())
 
     # --------------------------------------------------------------- pairing
 
-    def handle_pair(self, nonce):
+    def handle_pair(self, nonce: str) -> None:
+        """
+        Turns a scanned code into a paired phone.
+
+        The address comes from where the request came FROM, never from what it says
+        about itself. It used to take an `addr` from the query, and it read that before
+        it checked the code, so two requests could point the console at another machine,
+        which then received the token through /api/cam. Only the port is taken from the
+        caller, because only the app knows which port it bound.
+        """
         st = self.state
-        import urllib.parse as up
-        q = up.parse_qs(up.urlparse(self.path).query)
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+
+        # One code, one pairing. Spending it here also closes the window in which two
+        # requests could race on the same code.
+        if not st.spend_nonce(nonce):
+            self.send(
+                410,
+                "text/html; charset=utf-8",
+                phone_page("Code expired", "Load the console page again to get a new code.", False),
+            )
+            return
 
         ip = self.client_address[0]
         if ip.startswith("::ffff:"):
             ip = ip[7:]
-        # The app reports its own address, because only it knows which port it bound.
-        # The source address stays as the fallback for a plain browser or curl.
-        ip = (q.get("addr", [None])[0] or ip)
-        port = int(q.get("port", [PHONE_PORT])[0] or PHONE_PORT)
+        try:
+            port = int(q.get("port", [str(PHONE_PORT)])[0] or PHONE_PORT)
+        except ValueError:
+            port = PHONE_PORT
+        if not 1 <= port <= 65535:
+            port = PHONE_PORT
 
-        if not st.nonce_valid(nonce):
-            self.send(410, "text/html; charset=utf-8", phone_page(
-                "Code expired",
-                "Load the console page again to get a new code.", False))
+        if not ip_ok(ip):
+            st.last_error = f"the pairing request came from {ip!r}, which is not an address"
+            log.warning("%s", st.last_error)
+            self.send(
+                400,
+                "text/html; charset=utf-8",
+                phone_page(
+                    "Cannot pair",
+                    "This workstation could not read the address you came from.",
+                    False,
+                ),
+            )
             return
 
         status = probe_phone(ip, st.token, port=port)
         if status is None:
-            st.last_error = (f"Saw the phone at {ip}, but could not reach "
-                             f"http://{ip}:{port}/api/status. Is DeskCam running?")
-            self.send(200, "text/html; charset=utf-8", phone_page(
-                "Almost",
-                f"This workstation saw you at {ip}, but the DeskCam service did not "
-                f"answer on port {port}. Open DeskCam and press Start, then scan "
-                f"the code again.", False))
+            st.last_error = (
+                f"Saw the phone at {ip}, but could not reach "
+                f"http://{ip}:{port}/api/status. Is DeskCam running?"
+            )
+            log.warning("%s", st.last_error)
+            self.send(
+                200,
+                "text/html; charset=utf-8",
+                phone_page(
+                    "Almost",
+                    f"This workstation saw you at {ip}, but the DeskCam service did not "
+                    f"answer on port {port}. Open DeskCam and press Start, then scan "
+                    f"the code again.",
+                    False,
+                ),
+            )
             return
 
-        url = f"http://{ip}:{port}"
+        host = f"[{ip}]" if ":" in ip else ip
+        url = f"http://{host}:{port}"
         st.save_url(url)
         st.last_pair = {
             "at": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -268,53 +387,86 @@ class Handler(http.server.BaseHTTPRequestHandler):
             "state": status.get("state"),
         }
         st.last_error = None
-        st.new_nonce()            # a code is good for one pairing only
-        self.send(200, "text/html; charset=utf-8", phone_page(
-            "Paired", f"This phone is now the camera at {url}. "
-                      f"You can close this page.", True))
+        log.info("paired with %s", url)
+        self.send(
+            200,
+            "text/html; charset=utf-8",
+            phone_page(
+                "Paired", f"This phone is now the camera at {url}. You can close this page.", True
+            ),
+        )
 
 
-def roll(shots, limit=60):
+def in_shots(st: State, name: str) -> Path | None:
+    """
+    The path of a capture, or None.
+
+    Only a file the console itself wrote, only in the shots directory, and only a name
+    that stays inside it. The console listens on every interface so the phone can reach
+    it, which makes "serve a file from the working directory by name" an offer to the
+    whole network.
+    """
+    name = os.path.basename(name)
+    if not name or name.startswith(".") or Path(name).suffix.lower() not in SERVABLE:
+        return None
+    f = (st.shots / name).resolve()
+    if f.parent != st.shots or not f.is_file():
+        return None
+    return f
+
+
+def roll(shots: Path, limit: int = 60) -> list[dict[str, Any]]:
     """
     The captures of this session, newest first.
 
     The sidecar written by the CLI is the only index. A directory listing plus those
     files is enough, so there is no database to keep in step with the files.
     """
-    out = []
+    out: list[dict[str, Any]] = []
     try:
-        files = sorted((f for f in shots.glob("*.jpg") if not f.name.endswith(".thumb.jpg")),
-                       key=lambda f: f.stat().st_mtime, reverse=True)
-    except OSError:
+        files = sorted(
+            (f for f in shots.glob("*.jpg") if not f.name.endswith(".thumb.jpg")),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError as e:
+        log.warning("cannot read the shots directory %s: %s", shots, e)
         return out
     for f in files[:limit]:
-        item = {"name": f.name, "mtime": f.stat().st_mtime, "bytes": f.stat().st_size}
+        item: dict[str, Any] = {
+            "name": f.name,
+            "mtime": f.stat().st_mtime,
+            "bytes": f.stat().st_size,
+        }
         side = f.with_suffix(".json")
         if side.is_file():
             try:
                 d = json.loads(side.read_text())
-                g = d.get("settings", {})
-                m = d.get("measured", {})
-                o = d.get("orientation", {})
-                item["when"] = d.get("captured_at")
-                item["summary"] = (f"zoom {g.get('zoom')}x  {g.get('cx')},{g.get('cy')}"
-                                   + ("  measure" if g.get("measure") else ""))
-                item["exposure"] = m.get("exposure_human")
-                item["iso"] = m.get("iso")
-                item["tilt"] = o.get("tilt_degrees")
-                item["settings"] = g
-            except Exception:
-                pass
+            except (OSError, ValueError) as e:
+                log.warning("unreadable sidecar %s: %s", side.name, e)
+                d = {}
+            g = d.get("settings", {})
+            m = d.get("measured", {})
+            o = d.get("orientation", {})
+            item["when"] = d.get("captured_at")
+            item["summary"] = f"zoom {g.get('zoom')}x  {g.get('cx')},{g.get('cy')}" + (
+                "  measure" if g.get("measure") else ""
+            )
+            item["exposure"] = m.get("exposure_human")
+            item["iso"] = m.get("iso")
+            item["tilt"] = o.get("tilt_degrees")
+            item["capture_path"] = g.get("capture_path") or d.get("capture_path")
+            item["settings"] = g
         out.append(item)
     return out
 
 
-def pair_url(st):
+def pair_url(st: State) -> str:
     """The callback the phone reports back to. Plain HTTP, called by the app, not a browser."""
     return f"http://{lan_address()}:{st.port}/p/{st.nonce}"
 
 
-def pair_qr(st):
+def pair_qr(st: State) -> str:
     """
     What the QR code holds.
 
@@ -322,19 +474,23 @@ def pair_qr(st):
     plain http address, so a browser cannot carry the pairing. This scheme opens DeskCam
     itself, which also skips the browser entirely.
     """
-    import urllib.parse
     q = {"cb": pair_url(st)}
     if st.token:
         q["token"] = st.token
     return "deskcam://pair?" + urllib.parse.urlencode(q)
 
 
-def console_state(st):
-    out = {
+def console_state(st: State) -> dict[str, Any]:
+    """
+    What the page needs to draw itself.
+
+    It carries no secret. It used to return pair_qr, which holds the token, and
+    pair_url, which holds the pairing nonce, from an endpoint with no password on a
+    server bound to every interface. The QR is a picture at /qr.svg instead.
+    """
+    out: dict[str, Any] = {
         "workstation": lan_address(),
         "port": st.port,
-        "pair_url": pair_url(st),
-        "pair_qr": pair_qr(st),
         "code_age_seconds": st.nonce_age(),
         "phone": st.phone,
         "token_set": bool(st.token),
@@ -359,7 +515,8 @@ def console_state(st):
 
 # ------------------------------------------------------------------- pages
 
-def phone_page(title, body, ok):
+
+def phone_page(title: str, body: str, ok: bool) -> str:
     tick = "&#10003;" if ok else "&#33;"
     colour = "#3fb950" if ok else "#d29922"
     return f"""<!doctype html><html><head><meta charset="utf-8">
@@ -375,8 +532,11 @@ def phone_page(title, body, ok):
 </div></body></html>"""
 
 
-def page(st):
-    return """<!doctype html><html><head><meta charset="utf-8">
+def page(st: State) -> str:
+    return PAGE
+
+
+PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DeskCam console</title>
 <style>
@@ -506,13 +666,14 @@ def page(st):
 
 <dialog id="pair"><div style="padding:16px;text-align:center">
   <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
-  <p style="font-size:11px"><code id="purl"></code></p>
+  <p class="muted" style="font-size:11px">Scan this with the phone. The code is in the
+     picture only: it carries the access key, so the console never sends it in JSON.</p>
   <button onclick="newcode()">New code</button>
   <button onclick="document.getElementById('pair').close()">Close</button>
 </div></dialog>
 
 <script>
-let S={}, rotate=180, streamUrl='', ROLL=[], shown=null, selName=null;
+let S={}, streamUrl='', ROLL=[], shown=null, selName=null;
 // Which groups are open. Held here so the two second refresh does not shut them.
 const OPEN={Framing:true, Exposure:true};
 
@@ -557,12 +718,20 @@ document.addEventListener('toggle', e=>{
 }, true);
 
 async function cam(q){ try{ await fetch('/api/cam?'+q); }catch(e){} refresh(); }
+/* The stream carries no camera parameter. A reconnect must not change what an agent
+   is about to capture, and this URL is rebuilt on every reconnect. */
 function restream(){
   if(!S.phone) return;
-  const u=S.phone+'/api/stream?fps=10&rotate='+rotate+'&t='+Date.now();
+  const u=S.phone+'/api/stream?fps=10&t='+Date.now();
   if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
 }
-function rot(){ rotate=(rotate+180)%360; streamUrl=''; restream(); }
+/* Rotation is how the phone is bolted down, so it is camera state and a deliberate
+   press changes it. The stream then shows it because the camera has it. */
+async function rot(){
+  const now=(S.settings&&S.settings.rotate)||0;
+  await cam('rotate='+((now+180)%360));
+  streamUrl=''; restream();
+}
 
 async function refresh(){
   try{
@@ -570,7 +739,6 @@ async function refresh(){
     const dot=S.online?'<span class="dot on"></span>':'<span class="dot off"></span>';
     document.getElementById('hdr').innerHTML=dot+
       (S.phone?(S.online?S.phone:'paired, not answering'):'no phone paired');
-    document.getElementById('purl').textContent=S.pair_qr||'';
     const g=S.settings||{}, m=S.measured||{};
     document.getElementById('meta').textContent=
       (g.zoom!==undefined?'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ':'')+
@@ -710,14 +878,23 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="DeskCam local console")
     ap.add_argument("--port", type=int, default=9000)
     ap.add_argument("--shots", default=os.environ.get("DESKCAM_SHOTS", os.getcwd()))
+    ap.add_argument("-v", "--verbose", action="store_true", help="log every request")
     args = ap.parse_args()
 
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
     Handler.state = State(args.port, args.shots)
-    srv = Server(("0.0.0.0", args.port), Handler)
+    # Bound to every interface on purpose: the phone has to reach this to pair, and it is
+    # not on the loopback. Nothing here answers with a secret, and the only files it
+    # serves are the captures in the shots directory (bandit B104).
+    srv = Server(("0.0.0.0", args.port), Handler)  # nosec B104
     url = f"http://{lan_address()}:{args.port}"
     print(f"DeskCam console on {url}")
     print(f"  local:  http://127.0.0.1:{args.port}")

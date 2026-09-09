@@ -12,10 +12,16 @@ import org.json.JSONObject;
 /**
  * Reads the phone's own sensors to describe how the camera is held.
  *
- * Gravity gives the tilt of the optical axis. A top-down bench rig wants that tilt near
- * zero; anything else puts the subject plane at an angle to the sensor, which stretches
- * one side of the picture relative to the other and quietly corrupts any measurement of
- * size. The number belongs with each capture, so a later reader knows the geometry.
+ * Gravity gives the tilt of the optical axis AGAINST GRAVITY. That is the quantity, and
+ * it is not quite the quantity a measurement usually wants. Skew of a flat subject comes
+ * from the angle between the camera and the PLANE OF THE SUBJECT, and the two are equal
+ * only when the subject lies on a level surface. On a tilted jig they can differ by the
+ * tilt of the jig, so a small tilt reading is evidence of square framing only when the
+ * bench is known to be level.
+ *
+ * The angle is averaged over the samples held here rather than taken from one reading.
+ * One unfiltered sample of an accelerometer carries the noise of the sensor and of the
+ * bench, and quoting it to three figures claims a precision it does not have.
  *
  * This gives the ANGLE only. It cannot give the distance or the position, so a picture
  * still needs a scale reference in the frame to measure real sizes.
@@ -25,8 +31,11 @@ public class Sensors implements SensorEventListener {
     private final SensorManager sm;
     private final Sensor gravity, light;
 
-    private volatile float gx, gy, gz;
-    private volatile boolean haveGravity = false;
+    /** The last few gravity samples, averaged before anything is reported. */
+    private static final int WINDOW = 32;
+    private final float[] sx = new float[WINDOW], sy = new float[WINDOW], sz = new float[WINDOW];
+    private int samples = 0;
+    private int next = 0;
     private volatile float lux = -1;
 
     public Sensors(Context ctx) {
@@ -52,8 +61,13 @@ public class Sensors implements SensorEventListener {
         switch (e.sensor.getType()) {
             case Sensor.TYPE_GRAVITY:
             case Sensor.TYPE_ACCELEROMETER:
-                gx = e.values[0]; gy = e.values[1]; gz = e.values[2];
-                haveGravity = true;
+                synchronized (this) {
+                    sx[next] = e.values[0];
+                    sy[next] = e.values[1];
+                    sz[next] = e.values[2];
+                    next = (next + 1) % WINDOW;
+                    if (samples < WINDOW) samples++;
+                }
                 break;
             case Sensor.TYPE_LIGHT:
                 lux = e.values[0];
@@ -67,14 +81,25 @@ public class Sensors implements SensorEventListener {
 
     public JSONObject toJson() throws JSONException {
         JSONObject o = new JSONObject();
-        if (!haveGravity) {
-            o.put("available", false);
-            o.put("note", "no gravity reading yet");
-            if (lux >= 0) o.put("ambient_lux", CamSettings.round2(lux));
-            return o;
+        float gx, gy, gz;
+        int n;
+        synchronized (this) {
+            n = samples;
+            if (n == 0) {
+                o.put("available", false);
+                o.put("note", "no gravity reading yet");
+                if (lux >= 0) o.put("ambient_lux", CamSettings.round2(lux));
+                return o;
+            }
+            double ax = 0, ay = 0, az = 0;
+            for (int i = 0; i < n; i++) { ax += sx[i]; ay += sy[i]; az += sz[i]; }
+            gx = (float) (ax / n);
+            gy = (float) (ay / n);
+            gz = (float) (az / n);
         }
         double mag = Math.sqrt(gx * (double) gx + gy * (double) gy + gz * (double) gz);
         o.put("available", true);
+        o.put("samples", n);
         o.put("gravity", new JSONObject()
                 .put("x", CamSettings.round2(gx))
                 .put("y", CamSettings.round2(gy))
@@ -87,16 +112,28 @@ public class Sensors implements SensorEventListener {
         o.put("roll_degrees", CamSettings.round2(Math.toDegrees(Math.atan2(gx, gz))));
         o.put("pitch_degrees", CamSettings.round2(Math.toDegrees(Math.atan2(gy, gz))));
         o.put("aim", describe(tilt));
+        o.put("measures", "the angle between the optical axis and gravity, averaged over "
+                + n + " samples. It equals the angle to a flat subject only when the "
+                + "subject lies on a level surface.");
         if (lux >= 0) o.put("ambient_lux", CamSettings.round2(lux));
         return o;
     }
 
+    /**
+     * Words for the angle, with the angle in them.
+     *
+     * The bands are a reading aid and nothing more. Cutting a continuous quantity at hard
+     * limits made 4.99 and 5.01 degrees read as different states, so every phrase now
+     * carries the number it came from and a reader can see how close to a limit it sits.
+     */
     private static String describe(double tilt) {
-        if (tilt < 2) return "straight down, square to a level surface";
-        if (tilt < 5) return "nearly straight down, off by a little";
-        if (tilt < 20) return "tilted; a flat subject will be measurably skewed";
-        if (tilt > 85 && tilt < 95) return "horizontal, looking across the bench";
-        if (tilt > 170) return "pointing straight up";
-        return "tilted " + Math.round(tilt) + " degrees from straight down";
+        String band;
+        if (tilt < 2) band = "straight down, square to a level surface";
+        else if (tilt < 5) band = "nearly straight down";
+        else if (tilt < 20) band = "tilted; a flat subject on a level surface will be measurably skewed";
+        else if (tilt > 85 && tilt < 95) band = "horizontal, looking across the bench";
+        else if (tilt > 170) band = "pointing straight up";
+        else band = "tilted well off straight down";
+        return String.format(java.util.Locale.US, "%s (%.2f degrees from gravity)", band, tilt);
     }
 }

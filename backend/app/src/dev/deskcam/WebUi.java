@@ -7,54 +7,82 @@ import org.json.JSONObject;
 /** The browser control panel and the machine-readable API description. */
 public class WebUi {
 
-    /** Structured API doc. An agent can GET /api/help and learn the whole surface. */
+    /**
+     * Structured API doc. An agent can GET /api/help and learn the whole surface.
+     *
+     * The parameter list is printed from Params, which is the same list the parser reads,
+     * so the two cannot drift apart. There used to be a hand-written copy here that had
+     * fallen five endpoints and several parameters behind the code (rule R6).
+     */
     public static JSONObject help() throws JSONException {
         JSONObject o = new JSONObject();
         o.put("name", "DeskCam");
-        o.put("summary", "HTTP-controlled bench camera. Every endpoint is a plain GET; "
-                + "any control parameter may be supplied to any endpoint and is applied before the image is taken.");
+        o.put("summary", "HTTP-controlled bench camera. Every endpoint is a plain GET. "
+                + "Any control parameter may be supplied to any endpoint and is applied "
+                + "before the image is taken, except on /api/stream, which is a view and "
+                + "refuses parameters that would change the camera.");
 
         JSONObject ep = new JSONObject();
-        ep.put("GET /api/status", "Current settings, sensor limits, and the last measured exposure/ISO/focus.");
+        ep.put("GET /api/status", "Current settings, sensor limits, and the last measured "
+                + "exposure/ISO/focus of the PREVIEW. A still carries its own values in its "
+                + "sidecar and its EXIF.");
         ep.put("GET /api/cameras", "List cameras with facing, resolution, closest focus and capabilities.");
         ep.put("GET /api/help", "This document.");
-        ep.put("GET /api/set", "Apply control parameters, return the resulting settings.");
+        ep.put("GET /api/set", "Apply control parameters, return the resulting state.");
         ep.put("GET /api/reset", "Restore every setting to its default.");
         ep.put("GET /api/af", "Run one autofocus sweep. Optional wait=ms (default 700).");
-        ep.put("GET /api/still", "Full-resolution JPEG cropped to the ROI. Optional timeout=ms, settle=ms.");
+        ep.put("GET /api/still", "Full-resolution JPEG cropped to the ROI. The record of the "
+                + "frame comes back in the X-DeskCam-Provenance header and in the EXIF "
+                + "UserComment. Optional timeout=ms, settle=ms.");
         ep.put("GET /api/raw", "Full-sensor RAW frame as a DNG. The software ROI is NOT applied, "
                 + "because a DNG carries the whole sensor array; the framing is reported in the "
                 + "X-DeskCam-ROI response header instead. Use this for measurement work, since the "
                 + "JPEG pipeline is not photometrically linear.");
         ep.put("GET /api/frame", "Single preview-resolution JPEG cropped to the ROI. Much faster than /api/still.");
-        ep.put("GET /api/stream", "MJPEG stream (multipart/x-mixed-replace). Optional fps (default 10), n=max frames.");
+        ep.put("GET /api/burst", "n frames with one set of settings, as a tar of JPEGs. Answers "
+                + "206 rather than 200 when it produced fewer frames than were asked for. The "
+                + "largest n this device can hold is limits.burst_max.");
+        ep.put("GET /api/stream", "MJPEG stream (multipart/x-mixed-replace). Takes presentation "
+                + "parameters only: fps, n, w, h, jpegq. A parameter that would change the camera "
+                + "is refused, so one viewer cannot alter what another client captures.");
+        ep.put("GET /api/orientation", "Gravity, tilt and ambient light from the phone sensors.");
+        ep.put("GET /api/shadingmap", "The lens shading map of a frame taken with the map on.");
+        ep.put("GET /api/nettest", "Diagnostic. Opens a TCP connection back to the address the "
+                + "request came from, to prove the app has outbound network access.");
         o.put("endpoints", ep);
 
-        JSONObject p = new JSONObject();
-        p.put("camera", "Camera id, from /api/cameras. 0 is the rear camera.");
-        p.put("zoom", "Software zoom, 1.0 = full sensor. Crops real pixels out of the full-resolution frame.");
-        p.put("zoomby", "Multiply the current zoom, e.g. zoomby=2.");
-        p.put("cx, cy", "Absolute ROI centre, 0..1 across the frame. 0.5,0.5 is centred.");
-        p.put("dx, dy", "Relative pan, in fractions of the current ROI width. Same visual step at any zoom.");
-        p.put("af", "off | auto | macro | continuous | video | edof");
-        p.put("focus", "Manual focus in diopters (1/metres), or 'auto'. Implies af=off.");
-        p.put("focusm", "Manual focus by distance in metres. Implies af=off.");
-        p.put("ae", "on | off. Turning it off requires exposure and iso to be meaningful.");
-        p.put("exposure", "Shutter time. Accepts 1/120, 8ms, 250us, 0.5s or raw nanoseconds. Implies ae=off.");
-        p.put("iso", "Sensor sensitivity. Implies ae=off.");
-        p.put("ev", "Exposure compensation in steps, only meaningful while ae=on.");
-        p.put("aelock", "on | off. Freeze the auto exposure at its current value.");
-        p.put("awb", "auto | off | incandescent | fluorescent | warmfluorescent | daylight | cloudy | twilight | shade");
-        p.put("awblock", "on | off. Freeze auto white balance, which stops colour drifting between shots.");
-        p.put("torch", "0 to torch_max_level, or off | on | max. The rear LED, useful as bench illumination.");
-        p.put("jpegq", "JPEG quality 1..100, default 92.");
-        p.put("rotate", "0 | 90 | 180 | 270, applied to the returned pixels.");
-        p.put("w, h", "Resize the output after cropping. Give one to preserve aspect ratio.");
-        p.put("previewsize", "Preview/stream capture size, e.g. 1280x960. Rebuilds the capture session.");
-        p.put("stillsize", "Still capture size, e.g. 4032x3024. Rebuilds the capture session.");
-        p.put("reset", "reset=1 clears every setting to default before applying the rest of this request.");
-        p.put("settle", "Milliseconds to wait after applying settings before capturing. Defaults to 350 when auto exposure is on.");
-        o.put("parameters", p);
+        // One list, three groups, printed from the same declarations the parser uses.
+        JSONObject camera = new JSONObject();
+        JSONObject presentation = new JSONObject();
+        JSONObject router = new JSONObject();
+        for (Params.P p : Params.all()) {
+            switch (p.kind) {
+                case CAMERA: camera.put(p.label(), p.help); break;
+                case PRESENTATION: presentation.put(p.label(), p.help); break;
+                default: router.put(p.label(), p.help); break;
+            }
+        }
+        JSONObject params = new JSONObject();
+        params.put("camera_state", camera);
+        params.put("presentation", presentation);
+        params.put("router", router);
+        o.put("parameters", params);
+        // Kept flat as well, because a client that only wants to know whether a name is
+        // valid should not have to know which group it is in.
+        JSONObject flat = new JSONObject();
+        for (Params.P p : Params.all()) {
+            for (String n : p.names) flat.put(n, p.help);
+        }
+        o.put("parameter_names", flat);
+
+        JSONArray rules = new JSONArray();
+        rules.put("Camera state persists until something changes it: zoom, cx, cy, focus, "
+                + "exposure, iso, torch, awb, measure, rotate, camera, previewsize, stillsize.");
+        rules.put("Presentation applies to the one request that names it and is then "
+                + "forgotten: w, h, jpegq. This is decision D9.");
+        rules.put("An unknown parameter, or a value that cannot be read, is an HTTP 400 on "
+                + "every endpoint. Nothing falls back to a default in silence.");
+        o.put("state_rules", rules);
 
         JSONArray notes = new JSONArray();
         notes.put("This sensor reports croppingType=CENTER_ONLY, so the hardware cannot pan. "
@@ -64,8 +92,11 @@ public class WebUi {
                 + "makes the camera focus and expose for that component.");
         notes.put("Photographing an OLED or LCD: fix the exposure to a whole multiple of the panel "
                 + "refresh period to remove PWM banding. At 60Hz try exposure=1/60, 1/30 or 16.67ms.");
-        notes.put("Prefer /api/frame while aiming and /api/still once framed. /api/still returns the "
-                + "untouched camera JPEG when zoom=1 with no rotate or resize.");
+        notes.put("Prefer /api/frame while aiming and /api/still once framed. A still at a zoom of "
+                + CamSettings.ZOOM_PRISTINE_LIMIT + " or less, with no rotate and no resize, is the "
+                + "untouched camera JPEG; above that limit it is decoded and encoded again. Each "
+                + "capture records which of the two it was in settings.capture_path, because a "
+                + "comparison across the limit measures the pipeline and not the subject.");
         o.put("notes", notes);
 
         JSONArray ex = new JSONArray();
@@ -74,6 +105,7 @@ public class WebUi {
         ex.put("curl -o macro.jpg 'http://HOST:8080/api/still?focusm=0.12&torch=30&zoom=6'");
         ex.put("curl -s 'http://HOST:8080/api/set?dx=0.25' | jq .settings");
         ex.put("curl -o frame.dng 'http://HOST:8080/api/raw?exposure=1/120&iso=56'");
+        ex.put("curl -D- -o burst.tar 'http://HOST:8080/api/burst?n=8&measure=1'");
         o.put("examples", ex);
         return o;
     }

@@ -18,8 +18,14 @@ import java.util.Map;
  * rectangle we give it and can only ever zoom about the centre. We therefore always
  * ask the sensor for its full active array and crop the ROI ourselves, which also
  * keeps every zoomed pixel a real sensor pixel instead of a HAL upscale.
+ *
+ * An instance is a value. The engine keeps one as the camera state and hands a clone to
+ * every caller; a request that carries presentation parameters gets its own clone and
+ * that clone dies with the request. See decision D9 in the specification.
  */
 public class CamSettings implements Cloneable {
+
+    public static final int AF_OFF = CaptureRequest.CONTROL_AF_MODE_OFF;
 
     public String cameraId = "0";
 
@@ -45,12 +51,8 @@ public class CamSettings implements Cloneable {
     /** 0 = torch off, otherwise 1..flashMaxLevel. */
     public int torch = 0;
 
-    public int jpegQuality = 92;
     /** Clockwise degrees applied to the returned pixels: 0, 90, 180 or 270. */
     public int rotate = 0;
-    /** Optional output resize after cropping. null keeps native crop size. */
-    public Integer outW = null;
-    public Integer outH = null;
 
     /**
      * Measurement mode. Stops every stage that makes an image look good at the cost of a
@@ -64,8 +66,24 @@ public class CamSettings implements Cloneable {
      */
     public boolean shadingMap = false;
 
+    // ------------------------------------------------------- presentation
+    // These three describe how ONE picture comes back. They are not properties of the
+    // camera, and the engine drops them from the state it keeps. When they persisted they
+    // silently rescaled the next capture and disabled the untouched-JPEG path for ever.
+
+    public int jpegQuality = 92;
+    /** Optional output resize after cropping. null keeps the native crop size. */
+    public Integer outW = null;
+    public Integer outH = null;
+
+    // -------------------------------------------------------- session sizes
+
+    /** The preview size that was asked for. */
+    public int previewReqW = 1280, previewReqH = 960;
+    /** The preview size the device actually gave, written by the engine. */
     public int previewW = 1280, previewH = 960;
-    public int stillW = 0, stillH = 0;   // 0,0 means "largest the sensor offers"
+    /** The still size asked for. 0,0 means "largest the sensor offers". */
+    public int stillW = 0, stillH = 0;
 
     @Override
     public CamSettings clone() {
@@ -76,6 +94,15 @@ public class CamSettings implements Cloneable {
         }
     }
 
+    /** A copy with the presentation parameters back at their defaults. */
+    public CamSettings withoutPresentation() {
+        CamSettings c = clone();
+        c.outW = null;
+        c.outH = null;
+        c.jpegQuality = 92;
+        return c;
+    }
+
     // ---------------------------------------------------------------- ROI
 
     /**
@@ -84,161 +111,53 @@ public class CamSettings implements Cloneable {
      * the smaller preview frames, with the same normalised coordinates.
      */
     public Rect roiFor(int w, int h) {
-        float z = Math.max(1.0f, zoom);
-        int rw = Math.max(16, Math.round(w / z));
-        int rh = Math.max(16, Math.round(h / z));
-
-        // cx and cy name a point in the picture the caller SEES, which is the rotated
-        // output. The crop happens before the rotation, in sensor space, so the centre
-        // must be mapped back. Without this, a rotated camera needs inverted coordinates
-        // and nobody can guess that.
-        //
-        // The size needs no change. A quarter turn swaps both the frame and the region,
-        // so a w/z by h/z rectangle stays a w/z by h/z rectangle.
-        float sx, sy;
-        switch (rotate) {
-            case 90:  sx = cy;      sy = 1f - cx; break;
-            case 180: sx = 1f - cx; sy = 1f - cy; break;
-            case 270: sx = 1f - cy; sy = cx;      break;
-            default:  sx = cx;      sy = cy;      break;
-        }
-
-        int left = Math.round(sx * w - rw / 2f);
-        int top = Math.round(sy * h - rh / 2f);
-        left = clampInt(left, 0, w - rw);
-        top = clampInt(top, 0, h - rh);
-        return new Rect(left, top, left + rw, top + rh);
+        int[] r = Geom.roi(w, h, zoom, cx, cy, rotate);
+        return new Rect(r[0], r[1], r[0] + r[2], r[1] + r[3]);
     }
 
+    /**
+     * True when the ROI is the whole frame.
+     *
+     * The limit is a zoom of 1.0001 and it decides which of two pipelines makes a still:
+     * at or below it the camera JPEG comes back untouched, above it the frame is decoded
+     * and encoded again. Two captures on opposite sides of the limit are different kinds
+     * of image, so each capture records which path it took.
+     */
     public boolean roiIsWholeFrame() {
-        return zoom <= 1.0001f;
+        return zoom <= ZOOM_PRISTINE_LIMIT;
     }
+
+    public static final float ZOOM_PRISTINE_LIMIT = 1.0001f;
 
     /** True when the still path can hand back the camera JPEG untouched. */
     public boolean stillIsPristine() {
         return roiIsWholeFrame() && rotate == 0 && outW == null && outH == null;
     }
 
+    /** Which of the two still pipelines a capture with these settings goes through. */
+    public String capturePath() {
+        return stillIsPristine() ? "camera_jpeg" : "decoded_and_reencoded";
+    }
+
     // ------------------------------------------------------------- parsing
 
     /**
-     * Applies query parameters onto this instance. Unknown keys are reported so a
-     * typo in an agent's URL surfaces as an error instead of silently doing nothing.
+     * Applies query parameters onto this instance.
+     *
+     * Every name comes from Params, so the parser and /api/help cannot drift apart. An
+     * unknown name and a bad value are both reported, because a typo in an agent's URL
+     * must surface as an error rather than silently doing nothing (rule R5).
      */
     public void apply(Map<String, String> q, Caps caps, StringBuilder problems) {
         for (Map.Entry<String, String> e : q.entrySet()) {
             String k = e.getKey().toLowerCase(Locale.US);
-            String v = e.getValue();
-            try {
-                switch (k) {
-                    case "camera": case "cam":   cameraId = v; break;
-
-                    case "zoom":  zoom = clamp(Float.parseFloat(v), 1f, caps.maxSoftZoom); break;
-                    case "cx":    cx = clamp(Float.parseFloat(v), 0f, 1f); break;
-                    case "cy":    cy = clamp(Float.parseFloat(v), 0f, 1f); break;
-                    // Relative pan, expressed in fractions of the CURRENT roi width, so a
-                    // given dx nudges by the same visual amount at any zoom level.
-                    case "dx":    cx = clamp(cx + Float.parseFloat(v) / Math.max(1f, zoom), 0f, 1f); break;
-                    case "dy":    cy = clamp(cy + Float.parseFloat(v) / Math.max(1f, zoom), 0f, 1f); break;
-                    case "zoomby": zoom = clamp(zoom * Float.parseFloat(v), 1f, caps.maxSoftZoom); break;
-
-                    case "af":    afMode = parseAf(v); if (afMode >= 0) focusDiopters = null; break;
-                    case "focus": {
-                        if (v.equalsIgnoreCase("auto")) { focusDiopters = null; break; }
-                        float d = Float.parseFloat(v);
-                        focusDiopters = clamp(d, 0f, caps.minFocusDiopters);
-                        afMode = CaptureRequest.CONTROL_AF_MODE_OFF;
-                        break;
-                    }
-                    case "focusm": {   // focus by distance in metres, friendlier for bench work
-                        float m = Float.parseFloat(v);
-                        focusDiopters = clamp(m <= 0 ? 0f : 1f / m, 0f, caps.minFocusDiopters);
-                        afMode = CaptureRequest.CONTROL_AF_MODE_OFF;
-                        break;
-                    }
-
-                    case "ae":    aeAuto = parseBool(v); break;
-                    case "exposure": case "shutter": {
-                        exposureNs = clampLong(parseExposureNs(v), caps.minExposureNs, caps.maxExposureNs);
-                        aeAuto = false;
-                        break;
-                    }
-                    case "iso": case "sensitivity":
-                        iso = clampInt(Integer.parseInt(v), caps.minIso, caps.maxIso);
-                        aeAuto = false;
-                        break;
-                    case "ev":      evSteps = clampInt(Integer.parseInt(v), caps.evMin, caps.evMax); break;
-                    case "aelock":  aeLock = parseBool(v); break;
-
-                    case "awb":     awbMode = parseAwb(v); break;
-                    case "awblock": awbLock = parseBool(v); break;
-
-                    case "torch":   torch = clampInt(parseTorch(v, caps.flashMaxLevel), 0, caps.flashMaxLevel); break;
-
-                    case "measure": {
-                        measure = parseBool(v);
-                        // A moving white balance invents colour differences between two
-                        // shots of the same subject, so lock it with the rest.
-                        if (measure) awbLock = true;
-                        break;
-                    }
-
-                    case "shadingmap": shadingMap = parseBool(v); break;
-
-                    case "jpegq": case "quality":
-                        jpegQuality = clampInt(Integer.parseInt(v), 1, 100); break;
-                    case "rotate":  rotate = ((Integer.parseInt(v) % 360) + 360) % 360 / 90 * 90; break;
-                    case "w":       outW = Integer.parseInt(v); break;
-                    case "h":       outH = Integer.parseInt(v); break;
-
-                    case "previewsize": { int[] s = parseSize(v); previewW = s[0]; previewH = s[1]; break; }
-                    case "stillsize":   { int[] s = parseSize(v); stillW = s[0]; stillH = s[1]; break; }
-
-                    // Consumed by the router or by the transport, not by the settings.
-                    // Any name the router reads must appear here, or rule R5 rejects a
-                    // request that is in fact valid.
-                    case "t": case "_": case "format": case "reset":
-                    case "fps": case "n":
-                    case "settle": case "timeout": case "wait": case "fresh":
-                    case "host": case "port":
-                        break;
-                    default:
-                        problems.append("unknown parameter '").append(k).append("'; ");
-                }
-            } catch (NumberFormatException nfe) {
-                problems.append("bad value for '").append(k).append("': '").append(v).append("'; ");
-            }
+            String problem = Params.apply(this, k, e.getValue(), caps);
+            if (problem != null) problems.append(problem).append("; ");
         }
     }
 
-    /**
-     * Exposure accepts nanoseconds, or the forms photographers and datasheets actually
-     * use: 1/120, 8ms, 250us, 0.5s.
-     */
-    public static long parseExposureNs(String v) {
-        String s = v.trim().toLowerCase(Locale.US);
-        if (s.contains("/")) {
-            String[] p = s.split("/", 2);
-            double num = Double.parseDouble(p[0].trim());
-            double den = Double.parseDouble(p[1].replaceAll("[^0-9.]", "").trim());
-            return Math.round(num / den * 1e9);
-        }
-        if (s.endsWith("ms"))  return Math.round(Double.parseDouble(s.substring(0, s.length() - 2)) * 1e6);
-        if (s.endsWith("us"))  return Math.round(Double.parseDouble(s.substring(0, s.length() - 2)) * 1e3);
-        if (s.endsWith("ns"))  return Math.round(Double.parseDouble(s.substring(0, s.length() - 2)));
-        if (s.endsWith("s"))   return Math.round(Double.parseDouble(s.substring(0, s.length() - 1)) * 1e9);
-        return Math.round(Double.parseDouble(s));
-    }
-
-    private static int parseTorch(String v, int max) {
-        if (v.equalsIgnoreCase("off") || v.equalsIgnoreCase("false")) return 0;
-        if (v.equalsIgnoreCase("on") || v.equalsIgnoreCase("true")) return Math.max(1, max / 2);
-        if (v.equalsIgnoreCase("max")) return max;
-        return Integer.parseInt(v);
-    }
-
-    private static int parseAf(String v) {
-        switch (v.toLowerCase(Locale.US)) {
+    static int parseAf(String v) {
+        switch (v.trim().toLowerCase(Locale.US)) {
             case "off": case "manual":     return CaptureRequest.CONTROL_AF_MODE_OFF;
             case "auto":                   return CaptureRequest.CONTROL_AF_MODE_AUTO;
             case "macro":                  return CaptureRequest.CONTROL_AF_MODE_MACRO;
@@ -250,8 +169,8 @@ public class CamSettings implements Cloneable {
         }
     }
 
-    private static int parseAwb(String v) {
-        switch (v.toLowerCase(Locale.US)) {
+    static int parseAwb(String v) {
+        switch (v.trim().toLowerCase(Locale.US)) {
             case "off": case "manual":  return CaptureRequest.CONTROL_AWB_MODE_OFF;
             case "auto":                return CaptureRequest.CONTROL_AWB_MODE_AUTO;
             case "incandescent":        return CaptureRequest.CONTROL_AWB_MODE_INCANDESCENT;
@@ -265,16 +184,8 @@ public class CamSettings implements Cloneable {
         }
     }
 
-    private static boolean parseBool(String v) {
-        return v.equalsIgnoreCase("on") || v.equalsIgnoreCase("true")
-                || v.equals("1") || v.equalsIgnoreCase("yes") || v.equalsIgnoreCase("auto");
-    }
-
-    private static int[] parseSize(String v) {
-        String[] p = v.toLowerCase(Locale.US).split("[x,*]");
-        if (p.length != 2) throw new NumberFormatException("size " + v);
-        return new int[]{Integer.parseInt(p[0].trim()), Integer.parseInt(p[1].trim())};
-    }
+    /** Kept for the CLI and for anything that still reads the old name. */
+    public static long parseExposureNs(String v) { return Parse.exposureNs(v); }
 
     // ---------------------------------------------------------------- json
 
@@ -304,7 +215,13 @@ public class CamSettings implements Cloneable {
         o.put("rotate", rotate);
         o.put("out_w", outW == null ? JSONObject.NULL : outW);
         o.put("out_h", outH == null ? JSONObject.NULL : outH);
+        o.put("capture_path", capturePath());
         o.put("preview_size", previewW + "x" + previewH);
+        o.put("preview_size_requested", previewReqW + "x" + previewReqH);
+        if (previewW != previewReqW || previewH != previewReqH) {
+            o.put("preview_size_note", "the device does not offer "
+                    + previewReqW + "x" + previewReqH + ", so it gave the nearest size it has");
+        }
         o.put("still_size", (stillW == 0 ? "max" : stillW + "x" + stillH));
         return o;
     }
@@ -344,9 +261,9 @@ public class CamSettings implements Cloneable {
 
     // --------------------------------------------------------------- utils
 
-    static float clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
-    static int clampInt(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
-    static long clampLong(long v, long lo, long hi) { return v < lo ? lo : (v > hi ? hi : v); }
+    static float clamp(float v, float lo, float hi) { return Geom.clamp(v, lo, hi); }
+    static int clampInt(int v, int lo, int hi) { return Geom.clampInt(v, lo, hi); }
+    static long clampLong(long v, long lo, long hi) { return Geom.clampLong(v, lo, hi); }
     static double round2(double v) { return Math.round(v * 100.0) / 100.0; }
     static double round3(double v) { return Math.round(v * 1000.0) / 1000.0; }
 
@@ -359,6 +276,18 @@ public class CamSettings implements Cloneable {
         public int evMin = -12, evMax = 12;
         public double evStep = 1.0 / 6.0;
         public int flashMaxLevel = 1;
+
+        /**
+         * The longest output edge a request may ask for, and the longest burst.
+         *
+         * Both come from the heap this process was given, not from a fixed number. A
+         * resize to 100000 by 100000 asks for 40 GB and used to reach
+         * Bitmap.createScaledBitmap, where OutOfMemoryError is an Error rather than an
+         * Exception and took the whole service down with it.
+         */
+        public int maxOutputEdge = 8192;
+        public int maxBurst = 16;
+        public long maxOutputPixels = 16_000_000L;
 
         public static Caps from(CameraCharacteristics c, int sensorW) {
             Caps caps = new Caps();
@@ -379,6 +308,26 @@ public class CamSettings implements Cloneable {
             return caps;
         }
 
+        /**
+         * Works out what this heap can carry.
+         *
+         * A resize holds the source bitmap and the destination at four bytes a pixel, so
+         * a quarter of the heap is the honest ceiling for one output. A burst holds the
+         * frame bytes, then the tar, then the copy the tar makes when it finishes, which
+         * is three times the frame bytes.
+         */
+        public void sizeToHeap(long maxHeapBytes, long stillPixels) {
+            long budget = Math.max(8L << 20, maxHeapBytes / 4);
+            maxOutputPixels = Math.max(1_000_000L, budget / 8);          // source + destination
+            maxOutputEdge = (int) Math.min(16384, Math.max(1024, Math.sqrt((double) maxOutputPixels)));
+            // A full-resolution JPEG of a bench scene runs about a third of a byte per
+            // pixel at quality 92. The archive is written straight to the socket, so the
+            // frames themselves are the only copy that has to fit, and half the heap is
+            // the budget for them.
+            long perFrame = Math.max(1L << 20, stillPixels * 35 / 100);
+            maxBurst = (int) Geom.clampLong(maxHeapBytes / 2 / perFrame, 4, 64);
+        }
+
         public JSONObject toJson() throws JSONException {
             JSONObject o = new JSONObject();
             o.put("max_zoom", round2(maxSoftZoom));
@@ -390,6 +339,9 @@ public class CamSettings implements Cloneable {
             o.put("ev_range", evMin + ".." + evMax);
             o.put("ev_step", round3(evStep));
             o.put("torch_max_level", flashMaxLevel);
+            o.put("max_output_edge", maxOutputEdge);
+            o.put("max_output_pixels", maxOutputPixels);
+            o.put("burst_max", maxBurst);
             return o;
         }
     }

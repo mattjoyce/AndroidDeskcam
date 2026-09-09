@@ -95,15 +95,21 @@ img=$(deskcam snap measure=1 iso=56 exposure=1/120)
 ```
 
 This turns off the tone curve, noise reduction, edge enhancement, and lens shading
-correction. It was measured on the device. In this mode, doubling the exposure doubles the
-pixel value, at 2.02x. The default pipeline gives only 1.30x and lifts the shadows about
-ten times. The default makes a photograph look good, which is the opposite of what a
-comparison needs.
+correction. In this mode doubling the exposure doubles the pixel value; with the default
+pipeline it does not, and the default lifts the shadows substantially. The default makes a
+photograph look good, which is the opposite of what a comparison needs.
+
+Measured on 2026-09-10, six captures from 50 to 283 ms at ISO 56: **2.062x per doubling**
+(95% 2.041 to 2.083, R squared 1.000), with a black-level pedestal of -2.39 DN. Remove the
+pedestal and the exponent is 1.003, so read this as **linear with an offset of about two
+digits**. Run `deskcam analyse linearity DIR` to measure it again on your own setup.
 
 The image will look dark and flat. That is correct.
 
 `deskcam status` reports a `pipeline` block saying what the camera actually applied, not
-what was asked for.
+what was asked for. It describes the **preview**. A capture describes itself: its own
+values are in its sidecar and in its EXIF `UserComment`, taken from the capture result of
+that frame.
 
 ## Better data
 
@@ -111,7 +117,19 @@ what was asked for.
 |---|---|---|
 | Linear sensor data | `deskcam raw -o x.dng` | 10-bit, unprocessed, for real measurement. 24 MB. |
 | Less noise | `deskcam burst 16` | Average the frames. Noise falls by about the square root of the count. |
-| Repeat an old shot | `deskcam recall old.json` | Restores exact settings, so a comparison is valid. |
+| Repeat an old shot | `deskcam recall old.json` | Restores the camera settings, so a comparison is valid. |
+
+Every capture writes `NAME.json` beside the image. It comes from the capture itself, in the
+`X-DeskCam-Provenance` header of the reply that carried the picture, so it describes that
+frame and not whatever the camera was doing a moment later.
+
+`deskcam recall` restores camera state: framing, focus, exposure, ISO, torch, white
+balance, rotation, measurement mode. It does not restore `w`, `h` or `jpegq`, because those
+apply to one request only and are gone by then. Pass them again on the new capture.
+
+**A burst can come back short.** `deskcam burst` prints a warning on stderr when the phone
+returned fewer frames than you asked for, and the phone answers 206 rather than 200. Check
+the frame count before you average.
 
 The DNG holds the **whole sensor**. Zoom and pan do not apply to it, because a workstation
 must demosaic before it crops. The framing is reported in the `X-DeskCam-ROI` header.
@@ -128,16 +146,56 @@ line is a complete instruction and you never need to remember the current state:
 deskcam snap zoom=6 cx=0.3 cy=0.7 focusm=0.15 torch=25 exposure=1/120 iso=100
 ```
 
-`camera`, `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`,
-`exposure`, `iso`, `ev`, `aelock`, `awb`, `awblock`, `torch`, `measure`, `jpegq`,
-`rotate`, `w`, `h`, `reset`, `settle`.
+**These persist until you change them again:** `camera`, `zoom`, `zoomby`, `cx`, `cy`,
+`dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure`, `iso`, `ev`, `aelock`, `awb`,
+`awblock`, `torch`, `measure`, `shadingmap`, `rotate`.
+
+**These apply to the one command that names them and are then forgotten:** `w`, `h`,
+`jpegq`. So `deskcam frame w=320` does not shrink your next `snap`, and a resize never
+quietly disables the untouched-JPEG path.
 
 Exposure accepts what a datasheet says: `1/120`, `8ms`, `250us`, `0.5s`.
 
-A wrong parameter name is an error, not a silent no-op. If a command fails, read the
-message; it names the bad parameter.
+A wrong parameter name is an error, not a silent no-op, on every endpoint. So is a value
+the phone cannot read: `timeout=soon` is a 400, not a default. If a command fails, read the
+message; the CLI prints the phone's reason and it names the bad parameter.
+
+`deskcam show` prints every setting that can change your next capture, rotation and
+measurement mode included.
 
 `deskcam api` prints the full machine-readable reference if you need something not here.
+
+## Before you report a number
+
+**Run `deskcam aatest` first.** It takes two captures with identical settings and prints the
+smallest difference a measurement can honestly claim. Anything smaller than that is this
+camera talking to itself.
+
+```sh
+deskcam aatest measure=1 iso=56 exposure=200ms
+# aa-test: 1.415 DN ... must differ by more than 1.42 DN (1.38% of the level)
+```
+
+It records the floor beside your captures, and the analysis tools then **refuse** any
+result that sits inside it. You do not have to remember the number, only to have run it.
+
+The tools live in `frontend/analysis/` and need `pip install -e '.[analysis]'`:
+
+| Question | Command |
+|---|---|
+| How large must a difference be to be real? | `deskcam aatest` |
+| Does the pixel value track the light? | `deskcam analyse linearity DIR` |
+| How much does averaging a burst help? | `deskcam analyse burst-noise DIR` |
+| How many pixels per millimetre, in this picture? | `deskcam analyse scale FILE --pitch-mm 1.0` |
+
+Each one prints its value with an interval and a sample count, and refuses rather than
+guessing when its confidence is too low. A refusal exits 2 and carries no number, on
+purpose: a number with a warning beside it gets quoted without the warning. Add `--json`
+for the full record.
+
+**Scale is not a camera specification.** It changes whenever the stand moves, so measure it
+from a rule or graph paper inside the picture you are actually reporting on. If more than
+one regular pattern is in frame, the tool says so and you have to choose.
 
 ## Judgement
 

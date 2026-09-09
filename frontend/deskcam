@@ -25,17 +25,68 @@ build_url() {  # build_url <path> <query>
     echo "$url"
 }
 
-req()     { curl -fsS --max-time "${DESKCAM_TIMEOUT:-30}" "$(build_url "$1" "${2:-}")"; }
-req_bin() { curl -fsS --max-time "${DESKCAM_TIMEOUT:-30}" -o "$3" "$(build_url "$1" "${2:-}")"; }
+# The reply headers of the last req_bin, so a capture can read its own provenance.
+LAST_HEADERS=""
+LAST_CODE=""
+
+# Prints the "error" field of a JSON body, or the body itself if it is not JSON.
+read_error() {
+    python3 -c '
+import json, sys
+raw = open(sys.argv[1], "rb").read()[:4000].decode("utf-8", "replace")
+try:
+    print("  " + str(json.loads(raw).get("error", raw.strip())))
+except Exception:
+    print("  " + raw.strip())
+' "$1" >&2
+}
+
+# curl -f throws the body of a 4xx away, so the reason the server took the trouble to
+# write never reached anyone. These keep it and print it.
+req() {
+    local out code
+    out="$(mktemp)"
+    code="$(curl -sS --max-time "${DESKCAM_TIMEOUT:-30}" -o "$out" -w '%{http_code}' \
+            "$(build_url "$1" "${2:-}")")" || { rm -f "$out"; return 1; }
+    LAST_CODE="$code"
+    case "$code" in
+        2*) cat "$out"; rm -f "$out"; return 0 ;;
+        *)  echo "deskcam: HTTP $code" >&2; read_error "$out"; rm -f "$out"; return 1 ;;
+    esac
+}
+
+req_bin() {
+    local code
+    [ -n "$LAST_HEADERS" ] && rm -f "$LAST_HEADERS"
+    LAST_HEADERS="$(mktemp)"
+    code="$(curl -sS --max-time "${DESKCAM_TIMEOUT:-30}" -D "$LAST_HEADERS" -o "$3" \
+            -w '%{http_code}' "$(build_url "$1" "${2:-}")")" || return 1
+    LAST_CODE="$code"
+    case "$code" in
+        2*) return 0 ;;
+        *)  echo "deskcam: HTTP $code" >&2; read_error "$3"; rm -f "$3"; return 1 ;;
+    esac
+}
+
+# One header out of the last reply, without its name.
+last_header() {
+    tr -d '\r' < "${LAST_HEADERS:-/dev/null}" \
+        | sed -n "s/^[Xx]-[Dd]esk[Cc]am-$1: //p" | tail -1
+}
 
 pretty() { if command -v jq >/dev/null 2>&1; then jq .; else cat; fi; }
 
 # Held in a variable so the heredoc does not fight with the JSON arriving on stdin.
 read -r -d '' SUMMARISE_PY <<'PY' || true
 import json, sys
+raw = sys.stdin.read()
+if not raw.strip():
+    # req already printed the status and the phone's own message. Saying 'bad response'
+    # on top of that buries the reason under a second, less useful error.
+    sys.exit(1)
 try:
-    d = json.load(sys.stdin)
-except Exception as e:
+    d = json.loads(raw)
+except ValueError as e:
     print('bad response:', e)
     sys.exit(1)
 if not d.get('ok', True):
@@ -55,28 +106,69 @@ if m.get('iso'):
     bits.append('iso {}'.format(m['iso']))
 if s.get('torch'):
     bits.append('torch {}'.format(s['torch']))
+# The four settings most able to spoil the next capture used to be the four this line
+# left out. rotate and measure persist; out_w and out_h belong to one request and are
+# printed when a request set them, so their absence here means what it says.
+if s.get('rotate'):
+    bits.append('rotate {}'.format(s['rotate']))
+if s.get('measure'):
+    bits.append('MEASURE')
+if s.get('out_w') or s.get('out_h'):
+    bits.append('out {}x{}'.format(s.get('out_w') or '-', s.get('out_h') or '-'))
+if s.get('awb_lock'):
+    bits.append('awb locked')
+if s.get('capture_path') and s['capture_path'] != 'camera_jpeg':
+    bits.append('path {}'.format(s['capture_path']))
+if s.get('camera') not in (None, '0'):
+    bits.append('camera {}'.format(s['camera']))
 print('  '.join(str(b) for b in bits))
 PY
 
 summarise() { python3 -c "$SUMMARISE_PY"; }
 
-# Every capture gets a JSON sidecar holding the settings and the measured values.
-# Without it a past capture cannot be repeated, so a comparison between two of them
-# means nothing. The roll reads these files and needs no other index.
+# The measurement tools. They read files and never speak HTTP, so driving the camera stays
+# here and the maths stays there. numpy and pillow are an optional extra: taking a
+# photograph needs neither.
+analysis() {
+    local here
+    here="$(dirname "$(readlink -f "$0")")"
+    PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -m analysis "$@"
+    local code=$?
+    if [ "$code" -eq 1 ]; then
+        python3 -c "import numpy, PIL" 2>/dev/null || cat >&2 <<'MISSING'
+deskcam: the measurement tools need numpy and pillow.
+  pip install -e '.[analysis]'      (from the repository root)
+Taking pictures does not need them; measuring what is in one does.
+MISSING
+    fi
+    return $code
+}
+
+# Every capture gets a JSON sidecar holding the settings and the measured values of
+# THAT capture. Without it a past capture cannot be repeated, so a comparison between
+# two of them means nothing. The roll reads these files and needs no other index.
+#
+# The values come back in the X-DeskCam-Provenance header of the reply that carried the
+# picture. They used to come from a second /api/status request made after the capture
+# returned, which described whatever the camera was doing by then, and two captures
+# running at once could exchange their sidecars.
 # The phone makes the thumbnail. It is already resizing, and doing it here would mean an
 # image library on the workstation for one small job.
 write_thumb() {
     local img="$1"
     local base="${img%.*}"
-    req_bin /api/frame "w=320" "${base}.thumb.jpg" 2>/dev/null || true
+    req_bin /api/frame "w=320" "${base}.thumb.jpg" >/dev/null 2>&1 || true
 }
 
 write_sidecar() {
     local img="$1"
-    local base="${img%.*}"
-    local st
-    st="$(req /api/status "" 2>/dev/null)" || return 0
-    printf '%s' "$st" | python3 -c '
+    local prov
+    prov="$(last_header Provenance)"
+    if [ -z "$prov" ]; then
+        # An old phone build, or a reply with no provenance. Say so in the file rather
+        # than quietly writing a sidecar that came from a different moment.
+        prov="$(req /api/status "" 2>/dev/null)" || return 0
+        printf '%s' "$prov" | python3 -c '
 import json, sys, os, datetime
 img, target = sys.argv[1], sys.argv[2]
 try:
@@ -87,6 +179,7 @@ out = {
     "image": os.path.basename(img),
     "captured_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
     "target": target,
+    "from": "a second request after the capture, not from the capture itself",
     "bytes": os.path.getsize(img) if os.path.exists(img) else None,
     "settings": st.get("settings", {}),
     "measured": st.get("measured", {}),
@@ -94,6 +187,22 @@ out = {
     "sensor": st.get("sensor", {}),
     "orientation": st.get("orientation", {}),
 }
+with open(os.path.splitext(img)[0] + ".json", "w") as f:
+    json.dump(out, f, indent=2)
+' "$img" "$(resolve_url)" 2>/dev/null || true
+        return 0
+    fi
+    printf '%s' "$prov" | python3 -c '
+import json, sys, os
+img, target = sys.argv[1], sys.argv[2]
+try:
+    out = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+out["image"] = os.path.basename(img)
+out["target"] = target
+out["from"] = "the capture itself"
+out["bytes"] = os.path.getsize(img) if os.path.exists(img) else None
 with open(os.path.splitext(img)[0] + ".json", "w") as f:
     json.dump(out, f, indent=2)
 ' "$img" "$(resolve_url)" 2>/dev/null || true
@@ -109,17 +218,23 @@ q = []
 def add(k, v):
     if v is not None:
         q.append(f"{k}={v}")
+# Camera state only. jpegq, w and h describe one request and are gone by the time this
+# runs, so naming them here would promise something the server no longer does.
 add("camera", s.get("camera"))
 add("zoom", s.get("zoom"))
 add("cx", s.get("cx"))
 add("cy", s.get("cy"))
 add("rotate", s.get("rotate"))
-add("jpegq", s.get("jpeg_quality"))
 add("torch", s.get("torch"))
 add("awb", s.get("awb"))
 add("awblock", 1 if s.get("awb_lock") else 0)
-if s.get("measure"):
-    add("measure", 1)
+add("aelock", 1 if s.get("ae_lock") else 0)
+add("measure", 1 if s.get("measure") else 0)
+add("shadingmap", 1 if s.get("shading_map") else 0)
+if s.get("preview_size_requested"):
+    add("previewsize", s["preview_size_requested"])
+if s.get("still_size") and s["still_size"] != "max":
+    add("stillsize", s["still_size"])
 if s.get("focus_diopters") is not None:
     add("focus", s["focus_diopters"])
 else:
@@ -154,13 +269,23 @@ deskcam - control the bench camera over HTTP
   deskcam raw [-o FILE] [k=v ...]      full-sensor RAW as a DNG, for measurement work
   deskcam burst N [-o DIR] [k=v ...]   N frames with identical settings, into a directory
                                        add format=raw for DNG frames
-  deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file)
+  deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file).
+                                       A stream is a view: it takes fps, n, w, h and
+                                       jpegq, and refuses anything that would change
+                                       the camera. Use deskcam set for those.
 
   deskcam status                       full JSON state
   deskcam show                         one-line summary
   deskcam set k=v [k=v ...]            apply any control parameters
   deskcam reset                        restore defaults
   deskcam recall FILE.json             restore the settings of a past capture
+
+  deskcam aatest [k=v ...]             two captures, same settings. Prints the smallest
+                                       difference a measurement can honestly claim, and
+                                       records it for the analysis tools to enforce.
+  deskcam analyse scale FILE           px/mm from a rule or graph paper in the frame
+  deskcam analyse linearity DIR        pixel value against exposure
+  deskcam analyse burst-noise DIR      how far averaging a burst lowers the noise
 
   deskcam zoom N                       set zoom (1.0 = full sensor)
   deskcam pan up|down|left|right [amt] nudge the view (default 0.25)
@@ -185,6 +310,10 @@ deskcam - control the bench camera over HTTP
 
 Any command also accepts k=v words, applied before the image is taken:
   deskcam snap zoom=6 cx=0.3 cy=0.7 torch=25 exposure=1/120
+
+Camera state persists until you change it (zoom, cx, cy, focus, exposure, iso, torch,
+awb, measure, rotate). Presentation applies to one request and is then forgotten
+(w, h, jpegq). deskcam api prints the whole list.
 Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL
 USAGE
 }
@@ -251,7 +380,14 @@ case "$CMD" in
             *)
                 tmp="$OUT/.burst.tar"
                 req_bin /api/burst "n=$N$Q" "$tmp" || die "burst failed"
-                tar xf "$tmp" -C "$OUT" && rm -f "$tmp" ;;
+                tar xf "$tmp" -C "$OUT" && rm -f "$tmp"
+                # A burst that ran out of time comes back 206 with fewer frames than
+                # were asked for. Writing the directory in silence would leave an
+                # average of six frames looking exactly like an average of sixteen.
+                got="$(last_header Frames)"
+                if [ -n "$got" ] && [ "$got" -lt "$N" ]; then
+                    echo "deskcam: short burst, $got of $N frames (HTTP $LAST_CODE)" >&2
+                fi ;;
         esac
         write_sidecar "$OUT/burst.jpg"    # names the sidecar burst.json
         echo "$OUT" ;;
@@ -301,6 +437,31 @@ case "$CMD" in
         [ -f "$a0" ] || die "no such sidecar: $a0"
         rq="$(recall_query "$a0")" || die "cannot read $a0"
         req /api/set "reset=1&$rq$Q" | summarise ;;
+
+    aatest)
+        # Two captures with identical settings, then the difference between them. That
+        # difference is the noise of the instrument, and a measurement smaller than it
+        # means nothing. Run this before trusting any number you measure from a picture.
+        dir="${OUT:-$SHOT_DIR}"
+        mkdir -p "$dir" || die "cannot make $dir"
+        stamp="$(date +%Y%m%d-%H%M%S)"
+        a="$dir/aatest-$stamp-a.jpg"
+        b="$dir/aatest-$stamp-b.jpg"
+        # Fixed exposure, or the AE loop moves between the two frames and the floor
+        # measures the mode rather than the sensor.
+        case "$Q" in
+            *exposure=*|*iso=*|*ae=*) : ;;
+            *) echo "deskcam: note, no exposure given; fix exposure= and iso= for a floor you can compare against" >&2 ;;
+        esac
+        req_bin /api/still "$Q" "$a" || die "first capture failed"
+        write_sidecar "$a"
+        req_bin /api/still "$Q" "$b" || die "second capture failed"
+        write_sidecar "$b"
+        analysis aatest "$a" "$b" --write "$dir" ;;
+
+    analyse|analysis)
+        [ "$nargs" -eq 0 ] && die "usage: deskcam analyse scale|linearity|burst-noise|aatest ..."
+        analysis "${ARGS[@]}" ;;
 
     serve|console)
         exec python3 "$(dirname "$(readlink -f "$0")")/console.py" \

@@ -14,11 +14,13 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.DngCreator;
+import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.MeteringRectangle;
 import android.hardware.camera2.params.OutputConfiguration;
+import android.hardware.camera2.params.RggbChannelVector;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.hardware.camera2.params.TonemapCurve;
@@ -38,11 +40,13 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Owns the Camera2 device, the capture session, and all image production. */
 public class CameraEngine {
@@ -64,6 +68,7 @@ public class CameraEngine {
     private HandlerThread camThread;
     private Handler camHandler;
     private Executor camExecutor;
+    private Thread watchdogThread;
 
     private CameraDevice device;
     private CameraCaptureSession session;
@@ -75,7 +80,13 @@ public class CameraEngine {
     private Rect activeArray = new Rect(0, 0, 4032, 3024);
     private Size stillSize = new Size(4032, 3024);
     private Size rawSize = null;
-    /** Set once a session refuses to configure with a RAW output, so we stop asking. */
+    /**
+     * Set only when a session refuses to configure WITH a RAW output.
+     *
+     * It used to be set by any exception out of openAndConfigure, so a camera that was
+     * merely busy for five seconds disabled DNG for the life of the process and reported
+     * a reason that was not true.
+     */
     private boolean rawSessionFailed = false;
     /**
      * Some devices advertise the shading map mode and the map size but never put the map
@@ -93,11 +104,27 @@ public class CameraEngine {
     private int latestW, latestH;
     private long latestSeq = 0;
 
+    /**
+     * Every preview image the camera has handed over, converted or not.
+     *
+     * latestSeq only moves while something is asking for frames, so it cannot tell a
+     * quiet camera from a dead one. This counter can, and it is what the watchdog reads.
+     */
+    private final AtomicLong framesSeen = new AtomicLong();
+
     /** Frames are only converted while something is actually asking for them. */
     private volatile long lastDemandMs = 0;
-    private volatile int streamClients = 0;
+    private final AtomicInteger streamClients = new AtomicInteger();
 
-    private final LinkedBlockingQueue<byte[]> stillQueue = new LinkedBlockingQueue<>();
+    /**
+     * The captures in flight. Each one owns the frames of its own requests.
+     *
+     * There used to be one queue for every capture path, so a still taken during a burst
+     * called clear() on it and deleted the burst. Frames are now handed to the capture
+     * that asked for them, matched by the sensor timestamp the HAL reports when the
+     * exposure starts, and a frame nobody claims is dropped.
+     */
+    private final CopyOnWriteArrayList<Pending> pending = new CopyOnWriteArrayList<>();
 
     /**
      * A RAW capture needs the Image and the TotalCaptureResult of the same frame, because
@@ -108,11 +135,14 @@ public class CameraEngine {
     private final Object rawCaptureLock = new Object();
     private Image pendingRaw;
     private TotalCaptureResult pendingRawResult;
+    /** The last result of the REPEATING preview request. Never used to describe a still. */
     private volatile TotalCaptureResult lastResult;
     private volatile String state = "stopped";
     private volatile String lastError = null;
-    private final java.util.concurrent.atomic.AtomicBoolean reopening =
-            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final AtomicBoolean reopening = new AtomicBoolean(false);
+    /** Set by stop(). Every wait and every retry checks it, so nothing resurrects. */
+    private volatile boolean stopped = false;
+    private volatile Thread reopenThread;
     /**
      * The camera id, readable without the lock.
      *
@@ -133,18 +163,37 @@ public class CameraEngine {
     public CameraEngine(Context ctx) {
         this.ctx = ctx;
         this.cm = (CameraManager) ctx.getSystemService(Context.CAMERA_SERVICE);
+        // A first estimate, so the limits are honest even before a camera opens. The real
+        // still size replaces the guess as soon as a session is configured.
+        caps.sizeToHeap(Runtime.getRuntime().maxMemory(), 12_000_000L);
     }
 
     // ------------------------------------------------------------ lifecycle
 
-    public void start() throws Exception {
+    /**
+     * Brings the camera up.
+     *
+     * A camera another app is holding is not a reason to refuse to start. The service
+     * used to fail here, which took the HTTP server down with it, so a client saw a
+     * refused connection and no reason at all, while a camera lost the same way one
+     * second later recovered on its own within fifteen. The state goes into /api/status
+     * instead and the watchdog keeps trying.
+     */
+    public void start() {
+        stopped = false;
         camThread = new HandlerThread("deskcam-camera");
         camThread.start();
         camHandler = new Handler(camThread.getLooper());
         camExecutor = camHandler::post;
         cm.registerAvailabilityCallback(availabilityCb, camHandler);
-        openAndConfigure(settings.clone());
-        camHandler.postDelayed(watchdog, 15000);
+        try {
+            synchronized (lock) { openAndConfigure(settings.clone()); }
+        } catch (Exception e) {
+            Log.w(TAG, "camera did not open at start, will keep trying: " + e);
+            if (!"disconnected".equals(state)) state = "waiting";
+            lastError = "camera not open yet: " + e;
+        }
+        startWatchdog();
     }
 
     /**
@@ -156,11 +205,11 @@ public class CameraEngine {
             new CameraManager.AvailabilityCallback() {
         @Override public void onCameraAvailable(String id) {
             if (!id.equals(activeCameraId)) return;
-            if (device != null || "stopped".equals(state)) return;
+            if (device != null || stopped) return;
             reopenLater("camera " + id + " is free again");
         }
         @Override public void onCameraUnavailable(String id) {
-            if (id.equals(activeCameraId) && device == null && !"stopped".equals(state)) {
+            if (id.equals(activeCameraId) && device == null && !stopped) {
                 state = "disconnected";
                 lastError = "another app is using camera " + id;
             }
@@ -173,73 +222,120 @@ public class CameraEngine {
      * this work there would make the thread wait for itself.
      */
     private void reopenLater(String why) {
+        if (stopped) return;
         if (!reopening.compareAndSet(false, true)) return;
-        new Thread(() -> {
+        Thread t = new Thread(() -> {
             try {
                 // A few close attempts only. The other app may still be releasing the
                 // device. If these fail, the next availability callback or the watchdog
                 // will try again, so nothing is lost by giving up quickly here.
                 long[] waits = {300, 1200, 3000};
-                for (int i = 0; i < waits.length; i++) {
-                    if (camThread == null) return;               // service stopped
+                for (long w : waits) {
+                    if (stopped || camThread == null) return;
                     try {
-                        Thread.sleep(waits[i]);
+                        Thread.sleep(w);
                     } catch (InterruptedException ie) {
-                        return;
+                        return;                                  // stop() wants us gone
                     }
+                    if (stopped) return;
                     synchronized (lock) {
+                        if (stopped) return;
                         if (device != null) return;              // already back
                         try {
-                            Log.i(TAG, why + ", reopening (try " + (i + 1) + ")");
+                            Log.i(TAG, why + ", reopening");
                             openAndConfigure(settings.clone());
                             lastError = null;
                             Log.i(TAG, "camera recovered");
                             return;
                         } catch (Exception e) {
-                            Log.w(TAG, "reopen try " + (i + 1) + " failed: " + e);
+                            Log.w(TAG, "reopen failed: " + e);
                             lastError = "waiting for the camera: " + e;
                         }
                     }
                 }
             } finally {
                 reopening.set(false);
+                reopenThread = null;
             }
-        }, "deskcam-reopen").start();
+        }, "deskcam-reopen");
+        reopenThread = t;
+        t.start();
     }
 
     /**
-     * A slow safety net. An availability callback can be missed, or can arrive while a
-     * reopen is already running and be dropped. This notices that case within 15 seconds.
+     * A slow safety net, on a thread of its own.
+     *
+     * It used to be posted to the camera handler, which is the same handler every camera
+     * callback uses. A camera thread that wedged therefore stopped the watchdog too, and
+     * that is precisely the fault the watchdog exists to find. Its test used to be
+     * "device is null", which a camera that is open but delivering nothing passes
+     * happily; that is what heat throttling looks like. The test is now that frames are
+     * still arriving.
      */
-    private final Runnable watchdog = new Runnable() {
-        @Override public void run() {
-            if (camHandler == null) return;
-            if (device == null && !"stopped".equals(state) && !reopening.get()) {
-                reopenLater("watchdog saw no camera");
+    private void startWatchdog() {
+        watchdogThread = new Thread(() -> {
+            long lastSeen = framesSeen.get();
+            while (!stopped) {
+                try {
+                    Thread.sleep(15000);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                if (stopped) return;
+                long seen = framesSeen.get();
+                boolean noDevice = device == null;
+                boolean stalled = !noDevice && seen == lastSeen && "running".equals(state);
+                lastSeen = seen;
+                if ((noDevice || stalled) && !reopening.get()) {
+                    if (stalled) {
+                        lastError = "the camera is open but has produced no frame for 15 seconds";
+                        Log.w(TAG, "watchdog: " + lastError);
+                    }
+                    reopenLater(noDevice ? "watchdog saw no camera" : "watchdog saw no frames");
+                }
             }
-            camHandler.postDelayed(this, 15000);
-        }
-    };
+        }, "deskcam-watchdog");
+        watchdogThread.setDaemon(true);
+        watchdogThread.start();
+    }
 
+    /**
+     * Stops, quickly, and stays stopped.
+     *
+     * The flag goes up before anything else, so an open that is already waiting on a
+     * callback gives up at its next check instead of holding the caller for the full
+     * five second timeout twice over, and a reopen already in flight cannot bring the
+     * camera back after this returns.
+     */
     public void stop() {
-        try { cm.unregisterAvailabilityCallback(availabilityCb); } catch (Exception ignored) { }
+        stopped = true;
+        state = "stopped";
+        Thread r = reopenThread;
+        if (r != null) r.interrupt();
+        Thread w = watchdogThread;
+        if (w != null) w.interrupt();
+        watchdogThread = null;
+        try { cm.unregisterAvailabilityCallback(availabilityCb); } catch (Exception e) {
+            Log.d(TAG, "unregister availability callback: " + e);
+        }
         synchronized (lock) {
             closeSessionAndDevice();
             state = "stopped";
         }
-        if (camHandler != null) camHandler.removeCallbacks(watchdog);
+        for (Pending p : pending) p.abandon();
+        pending.clear();
         if (camThread != null) {
             camThread.quitSafely();
-            try { camThread.join(1500); } catch (InterruptedException ignored) { }
+            try { camThread.join(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             camThread = null;
             camHandler = null;
         }
     }
 
     private void closeSessionAndDevice() {
-        try { if (session != null) session.close(); } catch (Exception ignored) { }
+        try { if (session != null) session.close(); } catch (Exception e) { Log.d(TAG, "session close: " + e); }
         session = null;
-        try { if (device != null) device.close(); } catch (Exception ignored) { }
+        try { if (device != null) device.close(); } catch (Exception e) { Log.d(TAG, "device close: " + e); }
         device = null;
         if (previewReader != null) { previewReader.close(); previewReader = null; }
         if (stillReader != null) { stillReader.close(); stillReader = null; }
@@ -260,22 +356,30 @@ public class CameraEngine {
         boolean wantRaw = !rawSessionFailed && deviceHasRaw(s.cameraId);
         try {
             configureSession(s, wantRaw);
-        } catch (Exception e) {
+        } catch (SessionConfigurationException e) {
             if (!wantRaw) throw e;
             // A RAW output is a mandatory stream combination on paper. If this device
-            // disagrees, fall back rather than leave the camera unusable.
+            // disagrees, fall back rather than leave the camera unusable. Only a refusal
+            // to CONFIGURE says anything about RAW; a busy camera says nothing.
             Log.w(TAG, "session with RAW refused, retrying without it: " + e);
             rawSessionFailed = true;
             configureSession(s, false);
         }
     }
 
+    /** Thrown only when the session itself refuses the outputs it was given. */
+    private static class SessionConfigurationException extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        SessionConfigurationException(String m) { super(m); }
+    }
+
     private boolean deviceHasRaw(String cameraId) {
         try {
             CameraCharacteristics c = cm.getCameraCharacteristics(cameraId);
-            int[] caps = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
-            if (caps == null) return false;
-            for (int x : caps) {
+            int[] capabilities = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+            if (capabilities == null) return false;
+            for (int x : capabilities) {
                 if (x == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) return true;
             }
         } catch (Exception e) {
@@ -284,8 +388,21 @@ public class CameraEngine {
         return false;
     }
 
+    /** True when the device really offers this camera id. */
+    public boolean hasCamera(String id) {
+        try {
+            for (String known : cm.getCameraIdList()) {
+                if (known.equals(id)) return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "camera id list", e);
+        }
+        return false;
+    }
+
     private void configureSession(CamSettings s, boolean withRaw) throws Exception {
         closeSessionAndDevice();
+        if (stopped) throw new IllegalStateException("service is stopping");
         state = "opening";
         lastError = null;
 
@@ -312,7 +429,10 @@ public class CameraEngine {
         stillSize = (s.stillW > 0 && s.stillH > 0)
                 ? nearestSize(map.getOutputSizes(ImageFormat.JPEG), s.stillW, s.stillH)
                 : largestSize(map.getOutputSizes(ImageFormat.JPEG));
-        Size pv = nearestSize(map.getOutputSizes(ImageFormat.YUV_420_888), s.previewW, s.previewH);
+        Size pv = nearestSize(map.getOutputSizes(ImageFormat.YUV_420_888), s.previewReqW, s.previewReqH);
+
+        caps.sizeToHeap(Runtime.getRuntime().maxMemory(),
+                (long) stillSize.getWidth() * stillSize.getHeight());
 
         // Deep enough that a burst keeps running while the server drains it.
         stillReader = ImageReader.newInstance(stillSize.getWidth(), stillSize.getHeight(),
@@ -321,10 +441,15 @@ public class CameraEngine {
             // acquireNextImage, not acquireLatestImage: a burst must keep every frame.
             try (Image img = r.acquireNextImage()) {
                 if (img == null) return;
+                long ts = img.getTimestamp();
+                Pending owner = ownerOf(ts);
+                // A frame nobody asked for is dropped here rather than copied into a
+                // shared queue where the next capture would find it.
+                if (owner == null) return;
                 ByteBuffer b = img.getPlanes()[0].getBuffer();
                 byte[] data = new byte[b.remaining()];
                 b.get(data);
-                stillQueue.offer(data);
+                owner.image(ts, data);
             } catch (Exception e) {
                 Log.w(TAG, "still reader", e);
             }
@@ -353,9 +478,10 @@ public class CameraEngine {
         previewReader.setOnImageAvailableListener(r -> {
             Image img = r.acquireLatestImage();
             if (img == null) return;
+            framesSeen.incrementAndGet();          // the watchdog reads this
             try {
                 // Drain but do not pay for conversion when nobody is watching.
-                boolean wanted = streamClients > 0
+                boolean wanted = streamClients.get() > 0
                         || (System.currentTimeMillis() - lastDemandMs) < 2000;
                 if (wanted) {
                     byte[] nv21 = yuv420ToNv21(img);
@@ -405,10 +531,7 @@ public class CameraEngine {
             }
         });
 
-        synchronized (openLatch) {
-            long deadline = System.currentTimeMillis() + 5000;
-            while (!done[0] && System.currentTimeMillis() < deadline) openLatch.wait(200);
-        }
+        awaitLatch(openLatch, done, 5000);
         if (openErr[0] != null) throw openErr[0];
         if (device == null) throw new IllegalStateException("camera did not open in time");
 
@@ -419,7 +542,7 @@ public class CameraEngine {
 
         final Object sesLatch = new Object();
         final boolean[] sesDone = new boolean[1];
-        final Exception[] sesErr = new Exception[1];
+        final boolean[] sesRefused = new boolean[1];
 
         device.createCaptureSession(new SessionConfiguration(
                 SessionConfiguration.SESSION_REGULAR, outs, camExecutor,
@@ -429,16 +552,13 @@ public class CameraEngine {
                         synchronized (sesLatch) { sesDone[0] = true; sesLatch.notifyAll(); }
                     }
                     @Override public void onConfigureFailed(CameraCaptureSession cs) {
-                        sesErr[0] = new IllegalStateException("capture session configuration failed");
+                        sesRefused[0] = true;
                         synchronized (sesLatch) { sesDone[0] = true; sesLatch.notifyAll(); }
                     }
                 }));
 
-        synchronized (sesLatch) {
-            long deadline = System.currentTimeMillis() + 5000;
-            while (!sesDone[0] && System.currentTimeMillis() < deadline) sesLatch.wait(200);
-        }
-        if (sesErr[0] != null) throw sesErr[0];
+        awaitLatch(sesLatch, sesDone, 5000);
+        if (sesRefused[0]) throw new SessionConfigurationException("capture session configuration failed");
         if (session == null) throw new IllegalStateException("session did not configure in time");
 
         previewBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
@@ -446,12 +566,24 @@ public class CameraEngine {
         applyTo(previewBuilder, s, false);
         session.setRepeatingRequest(previewBuilder.build(), resultCb, camHandler);
 
-        settings = s;
+        settings = s.withoutPresentation();
         settings.previewW = pv.getWidth();
         settings.previewH = pv.getHeight();
         state = "running";
         Log.i(TAG, "camera " + s.cameraId + " running, preview " + pv + " still " + stillSize
                 + (rawSize != null ? " raw " + rawSize : " raw unavailable"));
+    }
+
+    /** Waits for a camera callback, giving up early when the service is stopping. */
+    private void awaitLatch(Object latch, boolean[] done, long timeoutMs) throws Exception {
+        synchronized (latch) {
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            while (!done[0] && System.currentTimeMillis() < deadline) {
+                if (stopped) throw new IllegalStateException("service is stopping");
+                latch.wait(200);
+            }
+        }
+        if (stopped) throw new IllegalStateException("service is stopping");
     }
 
     private final CameraCaptureSession.CaptureCallback resultCb = new CameraCaptureSession.CaptureCallback() {
@@ -460,19 +592,148 @@ public class CameraEngine {
         }
     };
 
+    // ------------------------------------------------------- capture identity
+
+    /** One frame of one capture: the bytes and the result of the same exposure. */
+    private static final class Frame {
+        byte[] jpeg;
+        TotalCaptureResult result;
+
+        boolean paired() { return jpeg != null && result != null; }
+    }
+
+    /**
+     * One capture in flight.
+     *
+     * The HAL reports the sensor timestamp of a frame when its exposure starts, before
+     * the image for that frame reaches the reader, and the same timestamp is in the
+     * capture result. That is the frame's identity, so a capture can claim its own
+     * frames and its own results without ever trusting the order things arrive in.
+     */
+    private static final class Pending {
+        final int wanted;
+        final LinkedHashMap<Long, Frame> byTimestamp = new LinkedHashMap<>();
+        int failed = 0;
+        boolean abandoned = false;
+
+        Pending(int wanted) { this.wanted = wanted; }
+
+        synchronized void started(long ts) {
+            byTimestamp.put(ts, new Frame());
+            notifyAll();
+        }
+
+        synchronized boolean claims(long ts) { return byTimestamp.containsKey(ts); }
+
+        synchronized void image(long ts, byte[] data) {
+            Frame f = byTimestamp.get(ts);
+            if (f != null) { f.jpeg = data; notifyAll(); }
+        }
+
+        synchronized void result(long ts, TotalCaptureResult r) {
+            Frame f = byTimestamp.get(ts);
+            if (f == null) { f = new Frame(); byTimestamp.put(ts, f); }
+            f.result = r;
+            notifyAll();
+        }
+
+        synchronized void failure() { failed++; notifyAll(); }
+
+        synchronized int failures() { return failed; }
+
+        /** Drops whatever has been collected, so a capture that dies frees its frames. */
+        synchronized void abandon() {
+            abandoned = true;
+            byTimestamp.clear();
+            notifyAll();
+        }
+
+        synchronized int paired() {
+            int n = 0;
+            for (Frame f : byTimestamp.values()) if (f.paired()) n++;
+            return n;
+        }
+
+        /** Waits for as many complete frames as were asked for, or until the deadline. */
+        synchronized List<Frame> await(long deadline) throws InterruptedException {
+            while (!abandoned && paired() + failed < wanted) {
+                long wait = deadline - System.currentTimeMillis();
+                if (wait <= 0) break;
+                wait(Math.min(wait, 200));
+            }
+            List<Frame> out = new ArrayList<>();
+            for (Frame f : byTimestamp.values()) if (f.paired()) out.add(f);
+            return out;
+        }
+    }
+
+    private Pending ownerOf(long timestamp) {
+        for (Pending p : pending) {
+            if (p.claims(timestamp)) return p;
+        }
+        return null;
+    }
+
+    /** The callback that gives one capture its own frame identities and results. */
+    private static CameraCaptureSession.CaptureCallback callbackFor(Pending p) {
+        return new CameraCaptureSession.CaptureCallback() {
+            @Override public void onCaptureStarted(CameraCaptureSession s, CaptureRequest r,
+                                                   long timestamp, long frameNumber) {
+                p.started(timestamp);
+            }
+            @Override public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r,
+                                                     TotalCaptureResult res) {
+                Long ts = res.get(CaptureResult.SENSOR_TIMESTAMP);
+                if (ts != null) p.result(ts, res);
+            }
+            @Override public void onCaptureFailed(CameraCaptureSession s, CaptureRequest r,
+                                                  CaptureFailure f) {
+                Log.w(TAG, "capture failed, reason " + f.getReason());
+                p.failure();
+            }
+        };
+    }
+
     // ------------------------------------------------------------- settings
 
-    /** Applies new settings, rebuilding the session only when something structural changed. */
+    /**
+     * Applies new settings, rebuilding the session only when something structural changed.
+     *
+     * Only camera state is kept. The presentation parameters of the request that brought
+     * these settings in are dropped, because they describe one picture and not the camera.
+     */
     public CamSettings update(CamSettings next) throws Exception {
+        if (!next.cameraId.equals(activeCameraId) && !hasCamera(next.cameraId)) {
+            // Check before anything is closed. A bad id used to shut the working session
+            // and then fail to open the new one, leaving the camera dark until the
+            // watchdog came round fifteen seconds later.
+            throw new IllegalArgumentException("no camera with id '" + next.cameraId
+                    + "'; see /api/cameras");
+        }
         synchronized (lock) {
             boolean structural = !next.cameraId.equals(settings.cameraId)
-                    || next.previewW != settings.previewW || next.previewH != settings.previewH
+                    || next.previewReqW != settings.previewReqW
+                    || next.previewReqH != settings.previewReqH
                     || next.stillW != settings.stillW || next.stillH != settings.stillH;
             if (structural || session == null) {
-                openAndConfigure(next);
+                CamSettings previous = settings.clone();
+                try {
+                    openAndConfigure(next);
+                } catch (Exception e) {
+                    // Put back what was working, so a rejected change does not also cost
+                    // the caller the session they already had.
+                    if (structural) {
+                        try {
+                            openAndConfigure(previous);
+                        } catch (Exception restore) {
+                            Log.w(TAG, "could not restore the previous session", restore);
+                        }
+                    }
+                    throw e;
+                }
             } else {
-                settings = next;
-                applyTo(previewBuilder, next, false);
+                settings = next.withoutPresentation();
+                applyTo(previewBuilder, settings, false);
                 session.setRepeatingRequest(previewBuilder.build(), resultCb, camHandler);
             }
             return settings.clone();
@@ -515,7 +776,9 @@ public class CameraEngine {
                 try {
                     b.set(CaptureRequest.FLASH_STRENGTH_LEVEL,
                             CamSettings.clampInt(s.torch, 1, caps.flashMaxLevel));
-                } catch (IllegalArgumentException ignored) { }
+                } catch (IllegalArgumentException e) {
+                    Log.d(TAG, "device rejected the torch level: " + e);
+                }
             }
         } else {
             b.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF);
@@ -627,7 +890,6 @@ public class CameraEngine {
         return o;
     }
 
-
     private MeteringRectangle[] meteringForRoi(CamSettings s) {
         if (s.roiIsWholeFrame()) return null;
         Rect r = s.roiFor(activeArray.width(), activeArray.height());
@@ -650,23 +912,69 @@ public class CameraEngine {
 
     // ------------------------------------------------------------- capture
 
-    /** Full-resolution still, cropped to the ROI. */
-    public byte[] captureStill(long timeoutMs) throws Exception {
-        CamSettings s;
-        synchronized (lock) {
-            if (session == null || device == null) throw new IllegalStateException(notRunning());
-            s = settings.clone();
-            stillQueue.clear();
-            CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            b.addTarget(stillReader.getSurface());
-            applyTo(b, s, true);
-            session.capture(b.build(), null, camHandler);
+    /** A picture and the record of the frame it came from. */
+    public static final class Shot {
+        public final byte[] bytes;
+        public final JSONObject provenance;
+
+        Shot(byte[] bytes, JSONObject provenance) {
+            this.bytes = bytes;
+            this.provenance = provenance;
         }
-        byte[] jpeg = stillQueue.poll(timeoutMs, TimeUnit.MILLISECONDS);
-        if (jpeg == null) throw new IllegalStateException("still capture timed out after " + timeoutMs + "ms");
-        byte[] finished = withExif(s.stillIsPristine() ? jpeg : cropJpeg(jpeg, s), s);
-        makeThumb(finished);
-        return finished;
+    }
+
+    /** A burst, with the count that was asked for so a short burst can say so. */
+    public static final class Burst {
+        public final List<byte[]> frames;
+        public final int requested;
+        public final JSONObject provenance;
+
+        Burst(List<byte[]> frames, int requested, JSONObject provenance) {
+            this.frames = frames;
+            this.requested = requested;
+            this.provenance = provenance;
+        }
+
+        public boolean complete() { return frames.size() >= requested; }
+    }
+
+    /**
+     * Full-resolution still, cropped to the ROI.
+     *
+     * The request carries its own settings, including the presentation parameters of this
+     * one request, and the returned provenance describes THIS frame. It used to describe
+     * whatever preview frame happened to be the most recent, which is a different picture:
+     * a still runs noise reduction and edge enhancement at high quality, the preview runs
+     * them fast.
+     */
+    public Shot captureStill(CamSettings req, long timeoutMs) throws Exception {
+        Pending p = new Pending(1);
+        pending.add(p);
+        try {
+            synchronized (lock) {
+                if (session == null || device == null) throw new IllegalStateException(notRunning());
+                CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                b.addTarget(stillReader.getSurface());
+                applyTo(b, req, true);
+                session.capture(b.build(), callbackFor(p), camHandler);
+            }
+            List<Frame> frames = p.await(System.currentTimeMillis() + timeoutMs);
+            if (frames.isEmpty()) {
+                throw new IllegalStateException(p.failures() > 0
+                        ? "the camera refused the still capture"
+                        : "still capture timed out after " + timeoutMs + "ms");
+            }
+            Frame f = frames.get(0);
+            JSONObject prov = provenance(req, f.result);
+            byte[] raw = f.jpeg;
+            f.jpeg = null;
+            byte[] finished = withExif(req.stillIsPristine() ? raw : cropJpeg(raw, req), prov);
+            makeThumb(finished);
+            return new Shot(finished, prov);
+        } finally {
+            pending.remove(p);
+            p.abandon();                 // whatever it still holds is released here
+        }
     }
 
     /**
@@ -691,7 +999,7 @@ public class CameraEngine {
             dec.recycle();
         }
         if (bmp == null) throw new IllegalStateException("region decode failed");
-        bmp = transform(bmp, s);
+        bmp = transform(bmp, s, caps);
 
         ByteArrayOutputStream out = new ByteArrayOutputStream(1 << 20);
         bmp.compress(Bitmap.CompressFormat.JPEG, s.jpegQuality, out);
@@ -707,10 +1015,9 @@ public class CameraEngine {
      * response header instead. Every value needed for correct colour, including the black
      * and white levels and the calibration matrices, is written from the capture result.
      */
-    public byte[] captureRaw(long timeoutMs) throws Exception {
+    public Shot captureRaw(CamSettings req, long timeoutMs) throws Exception {
         synchronized (rawCaptureLock) {
             CameraCharacteristics ch;
-            CamSettings s;
             synchronized (lock) {
                 if (session == null || device == null) throw new IllegalStateException(notRunning());
                 if (rawReader == null) {
@@ -719,21 +1026,20 @@ public class CameraEngine {
                             : "RAW is not available on camera " + settings.cameraId);
                 }
                 ch = chars;
-                s = settings.clone();
                 synchronized (rawLock) {
                     if (pendingRaw != null) { pendingRaw.close(); pendingRaw = null; }
                     pendingRawResult = null;
                 }
                 CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
                 b.addTarget(rawReader.getSurface());
-                applyTo(b, s, true);
+                applyTo(b, req, true);
                 session.capture(b.build(), new CameraCaptureSession.CaptureCallback() {
                     @Override public void onCaptureCompleted(CameraCaptureSession cs, CaptureRequest rq,
                                                              TotalCaptureResult res) {
                         synchronized (rawLock) { pendingRawResult = res; rawLock.notifyAll(); }
                     }
                     @Override public void onCaptureFailed(CameraCaptureSession cs, CaptureRequest rq,
-                                                          android.hardware.camera2.CaptureFailure f) {
+                                                          CaptureFailure f) {
                         Log.w(TAG, "raw capture failed, reason " + f.getReason());
                         synchronized (rawLock) { rawLock.notifyAll(); }
                     }
@@ -759,12 +1065,15 @@ public class CameraEngine {
                 pendingRawResult = null;
             }
 
+            // The result of this frame, not of the preview. It was already here and was
+            // being thrown away.
+            JSONObject prov = provenance(req, res);
             try (DngCreator dng = new DngCreator(ch, res)) {
-                dng.setOrientation(exifOrientation(s.rotate));
-                dng.setDescription(provenance(s));
+                dng.setOrientation(exifOrientation(req.rotate));
+                dng.setDescription(prov.toString());
                 ByteArrayOutputStream out = new ByteArrayOutputStream(1 << 23);
                 dng.writeImage(out, img);
-                return out.toByteArray();
+                return new Shot(out.toByteArray(), prov);
             } finally {
                 img.close();
             }
@@ -779,76 +1088,158 @@ public class CameraEngine {
      * average the noise away, and every frame must see the same scene and the same
      * exposure for the average to mean anything.
      */
-    public List<byte[]> captureBurst(int n, long timeoutMs) throws Exception {
+    public Burst captureBurst(CamSettings req, int n, long timeoutMs) throws Exception {
+        if (n > caps.maxBurst) {
+            // Before the capture, not part way through it. A burst of 64 full-resolution
+            // frames is held three times over before the client sees any of it, and the
+            // OutOfMemoryError that produced was an Error rather than an Exception, so it
+            // walked straight past every handler and took the service with it.
+            throw new IllegalArgumentException("n=" + n + " will not fit in memory on this "
+                    + "device; the most this heap can carry at " + stillSize.getWidth() + "x"
+                    + stillSize.getHeight() + " is n=" + caps.maxBurst);
+        }
         synchronized (rawCaptureLock) {      // one multi-frame operation at a time
-            CamSettings s;
-            synchronized (lock) {
-                if (session == null || device == null) throw new IllegalStateException(notRunning());
-                s = settings.clone();
-                stillQueue.clear();
-                List<CaptureRequest> reqs = new ArrayList<>(n);
-                for (int i = 0; i < n; i++) {
-                    CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-                    b.addTarget(stillReader.getSurface());
-                    applyTo(b, s, true);
-                    reqs.add(b.build());
+            Pending p = new Pending(n);
+            pending.add(p);
+            try {
+                synchronized (lock) {
+                    if (session == null || device == null) throw new IllegalStateException(notRunning());
+                    List<CaptureRequest> reqs = new ArrayList<>(n);
+                    for (int i = 0; i < n; i++) {
+                        CaptureRequest.Builder b =
+                                device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                        b.addTarget(stillReader.getSurface());
+                        applyTo(b, req, true);
+                        reqs.add(b.build());
+                    }
+                    session.captureBurst(reqs, callbackFor(p), camHandler);
                 }
-                session.captureBurst(reqs, null, camHandler);
-            }
 
-            List<byte[]> frames = new ArrayList<>(n);
-            long deadline = System.currentTimeMillis() + timeoutMs;
-            while (frames.size() < n) {
-                long wait = deadline - System.currentTimeMillis();
-                if (wait <= 0) break;
-                byte[] f = stillQueue.poll(Math.min(wait, 500), TimeUnit.MILLISECONDS);
-                if (f == null) continue;
-                frames.add(s.stillIsPristine() ? f : cropJpeg(f, s));
+                List<Frame> got = p.await(System.currentTimeMillis() + timeoutMs);
+                if (got.isEmpty()) throw new IllegalStateException("burst produced no frames");
+                List<byte[]> frames = new ArrayList<>(got.size());
+                for (Frame f : got) {
+                    frames.add(req.stillIsPristine() ? f.jpeg : cropJpeg(f.jpeg, req));
+                    f.jpeg = null;      // the cropped copy exists; let the original go
+                }
+                // The frames of a burst all share one exposure, so the first result
+                // describes all of them.
+                return new Burst(frames, n, provenance(req, got.get(0).result));
+            } finally {
+                pending.remove(p);
+                p.abandon();
             }
-            if (frames.isEmpty()) throw new IllegalStateException("burst produced no frames");
-            return frames;
         }
     }
 
+    // ---------------------------------------------------------- provenance
+
     /**
-     * A compact record of how a picture was taken, for embedding in the file itself.
+     * A record of how a picture was taken, for the file itself and for the sidecar.
      *
-     * The sidecar holds the same thing, but a sidecar gets separated from its image when
-     * files are copied or sent on. Anything needed to trust a measurement later should
-     * travel inside the file.
+     * The values come from the capture result of THIS frame. The CLI used to build the
+     * sidecar from a second /api/status request made after the capture returned, which
+     * described whatever the camera was doing by then.
      */
-    private String provenance(CamSettings s) {
+    private JSONObject provenance(CamSettings s, TotalCaptureResult r) {
+        JSONObject o = new JSONObject();
         try {
-            JSONObject o = new JSONObject();
             o.put("tool", "DeskCam");
-            o.put("zoom", CamSettings.round2(s.zoom));
-            o.put("cx", CamSettings.round3(s.cx));
-            o.put("cy", CamSettings.round3(s.cy));
-            o.put("rotate", s.rotate);
-            o.put("measure", s.measure);
+            o.put("captured_at", java.time.OffsetDateTime.now().toString());
+            o.put("capture_path", s.capturePath());
+            o.put("settings", s.toJson());
             if (sensors != null) o.put("orientation", sensors.toJson());
-            TotalCaptureResult r = lastResult;
             if (r != null) {
-                JSONObject m = new JSONObject();
-                Long en = r.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-                if (en != null) { m.put("exposure_ns", en); m.put("exposure", CamSettings.humanExposure(en)); }
-                putIf(m, "iso", r.get(CaptureResult.SENSOR_SENSITIVITY));
-                Float fd = r.get(CaptureResult.LENS_FOCUS_DISTANCE);
-                if (fd != null) {
-                    m.put("focus_diopters", CamSettings.round2(fd));
-                    // APPROXIMATE calibration, so this is indicative and not a measurement.
-                    if (fd > 0.001f) m.put("focus_metres_approx", CamSettings.round3(1f / fd));
-                }
-                o.put("measured", m);
+                o.put("measured", measuredJson(r));
+                o.put("pipeline", pipelineJson(r));
             }
-            return o.toString();
         } catch (Exception e) {
-            return "{\"tool\":\"DeskCam\"}";
+            Log.w(TAG, "provenance", e);
         }
+        return o;
+    }
+
+    /** What the camera reports it actually did, out of one capture result. */
+    private static JSONObject measuredJson(TotalCaptureResult r) throws JSONException {
+        JSONObject m = new JSONObject();
+        Long en = r.get(CaptureResult.SENSOR_EXPOSURE_TIME);
+        if (en != null) {
+            m.put("exposure_ns", en);
+            m.put("exposure_human", CamSettings.humanExposure(en));
+        }
+        putIf(m, "iso", r.get(CaptureResult.SENSOR_SENSITIVITY));
+        Float fd = r.get(CaptureResult.LENS_FOCUS_DISTANCE);
+        if (fd != null) {
+            m.put("focus_diopters", CamSettings.round2(fd));
+            // APPROXIMATE calibration, so this is indicative and not a measurement.
+            if (fd > 0.001f) m.put("focus_metres_approx", CamSettings.round3(1f / fd));
+        }
+        Integer afs = r.get(CaptureResult.CONTROL_AF_STATE);
+        if (afs != null) m.put("af_state", afStateName(afs));
+        Integer aes = r.get(CaptureResult.CONTROL_AE_STATE);
+        if (aes != null) m.put("ae_state", aes);
+        Long ts = r.get(CaptureResult.SENSOR_TIMESTAMP);
+        if (ts != null) m.put("sensor_timestamp", ts);
+
+        // Measurement mode locks the white balance, which holds the gains at whatever
+        // they happened to be. Two sessions can lock different gains, and without these
+        // values nothing records why two captures of one subject differ in colour.
+        RggbChannelVector g = r.get(CaptureResult.COLOR_CORRECTION_GAINS);
+        if (g != null) {
+            m.put("awb_gains", new JSONArray()
+                    .put(CamSettings.round3(g.getRed()))
+                    .put(CamSettings.round3(g.getGreenEven()))
+                    .put(CamSettings.round3(g.getGreenOdd()))
+                    .put(CamSettings.round3(g.getBlue())));
+        }
+        android.hardware.camera2.params.ColorSpaceTransform t =
+                r.get(CaptureResult.COLOR_CORRECTION_TRANSFORM);
+        if (t != null) {
+            JSONArray a = new JSONArray();
+            for (int row = 0; row < 3; row++) {
+                for (int col = 0; col < 3; col++) {
+                    a.put(CamSettings.round3(t.getElement(col, row).doubleValue()));
+                }
+            }
+            m.put("colour_transform", a);
+        }
+        return m;
+    }
+
+    /** What the HAL applied, which is not always what was asked for. Rule R4. */
+    private static JSONObject pipelineJson(TotalCaptureResult r) throws JSONException {
+        JSONObject pipe = new JSONObject();
+        putName(pipe, "noise_reduction", r.get(CaptureResult.NOISE_REDUCTION_MODE),
+                new String[]{"off", "fast", "high_quality", "minimal", "zero_shutter_lag"});
+        putName(pipe, "edge", r.get(CaptureResult.EDGE_MODE),
+                new String[]{"off", "fast", "high_quality", "zero_shutter_lag"});
+        putName(pipe, "tonemap", r.get(CaptureResult.TONEMAP_MODE),
+                new String[]{"contrast_curve", "fast", "high_quality", "gamma_value", "preset_curve"});
+        putName(pipe, "shading", r.get(CaptureResult.SHADING_MODE),
+                new String[]{"off", "fast", "high_quality"});
+        putName(pipe, "hot_pixel", r.get(CaptureResult.HOT_PIXEL_MODE),
+                new String[]{"off", "fast", "high_quality"});
+        putName(pipe, "aberration", r.get(CaptureResult.COLOR_CORRECTION_ABERRATION_MODE),
+                new String[]{"off", "fast", "high_quality"});
+        putName(pipe, "ois", r.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE),
+                new String[]{"off", "on"});
+        TonemapCurve tc = r.get(CaptureResult.TONEMAP_CURVE);
+        if (tc != null) {
+            int n = tc.getPointCount(TonemapCurve.CHANNEL_GREEN);
+            pipe.put("tonemap_points", n);
+            // Two points from 0,0 to 1,1 is the identity curve we ask for.
+            if (n == 2) {
+                float[] pts = new float[4];
+                tc.copyColorCurve(TonemapCurve.CHANNEL_GREEN, pts, 0);
+                pipe.put("tonemap_curve", "(" + pts[0] + "," + pts[1] + ") ("
+                        + pts[2] + "," + pts[3] + ")");
+            }
+        }
+        return pipe;
     }
 
     /** Writes the provenance into the JPEG's EXIF UserComment. Pixels are untouched. */
-    private byte[] withExif(byte[] jpeg, CamSettings s) {
+    private byte[] withExif(byte[] jpeg, JSONObject prov) {
         java.io.File tmp = null;
         try {
             tmp = java.io.File.createTempFile("deskcam", ".jpg", ctx.getCacheDir());
@@ -856,7 +1247,7 @@ public class CameraEngine {
                 fo.write(jpeg);
             }
             ExifInterface ex = new ExifInterface(tmp.getAbsolutePath());
-            ex.setAttribute(ExifInterface.TAG_USER_COMMENT, provenance(s));
+            ex.setAttribute(ExifInterface.TAG_USER_COMMENT, prov.toString());
             ex.setAttribute(ExifInterface.TAG_SOFTWARE, "DeskCam");
             ex.setAttribute(ExifInterface.TAG_ORIENTATION,
                     String.valueOf(ExifInterface.ORIENTATION_NORMAL));
@@ -875,7 +1266,7 @@ public class CameraEngine {
             Log.w(TAG, "could not embed exif, returning the plain image: " + e);
             return jpeg;
         } finally {
-            if (tmp != null) tmp.delete();
+            if (tmp != null && !tmp.delete()) Log.d(TAG, "could not delete the exif temp file");
         }
     }
 
@@ -897,22 +1288,7 @@ public class CameraEngine {
 
     public Bitmap lastStillThumb() { return lastStillThumb; }
     public long lastStillAt() { return lastStillAt; }
-    public int streamClients() { return streamClients; }
-
-    /**
-     * Drops the presentation-only parameters once a request has used them.
-     *
-     * `w` and `h` describe how to present one picture. They are not a property of the
-     * camera, unlike the zoom or the exposure, and when they persisted they silently
-     * rescaled the next capture and disabled the untouched-JPEG path for ever. Card 26
-     * carries the full separation; this stops the worst of it now.
-     */
-    public void clearPresentation() {
-        synchronized (lock) {
-            settings.outW = null;
-            settings.outH = null;
-        }
-    }
+    public int streamClients() { return streamClients.get(); }
 
     private String notRunning() {
         return "disconnected".equals(state)
@@ -921,9 +1297,8 @@ public class CameraEngine {
     }
 
     /** The ROI the user is aimed at, as pixels of the RAW frame, for the response header. */
-    public String rawRoiHeader() {
+    public String rawRoiHeader(CamSettings s) {
         if (rawSize == null) return "";
-        CamSettings s = snapshot();
         Rect r = s.roiFor(rawSize.getWidth(), rawSize.getHeight());
         return r.left + "," + r.top + "," + r.width() + "," + r.height();
     }
@@ -946,18 +1321,15 @@ public class CameraEngine {
      * because the camera keeps several requests in flight and the first new frame can
      * still carry the old settings.
      */
-    public byte[] grabFrame(long timeoutMs, int skip) throws Exception {
+    public Shot grabFrame(CamSettings req, long timeoutMs, int skip) throws Exception {
         lastDemandMs = System.currentTimeMillis();
         long from = currentSeq() + Math.max(0, skip);
-        return frameAfter(from, timeoutMs);
-    }
-
-    public byte[] grabFrame(long timeoutMs) throws Exception {
-        return grabFrame(timeoutMs, 0);
+        byte[] jpeg = frameAfter(req, from, timeoutMs);
+        return new Shot(jpeg, provenance(req, lastResult));
     }
 
     /** Blocks until a frame newer than afterSeq arrives, then returns it as JPEG. */
-    public byte[] frameAfter(long afterSeq, long timeoutMs) throws Exception {
+    public byte[] frameAfter(CamSettings req, long afterSeq, long timeoutMs) throws Exception {
         lastDemandMs = System.currentTimeMillis();
         byte[] nv21; int w, h;
         synchronized (frameLock) {
@@ -969,10 +1341,8 @@ public class CameraEngine {
             }
             nv21 = latestNv21; w = latestW; h = latestH;
         }
-        CamSettings s;
-        synchronized (lock) { s = settings.clone(); }
 
-        Rect roi = s.roiFor(w, h);
+        Rect roi = req.roiFor(w, h);
         // NV21 chroma is subsampled 2x2, so an odd crop origin shifts the colour planes.
         roi.left &= ~1; roi.top &= ~1;
         roi.right = Math.min(w, roi.left + (roi.width() & ~1));
@@ -980,16 +1350,16 @@ public class CameraEngine {
 
         ByteArrayOutputStream out = new ByteArrayOutputStream(1 << 18);
         new YuvImage(nv21, ImageFormat.NV21, w, h, null)
-                .compressToJpeg(roi, s.jpegQuality, out);
+                .compressToJpeg(roi, req.jpegQuality, out);
         byte[] jpeg = out.toByteArray();
 
-        if (s.rotate == 0 && s.outW == null && s.outH == null) return jpeg;
+        if (req.rotate == 0 && req.outW == null && req.outH == null) return jpeg;
 
         Bitmap bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
         if (bmp == null) return jpeg;
-        bmp = transform(bmp, s);
+        bmp = transform(bmp, req, caps);
         ByteArrayOutputStream o2 = new ByteArrayOutputStream(1 << 18);
-        bmp.compress(Bitmap.CompressFormat.JPEG, s.jpegQuality, o2);
+        bmp.compress(Bitmap.CompressFormat.JPEG, req.jpegQuality, o2);
         bmp.recycle();
         return o2.toByteArray();
     }
@@ -998,17 +1368,34 @@ public class CameraEngine {
         synchronized (frameLock) { return latestSeq; }
     }
 
-    public void addStreamClient(int delta) { streamClients = Math.max(0, streamClients + delta); }
+    /**
+     * Counts the clients watching a stream.
+     *
+     * It was a read then a write on a plain field, so two streams starting at once could
+     * lose an update and leave the count above zero for ever. The engine then converted
+     * every preview frame although nobody was watching, which is exactly what decision D7
+     * exists to avoid.
+     */
+    public void addStreamClient(int delta) {
+        streamClients.updateAndGet(v -> Math.max(0, v + delta));
+    }
 
     /** Applies the requested resize and rotation, in that order. */
-    private static Bitmap transform(Bitmap in, CamSettings s) {
+    private static Bitmap transform(Bitmap in, CamSettings s, CamSettings.Caps caps) {
         Bitmap b = in;
         if (s.outW != null || s.outH != null) {
             int tw, th;
             if (s.outW != null && s.outH != null) { tw = s.outW; th = s.outH; }
             else if (s.outW != null) { tw = s.outW; th = Math.max(1, Math.round(in.getHeight() * (s.outW / (float) in.getWidth()))); }
             else { th = s.outH; tw = Math.max(1, Math.round(in.getWidth() * (s.outH / (float) in.getHeight()))); }
-            Bitmap scaled = Bitmap.createScaledBitmap(b, Math.max(1, tw), Math.max(1, th), true);
+            tw = Math.max(1, tw);
+            th = Math.max(1, th);
+            if ((long) tw * th > caps.maxOutputPixels) {
+                throw new IllegalArgumentException("an output of " + tw + "x" + th
+                        + " will not fit in memory; this device allows "
+                        + caps.maxOutputPixels + " pixels");
+            }
+            Bitmap scaled = Bitmap.createScaledBitmap(b, tw, th, true);
             if (scaled != b) b.recycle();
             b = scaled;
         }
@@ -1065,6 +1452,8 @@ public class CameraEngine {
 
     public CamSettings.Caps caps() { return caps; }
 
+    public String state() { return state; }
+
     public void setSensors(Sensors s) { this.sensors = s; }
 
     public JSONObject orientation() throws JSONException {
@@ -1077,6 +1466,8 @@ public class CameraEngine {
         if (lastError != null) o.put("last_error", lastError);
         o.put("settings", snapshot().toJson());
         o.put("limits", caps.toJson());
+        o.put("frames_seen", framesSeen.get());
+        o.put("stream_clients", streamClients.get());
 
         JSONObject sensor = new JSONObject();
         sensor.put("active_array", activeArray.width() + "x" + activeArray.height());
@@ -1105,48 +1496,12 @@ public class CameraEngine {
 
         TotalCaptureResult r = lastResult;
         if (r != null) {
-            JSONObject m = new JSONObject();
-            putIf(m, "exposure_ns", r.get(CaptureResult.SENSOR_EXPOSURE_TIME));
-            Long en = r.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-            if (en != null) m.put("exposure_human", CamSettings.humanExposure(en));
-            putIf(m, "iso", r.get(CaptureResult.SENSOR_SENSITIVITY));
-            putIf(m, "focus_diopters", r.get(CaptureResult.LENS_FOCUS_DISTANCE));
-            Integer afs = r.get(CaptureResult.CONTROL_AF_STATE);
-            if (afs != null) m.put("af_state", afStateName(afs));
-            Integer aes = r.get(CaptureResult.CONTROL_AE_STATE);
-            if (aes != null) m.put("ae_state", aes);
-            o.put("measured", m);
-
-            // What the HAL actually applied, which is not always what was requested.
-            // Rule R4 applies to the pipeline as much as to exposure.
-            JSONObject pipe = new JSONObject();
-            putName(pipe, "noise_reduction", r.get(CaptureResult.NOISE_REDUCTION_MODE),
-                    new String[]{"off", "fast", "high_quality", "minimal", "zero_shutter_lag"});
-            putName(pipe, "edge", r.get(CaptureResult.EDGE_MODE),
-                    new String[]{"off", "fast", "high_quality", "zero_shutter_lag"});
-            putName(pipe, "tonemap", r.get(CaptureResult.TONEMAP_MODE),
-                    new String[]{"contrast_curve", "fast", "high_quality", "gamma_value", "preset_curve"});
-            putName(pipe, "shading", r.get(CaptureResult.SHADING_MODE),
-                    new String[]{"off", "fast", "high_quality"});
-            putName(pipe, "hot_pixel", r.get(CaptureResult.HOT_PIXEL_MODE),
-                    new String[]{"off", "fast", "high_quality"});
-            putName(pipe, "aberration", r.get(CaptureResult.COLOR_CORRECTION_ABERRATION_MODE),
-                    new String[]{"off", "fast", "high_quality"});
-            putName(pipe, "ois", r.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE),
-                    new String[]{"off", "on"});
-            TonemapCurve tc = r.get(CaptureResult.TONEMAP_CURVE);
-            if (tc != null) {
-                int n = tc.getPointCount(TonemapCurve.CHANNEL_GREEN);
-                pipe.put("tonemap_points", n);
-                // Two points from 0,0 to 1,1 is the identity curve we ask for.
-                if (n == 2) {
-                    float[] pts = new float[4];
-                    tc.copyColorCurve(TonemapCurve.CHANNEL_GREEN, pts, 0);
-                    pipe.put("tonemap_curve", "(" + pts[0] + "," + pts[1] + ") ("
-                            + pts[2] + "," + pts[3] + ")");
-                }
-            }
-            o.put("pipeline", pipe);
+            // These describe the PREVIEW, because that is the only repeating request. A
+            // still is a different picture and carries its own values in its sidecar and
+            // its EXIF.
+            o.put("measured", measuredJson(r));
+            o.put("measured_from", "preview");
+            o.put("pipeline", pipelineJson(r));
         }
         return o;
     }

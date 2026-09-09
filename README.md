@@ -69,6 +69,22 @@ builds directly from the SDK build tools.
 You need a JDK. You also need `platforms/android-37.0` and `build-tools/37.0.0` in
 `$ANDROID_HOME`. The default is `~/Android/Sdk`. The first build makes a signing key.
 
+The build compiles with `-Xlint:all -Werror` and runs `backend/test/dev/deskcam/Tests.java`
+before it packages anything. Those tests need no phone: the ROI maths at each rotation, the
+exposure parser, the clamp, and the tar writer are pure functions, and every framing and
+parsing fault this project has had lived in one of them. There is no test framework, for
+the same reason the app has no libraries.
+
+The workstation half has its own gates:
+
+```sh
+./frontend/check.sh                # ruff, ruff format, mypy, bandit, pytest
+```
+
+They need no phone either. The console tests run a real console on a loopback port with
+real files under `tmp_path`, and the contract tests read `Params.java` and fail if this
+README or the specification names a parameter that does not exist, or misses one that does.
+
 ## Installation
 
 ```sh
@@ -130,49 +146,87 @@ Each command also accepts `k=v` words. The CLI applies them before it takes the 
 
 ## The HTTP API
 
-Each operation is a GET. Get the same reference as JSON from `/api/help`.
+Each operation is a GET. `deskcam api` prints the same reference from `/api/help`, which
+is generated from the one parameter list in `backend/app/src/dev/deskcam/Params.java`. If
+this table ever disagrees with `/api/help`, `/api/help` is right and this is stale.
 
 | Endpoint | Purpose |
 |---|---|
-| `/api/status` | The settings, the sensor limits, and the measured exposure, ISO, and focus |
+| `/api/status` | The settings, the sensor limits, and the measured exposure, ISO and focus **of the preview** |
 | `/api/still` | A full resolution JPEG, cropped to the ROI |
 | `/api/raw` | A full sensor RAW frame as a DNG. Refer to the note below. |
-| `/api/burst` | `n` frames with identical settings, as one tar archive |
+| `/api/burst` | `n` frames with identical settings, as one tar archive. **206** when it produced fewer than `n`. |
 | `/api/shadingmap` | The lens shading map, if the device gives one |
 | `/api/frame` | One preview JPEG. Much quicker. |
-| `/api/stream` | MJPEG. `fps` and `n` are optional. |
+| `/api/stream` | MJPEG. A view only: `fps`, `n`, `w`, `h`, `jpegq`. |
 | `/api/set` | Apply the parameters. Give the result. |
 | `/api/af` | Do one autofocus sweep |
 | `/api/reset` | Set all values to the default |
+| `/api/orientation` | The angle to gravity and the ambient light |
 | `/api/cameras` | List the cameras |
 | `/api/help` | This reference as JSON |
-| `/api/nettest` | An outbound test for the permission fault above |
+| `/api/nettest` | An outbound test for the permission fault above. It connects only back to the address that called it. |
 | `/` | The browser panel. Touch to centre. Turn the wheel to zoom. |
 
-These parameters are correct on each endpoint:
+### Camera state
+
+These persist until something changes them again, and they are correct on every endpoint
+except `/api/stream`.
 
 | Parameter | Meaning |
 |---|---|
-| `camera` | The camera id. The rear camera is `0`. |
+| `camera`, `cam` | The camera id. The rear camera is `0`. |
 | `zoom`, `zoomby` | The software zoom. The value `1.0` is the full sensor. |
 | `cx`, `cy` | The centre of the ROI, from 0 to 1 |
 | `dx`, `dy` | A relative move, in fractions of the current ROI width |
 | `af` | `off`, `auto`, `macro`, `continuous`, `video`, or `edof` |
 | `focus`, `focusm` | The manual focus in dioptres, or in metres |
 | `ae` | `on` or `off` |
-| `exposure` | `1/120`, `8ms`, `250us`, `0.5s`, or nanoseconds. This sets `ae=off`. |
-| `iso` | The sensitivity. This sets `ae=off`. |
+| `exposure`, `shutter` | `1/120`, `8ms`, `250us`, `0.5s`, or nanoseconds. This sets `ae=off`. |
+| `iso`, `sensitivity` | The sensitivity. This sets `ae=off`. |
 | `ev`, `aelock` | The compensation and the lock, when `ae=on` |
 | `awb`, `awblock` | The white balance mode and the lock |
-| `torch` | `0` to `45`, or `off`, `on`, or `max` |
-| `jpegq` | The quality. The default is 92. |
+| `torch` | `0` to `torch_max_level`, or `off`, `on`, or `max` |
+| `measure` | `on` stops all non-linear processing. Use it for measurement. |
+| `shadingmap` | `on` asks the HAL to report its lens shading map |
 | `rotate` | `0`, `90`, `180`, or `270`. This turns the pixels. |
-| `w`, `h` | Change the size after the crop. One value keeps the aspect ratio. |
 | `previewsize`, `stillsize` | The capture sizes. These make a new session. |
-| `measure` | `1` stops all non-linear processing. Use it for measurement. |
-| `fresh` | The number of frames to discard after a change. The default is 2. |
-| `reset=1` | Set all values to the default before the rest of this request |
-| `settle` | The wait in milliseconds after a change, before the capture |
+
+### Presentation
+
+These describe how **one** picture comes back. They apply to the request that names them
+and are then forgotten.
+
+| Parameter | Meaning |
+|---|---|
+| `w`, `h` | Change the size after the crop. One value keeps the aspect ratio. |
+| `jpegq`, `quality` | The quality. The default is 92. |
+
+When `w` and `h` persisted they silently rescaled the next capture and disabled the
+untouched-JPEG path for ever, which is a measurement fault rather than an inconvenience.
+`rotate` stays camera state, because it describes how the phone is bolted down.
+
+### Router
+
+| Parameter | Meaning |
+|---|---|
+| `reset` | `reset=1` sets all values to the default before the rest of this request |
+| `settle` | The wait in milliseconds after a change, before the capture. 0 to 5000. |
+| `timeout` | The wait for the capture itself, in milliseconds |
+| `fresh` | The number of preview frames to discard after a change. The default is 2. |
+| `n` | The burst length, or the frame limit of a stream |
+| `fps` | The stream rate, 0.1 to 30 |
+| `wait` | The wait after an autofocus sweep |
+| `port` | The port for `/api/nettest` |
+| `format` | `format=raw` makes `deskcam burst` take DNG frames one at a time |
+
+### Errors
+
+An unknown parameter, or a value the server cannot read, is an HTTP 400 with
+`{"ok": false, "error": "..."}` and nothing changes. This holds on every endpoint. Each
+numeric parameter has a range, and the ranges that depend on the device are in
+`limits` on `/api/status`: `max_output_edge`, `max_output_pixels` and `burst_max`. A
+request larger than the phone's heap is refused before the capture rather than during it.
 
 ## RAW capture
 
@@ -210,12 +264,32 @@ Measurement mode sets noise reduction, edge enhancement, hot pixel correction, l
 correction, and aberration correction to off. It sets a linear tone curve. It sets OIS off,
 because OIS moves on a fixed mount. It locks the white balance.
 
-A test on the device shows the difference. The exposure was doubled four times:
+Measured on 2026-09-10 with `deskcam analyse linearity`, from six captures between 50 ms
+and 283 ms at ISO 56, on a static bench scene:
 
-| Mode | Value change for each doubling |
+| Quantity | Result |
 |---|---|
-| `measure=1` | 2.02x, which is linear |
-| `measure=0` | 1.30x, near the 1.37x of an sRGB curve |
+| Value change per doubling | **2.062x** (95% 2.041 to 2.083) |
+| Samples | 6 captures, one dropped for clipping |
+| Power-law fit | R squared 1.000 |
+| Pedestal at zero exposure | **-2.39 DN** |
+
+The pedestal is the interesting part. A constant offset in the levels bends the measured
+exponent, upward when it is negative, and this one is large enough to account for the whole
+excess: remove 2.05 DN and the exponent is 1.0028, which is 2.004x per doubling. So the
+sensible reading is **the response is linear, with a black-level offset of about two
+digits**, not that it is slightly better than linear.
+
+That is what the old figure of 2.02x was hiding. It was the mean of four ratios with the
+spread discarded, one of them sitting on the floor of the 8-bit range, and it happened to
+land near the truth for two reasons that cancelled. Reproduce it yourself:
+
+```sh
+for ms in 50 71 100 141 200 283; do
+    deskcam snap -o lin/e$ms.jpg measure=1 iso=56 exposure=${ms}ms settle=600
+done
+deskcam analyse linearity lin/ --region 0.5,0.68,0.30,0.12
+```
 
 `deskcam status` gives a `pipeline` block. The block reports what the camera applied, not
 what you asked for.
@@ -236,18 +310,97 @@ deskcam burst 8 format=raw            # DNG frames, one request each
 ```
 
 The JPEG burst goes to the camera as one submission, so the HAL runs the frames back to
-back. A test on the device gave 12 full resolution frames in 642 ms, which is 18.7 frames
-per second at 12 megapixels.
+back. One test gave 12 full resolution frames in 642 ms. That was published as 18.7 frames
+per second, which counts 12 frames across 11 intervals; 11/0.642 is 17.1. **Still
+unconfirmed**, because no committed tool measures the frame rate yet. Expect roughly 17 to
+19 frames per second at 12 megapixels and time it yourself if it matters.
 
 Set the exposure below the correct value. Then the highlights never clip, and the average
 recovers the shadows. This is the one useful idea from HDR+, and it works better here than
 on a phone, because a fixed mount needs no frame alignment.
 
-A measured result from 12 frames: the noise of an average of 6 frames was 2.25 times lower
-than the noise of one frame. The square root of 6 is 2.45, so the result is 92% of the
-prediction. Two effects explain the difference. JPEG compression makes the noise of
-neighbouring frames a little alike. Fixed pattern noise is the same in each frame, so an
-average never removes it. Subtract a dark frame to remove that part.
+Measured on 2026-09-10 with `deskcam analyse burst-noise`, from one burst of 16 frames at
+200 ms and ISO 56 in measurement mode:
+
+| Frames averaged | Measured | Square root of the count |
+|---|---|---|
+| 4 | **2.026x** (95% 1.953 to 2.082) | 2.000 |
+| 6 | **2.515x** (95% 2.359 to 2.659) | 2.449 |
+
+Both intervals contain the prediction, so on this camera a burst average behaves as theory
+says. The older claim of 2.25x, read as 92% of the prediction, is not confirmed; that
+figure came from one particular split of twelve frames into groups, and which split was
+never recorded. This tool averages over two hundred random splits instead of choosing one,
+and the interval covers both the split and the choice of image region.
+
+```sh
+deskcam burst 16 -o burst/ measure=1 iso=56 exposure=200ms settle=600
+deskcam analyse burst-noise burst/ --group 4
+```
+
+## Measuring, and knowing when not to
+
+`frontend/analysis/` holds the measurement tools. They read captures and sidecars off disk
+and never talk to the camera, so they work on anything you photographed last month. They
+need `numpy` and `pillow`, which taking a picture does not:
+
+```sh
+pip install -e '.[analysis]'
+```
+
+**Start with the noise floor.** Two captures of the same subject with the same settings
+differ by the noise of the instrument, and a measurement smaller than that difference is
+the camera talking to itself:
+
+```sh
+deskcam aatest measure=1 iso=56 exposure=200ms
+```
+
+```
+aa-test: 1.415 DN, n=68252, fraction of pixels not pinned 1.000
+  a measurement of this scene must differ by more than 1.42 DN (1.38% of the level)
+  before it is a difference and not this camera
+```
+
+That figure is recorded next to your captures as `deskcam-noisefloor.json`, and the other
+tools read it and **refuse** a result that sits inside it.
+
+Every tool returns its value, its interval, its sample count and its confidence together,
+and refuses below a stated limit rather than printing a number with a caveat next to it. A
+caveat beside a number does not travel with the number.
+
+| Tool | Confidence is | Limit | Why that limit |
+|---|---|---|---|
+| `scale` | autocorrelation peak height | 0.60 | correct strips measured 0.76 to 0.96, harmonic misreads about 0.33 |
+| `linearity` | power-law fit R squared | 0.980 | both a linear response and an sRGB curve fit above 0.99 |
+| `burst-noise` | interval tightness | 0.85 | the question turns on an 8% difference, so a wider interval decides nothing |
+| `aatest` | fraction of pixels not pinned | 0.99 | a pixel at 0 or 255 records no difference and flatters the floor |
+
+Exit codes are 0 for a measurement, 2 for a refusal, 1 for a tool that could not run. Add
+`--json` for the full record.
+
+### Scale is not a property of this camera
+
+`deskcam analyse scale` measures pixels per millimetre from a regular reference in the
+frame, a steel rule or graph paper. **It changes every time the stand moves**, so it is
+never stored and never quoted as a camera specification. Measure it in the picture you
+care about:
+
+```sh
+deskcam analyse scale shot.jpg --pitch-mm 1.0 --region 0.365,0.41,0.66,0.05
+```
+
+On one setup on 2026-09-10 the rule gave 16.42 px/mm (95% 16.38 to 16.46, 40 strips) and
+the graph paper in the same frame gave 16.54 px/mm (95% 16.52 to 16.57, 37 strips). Note
+that those two intervals do not overlap. Two references 0.7% apart, each with an internal
+spread far tighter than that, is a useful reminder that **the interval a method reports is
+its precision, not its accuracy**.
+
+The tool also says when more than one regular pattern is in the frame, because a bench
+usually has several and only you know which one is the reference. The first run of it here
+locked onto graph paper, was told it was looking at millimetres, and reported a scale five
+times too large with 107 strips agreeing and a healthy correlation. Nothing about the fit
+was wrong.
 
 ## What each capture records
 
@@ -264,9 +417,21 @@ are copied. Anything you need to trust a measurement later travels in both place
 The record holds the tilt of the camera, from the gravity sensor:
 
 ```
-tilt 1.57 deg, straight down, square to a level surface
+tilt 1.57 deg, nearly straight down (1.57 degrees from gravity), 32 samples
 gravity {x: 0.22, y: 0.16, z: 9.81}   ambient 85 lux
 ```
+
+**Read what this quantity is.** It is the angle between the optical axis and **gravity**.
+Skew of a flat subject comes from the angle between the camera and the **plane of the
+subject**, and the two are equal only when the subject lies on a level surface. On a
+tilted jig they differ by the tilt of the jig, so a small reading is evidence of square
+framing only when you know the bench is level.
+
+The angle is averaged over the last 32 samples rather than taken from one reading, because
+one unfiltered accelerometer sample carries the noise of the sensor and of the bench, and
+three figures from one sample claim a precision that is not there. The count comes back
+with the angle. The words that go with it carry the number, so a reading near a band
+boundary reads as what it is rather than as a different state.
 
 A tilted camera stretches one side of a flat subject, which corrupts a measurement of
 size. The angle belongs with the picture. `deskcam status` and `/api/orientation` report
@@ -315,18 +480,42 @@ The zoom stops where a crop is no longer useful. On this sensor the limit is abo
 Above about 6x you see very few pixels. It is better to move the phone closer. Then use
 `focusm` down to 0.098 m.
 
-Macro is an optical limit. At the 98 mm minimum focus distance the camera gives 33.4
-pixels for each millimetre. This is 30 micrometres for each pixel. This is sufficient to
-read silkscreen and to find a part. It is not sufficient to see a solder fillet. A clip-on
-macro lens is the correction.
+Macro is an optical limit. At the 98 mm minimum focus distance the camera gives about 33
+pixels for each millimetre, roughly 30 micrometres for each pixel. That figure is
+arithmetic from the sensor size and the stated minimum focus distance, not a measurement,
+and `focusDistanceCalibration` on this device is `APPROXIMATE`. It is enough to read
+silkscreen and find a part. It is not enough to see a solder fillet. A clip-on macro lens
+is the correction. **The scale of an actual picture depends on where the stand is**, so
+measure it from a reference in the frame rather than trusting a stored number.
 
-`/api/still` sends the JPEG of the camera without a change when the zoom is 1, and there
-is no rotation, and there is no resize. This is the quickest path and the best quality.
-Any crop, rotation, or resize costs a decode and a new encode. `BitmapRegionDecoder` reads
-only the necessary tile. Thus a large zoom costs less than a small zoom.
+`/api/still` sends the JPEG of the camera without a change when the zoom is at or below
+1.0001, and there is no rotation, and there is no resize. This is the quickest path and the
+best quality. Any crop, rotation, or resize costs a decode and a new encode.
+`BitmapRegionDecoder` reads only the necessary tile. Thus a large zoom costs less than a
+small zoom.
+
+**The limit of 1.0001 puts a still on one of two pipelines**, so each capture records which
+one it took in `settings.capture_path`, as `camera_jpeg` or `decoded_and_reencoded`. Two
+captures on opposite sides of the limit are different kinds of image, and comparing them
+measures the pipeline rather than the subject.
 
 The app converts a preview frame only when a client asks for one. An idle service costs
 almost nothing.
+
+### The console and the access key
+
+`deskcam serve` binds to every interface, because the phone has to reach it to pair. It
+answers with no secret: the pairing text carries the access key and the pairing code, so it
+lives in the QR image on the screen and never in JSON. Pairing takes the phone's address
+from where the request came from and not from what the request says about itself, and one
+code pairs once. The console serves only the captures in the shots directory, by name, and
+only `.jpg`, `.jpeg`, `.dng` and `.json`.
+
+The live view is a view. `/api/stream` refuses any parameter that would change the camera,
+so opening the console in a browser cannot change the next capture an agent takes.
+
+There is still no TLS and the API token is still off by default; on an untrusted network,
+set one.
 
 USB is a reliable alternative. It does not use the local network permission, because it
 goes through loopback.

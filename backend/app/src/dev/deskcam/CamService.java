@@ -100,10 +100,17 @@ public class CamService extends Service {
             sensors.start();
             engine = new CameraEngine(this);
             engine.setSensors(sensors);
-            engine.start();
             liveEngine = engine;
+
+            // The server comes up first, and on purpose. The part that reports a fault
+            // must not stop with the part that has the fault: a camera another app was
+            // holding used to take the whole service down at start, so a client saw a
+            // refused connection and no reason, while the same camera lost one second
+            // later was recovered by the running engine within fifteen. The engine now
+            // reports its own state on /api/status and keeps trying.
             http = new HttpServer(engine, port, token);
             http.start();
+            engine.start();
 
             running = true;
             statusLine = url(port);

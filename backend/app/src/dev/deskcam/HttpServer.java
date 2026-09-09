@@ -2,7 +2,6 @@ package dev.deskcam;
 
 import android.util.Log;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedOutputStream;
@@ -17,8 +16,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A small HTTP/1.1 server exposing the camera over the LAN.
@@ -31,21 +33,43 @@ public class HttpServer implements Runnable {
     private static final String TAG = CameraEngine.TAG;
     private static final String BOUNDARY = "deskcamframe";
 
+    /**
+     * The most requests served at once.
+     *
+     * The pool used to be unbounded, standing in front of a decode of about 48 MB. Enough
+     * simultaneous requests would therefore exhaust the heap however carefully each one
+     * was bounded on its own.
+     */
+    private static final int MAX_HANDLERS = 24;
+
+    /** How many frames in a row a stream may fail to get before it gives up. */
+    private static final int STREAM_FAILURE_LIMIT = 25;
+
     private final CameraEngine engine;
     private final int port;
     private final String token;
 
     private ServerSocket serverSocket;
     /** Connections being served right now, for the display on the phone. */
-    private static final java.util.concurrent.atomic.AtomicInteger LIVE =
-            new java.util.concurrent.atomic.AtomicInteger();
-    private final ExecutorService pool = Executors.newCachedThreadPool();
+    private static final AtomicInteger LIVE = new AtomicInteger();
+    private final ThreadPoolExecutor pool = new ThreadPoolExecutor(
+            2, MAX_HANDLERS, 60L, TimeUnit.SECONDS, new SynchronousQueue<>());
     private volatile boolean running = false;
+
+    /** Status and size of the response this thread sent, for the request log. */
+    private static final ThreadLocal<int[]> SENT = ThreadLocal.withInitial(() -> new int[]{200, 0});
 
     public HttpServer(CameraEngine engine, int port, String token) {
         this.engine = engine;
         this.port = port;
         this.token = (token == null || token.isEmpty()) ? null : token;
+    }
+
+    /** A request that is wrong in a way the caller can fix. Always an HTTP 400. */
+    static class BadRequest extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        BadRequest(String m) { super(m); }
     }
 
     public void start() throws IOException {
@@ -59,19 +83,39 @@ public class HttpServer implements Runnable {
 
     public void stop() {
         running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) { }
+        try { if (serverSocket != null) serverSocket.close(); } catch (IOException e) {
+            Log.d(TAG, "closing the listening socket: " + e);
+        }
         pool.shutdownNow();
     }
 
     @Override
     public void run() {
         while (running) {
+            Socket s = null;
             try {
-                Socket s = serverSocket.accept();
-                pool.execute(() -> handleSafely(s));
+                s = serverSocket.accept();
+                final Socket accepted = s;
+                pool.execute(() -> handleSafely(accepted));
+            } catch (RejectedExecutionException busy) {
+                refuse(s, 503, "too many requests at once; try again");
             } catch (IOException e) {
                 if (running) Log.w(TAG, "accept", e);
+            } catch (Throwable t) {
+                // The accept loop is the whole server. Nothing watches it, so anything it
+                // lets through stops every future request with no message anywhere.
+                Log.e(TAG, "accept loop", t);
+                refuse(s, 500, "the server could not take this connection");
             }
+        }
+    }
+
+    private void refuse(Socket s, int code, String why) {
+        if (s == null) return;
+        try (Socket doomed = s) {
+            sendJson(new BufferedOutputStream(doomed.getOutputStream()), code, err(why));
+        } catch (Exception e) {
+            Log.d(TAG, "refusing a connection: " + e);
         }
     }
 
@@ -83,9 +127,19 @@ public class HttpServer implements Runnable {
             handle(s);
         } catch (Exception e) {
             Log.d(TAG, "connection ended: " + e);
+        } catch (Throwable t) {
+            // OutOfMemoryError is an Error, not an Exception. One request asking for a
+            // resize to 100000 by 100000 used to walk straight past every catch here and
+            // stop the process. A bad request must cost the caller, not the service.
+            Log.e(TAG, "request failed hard", t);
+            try {
+                sendJson(new BufferedOutputStream(s.getOutputStream()), 500, err(String.valueOf(t)));
+            } catch (Throwable ignored) {
+                Log.d(TAG, "could not report the failure to the client");
+            }
         } finally {
             LIVE.decrementAndGet();
-            try { s.close(); } catch (IOException ignored) { }
+            try { s.close(); } catch (IOException e) { Log.d(TAG, "socket close: " + e); }
         }
     }
 
@@ -119,7 +173,8 @@ public class HttpServer implements Runnable {
 
         if ("POST".equals(method)) {
             int len = 0;
-            try { len = Integer.parseInt(headers.getOrDefault("content-length", "0")); } catch (Exception ignored) { }
+            try { len = Integer.parseInt(headers.getOrDefault("content-length", "0")); }
+            catch (NumberFormatException e) { Log.d(TAG, "unreadable content-length"); }
             if (len > 0 && len < 1 << 20) {
                 byte[] body = new byte[len];
                 int read = 0;
@@ -156,16 +211,29 @@ public class HttpServer implements Runnable {
         params.remove("token");
 
         long t0 = System.currentTimeMillis();
-        lastCode = 200;
-        lastSent = 0;
+        SENT.set(new int[]{200, 0});
         try {
-            route(path, params, out);
+            route(path, params, out, peerAddress(sock));
+        } catch (BadRequest bad) {
+            sendJson(out, 400, err(bad.getMessage()));
+        } catch (IllegalArgumentException bad) {
+            // The engine refuses a request it cannot serve: a camera id that does not
+            // exist, a burst that will not fit, an output larger than the heap.
+            sendJson(out, 400, err(String.valueOf(bad.getMessage())));
         } catch (Exception e) {
             Log.w(TAG, "handler " + path, e);
-            try { sendJson(out, 500, err(e.toString())); } catch (Exception ignored) { }
+            try { sendJson(out, 500, err(e.toString())); } catch (Exception ignored) {
+                Log.d(TAG, "could not send the error for " + path);
+            }
         } finally {
-            RequestLog.record(path, lastCode, System.currentTimeMillis() - t0, lastSent);
+            int[] s = SENT.get();
+            RequestLog.record(path, s[0], System.currentTimeMillis() - t0, s[1]);
         }
+    }
+
+    private static String peerAddress(Socket s) {
+        java.net.InetAddress a = s.getInetAddress();
+        return a == null ? "127.0.0.1" : a.getHostAddress();
     }
 
     private boolean authorised(Map<String, String> params, Map<String, String> headers) {
@@ -174,7 +242,8 @@ public class HttpServer implements Runnable {
         return a != null && a.startsWith("Bearer ") && token.equals(a.substring(7).trim());
     }
 
-    private void route(String path, Map<String, String> params, BufferedOutputStream out) throws Exception {
+    private void route(String path, Map<String, String> params, BufferedOutputStream out,
+                       String peer) throws Exception {
         switch (path) {
             case "/":
             case "/index.html":
@@ -185,11 +254,14 @@ public class HttpServer implements Runnable {
                 sendJson(out, 200, WebUi.help());
                 return;
 
-            case "/api/cameras":
+            case "/api/cameras": {
+                apply(params);
                 sendJson(out, 200, new JSONObject().put("cameras", engine.listCameras()));
                 return;
+            }
 
             case "/api/status": {
+                apply(params);
                 JSONObject o = engine.status();
                 o.put("ok", true);
                 sendJson(out, 200, o);
@@ -197,13 +269,25 @@ public class HttpServer implements Runnable {
             }
 
             case "/api/set": {
-                JSONObject o = applyParams(params);
-                sendJson(out, o.optBoolean("ok", true) ? 200 : 400, o);
+                apply(params);
+                JSONObject o = engine.status();
+                o.put("ok", true);
+                // /api/set has no picture to present, so a presentation parameter here
+                // does nothing. Saying so beats leaving the caller to notice that the
+                // value they set is not in the reply.
+                String presented = presentationNames(params);
+                if (!presented.isEmpty()) {
+                    o.put("note", presented + " apply to the request that returns a picture, "
+                            + "not to the camera. Send them to /api/still, /api/frame or "
+                            + "/api/burst instead. See decision D9.");
+                }
+                sendJson(out, 200, o);
                 return;
             }
 
             case "/api/reset": {
-                engine.update(new CamSettings());
+                params.put("reset", "1");
+                apply(params);
                 JSONObject o = engine.status();
                 o.put("ok", true);
                 sendJson(out, 200, o);
@@ -211,8 +295,9 @@ public class HttpServer implements Runnable {
             }
 
             case "/api/af": {
+                apply(params);
                 engine.triggerAf();
-                Thread.sleep(clampLong(longParam(params, "wait", 700), 0, 5000));
+                Thread.sleep(longParam(params, "wait", 700, 0, 5000));
                 JSONObject o = engine.status();
                 o.put("ok", true);
                 sendJson(out, 200, o);
@@ -220,75 +305,71 @@ public class HttpServer implements Runnable {
             }
 
             case "/api/still": {
-                JSONObject applied = applyParams(params);
-                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
-                long settle = longParam(params, "settle", defaultSettle(params));
-                if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
-                byte[] jpeg;
-                try {
-                    jpeg = engine.captureStill(longParam(params, "timeout", 8000));
-                } finally {
-                    engine.clearPresentation();
-                }
-                sendBytes(out, 200, "image/jpeg", jpeg);
+                CamSettings req = apply(params);
+                settle(params, req);
+                CameraEngine.Shot shot = engine.captureStill(req, longParam(params, "timeout", 8000, 100, 60000));
+                sendBytes(out, 200, "image/jpeg", shot.bytes, provenanceHeader(shot));
                 return;
             }
 
             case "/api/frame": {
-                JSONObject applied = applyParams(params);
-                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
-                long settle = longParam(params, "settle", defaultSettle(params));
-                if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
+                CamSettings req = apply(params);
+                long settled = settle(params, req);
                 // The camera keeps requests in flight, so the next frame or two can still
                 // carry the previous settings. Skip them after any settings change.
-                int skip = (int) longParam(params, "fresh", settle > 0 ? 2 : 0);
-                byte[] jpeg;
-                try {
-                    jpeg = engine.grabFrame(longParam(params, "timeout", 8000), skip);
-                } finally {
-                    engine.clearPresentation();
-                }
-                sendBytes(out, 200, "image/jpeg", jpeg);
+                int skip = (int) longParam(params, "fresh", settled > 0 ? 2 : 0, 0, 30);
+                CameraEngine.Shot shot = engine.grabFrame(req,
+                        longParam(params, "timeout", 8000, 100, 60000), skip);
+                sendBytes(out, 200, "image/jpeg", shot.bytes, provenanceHeader(shot));
                 return;
             }
 
             case "/api/raw": {
-                JSONObject applied = applyParams(params);
-                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
-                long settle = longParam(params, "settle", defaultSettle(params));
-                if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
-                byte[] dng = engine.captureRaw(longParam(params, "timeout", 12000));
+                CamSettings req = apply(params);
+                settle(params, req);
+                CameraEngine.Shot shot = engine.captureRaw(req,
+                        longParam(params, "timeout", 12000, 100, 60000));
                 // The DNG holds the whole sensor array, so tell the client where the user
                 // was aimed rather than silently discarding the framing.
-                sendBytes(out, 200, "image/x-adobe-dng", dng,
-                        "X-DeskCam-ROI: " + engine.rawRoiHeader() + "\r\n");
+                sendBytes(out, 200, "image/x-adobe-dng", shot.bytes,
+                        "X-DeskCam-ROI: " + engine.rawRoiHeader(req) + "\r\n" + provenanceHeader(shot));
                 return;
             }
 
             case "/api/burst": {
-                JSONObject applied = applyParams(params);
-                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
-                int n = (int) clampLong(longParam(params, "n", 8), 1, 64);
-                long settle = longParam(params, "settle", defaultSettle(params));
-                if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
+                CamSettings req = apply(params);
+                int maxBurst = engine.caps().maxBurst;
+                int n = (int) longParam(params, "n", Math.min(8, maxBurst), 1, maxBurst);
+                settle(params, req);
                 long t0 = System.currentTimeMillis();
-                java.util.List<byte[]> frames =
-                        engine.captureBurst(n, longParam(params, "timeout", 5000L + 1500L * n));
+                CameraEngine.Burst burst = engine.captureBurst(req, n,
+                        longParam(params, "timeout", 5000L + 1500L * n, 100, 300000));
                 long ms = System.currentTimeMillis() - t0;
-                Tar tar = new Tar(frames.size() * 2_000_000);
-                for (int i = 0; i < frames.size(); i++) {
-                    tar.add(String.format(java.util.Locale.US, "burst-%03d.jpg", i), frames.get(i));
+                java.util.List<String> names = new java.util.ArrayList<>(burst.frames.size());
+                for (int i = 0; i < burst.frames.size(); i++) {
+                    names.add(String.format(Locale.US, "burst-%03d.jpg", i));
                 }
-                byte[] body = tar.finish();
-                double fps = ms > 0 ? frames.size() * 1000.0 / ms : 0;
-                sendBytes(out, 200, "application/x-tar", body,
-                        "X-DeskCam-Frames: " + frames.size() + "\r\n"
+                // The archive goes straight to the socket. Its length is arithmetic, so
+                // nothing needs to hold a second and a third copy of the burst.
+                long length = Tar.contentLength(burst.frames);
+                double fps = ms > 0 ? burst.frames.size() * 1000.0 / ms : 0;
+                // A burst that ran out of time used to answer 200 with fewer frames than
+                // were asked for, so a client had to compare a header against its own
+                // request to notice. 206 says it in the status line.
+                int code = burst.complete() ? 200 : 206;
+                sendHead(out, code, "application/x-tar", length,
+                        "X-DeskCam-Frames: " + burst.frames.size() + "\r\n"
+                        + "X-DeskCam-Frames-Requested: " + burst.requested + "\r\n"
                         + "X-DeskCam-Millis: " + ms + "\r\n"
-                        + String.format(java.util.Locale.US, "X-DeskCam-Fps: %.2f\r\n", fps));
+                        + String.format(Locale.US, "X-DeskCam-Fps: %.2f\r\n", fps)
+                        + provenanceHeader(burst.provenance));
+                Tar.writeTo(out, names, burst.frames);
+                out.flush();
                 return;
             }
 
             case "/api/orientation": {
+                apply(params);
                 sendJson(out, 200, engine.orientation());
                 return;
             }
@@ -297,10 +378,9 @@ public class HttpServer implements Runnable {
                 // Turn the map on unless the caller said otherwise, then wait for a frame
                 // that was actually taken with it on.
                 if (!params.containsKey("shadingmap")) params.put("shadingmap", "1");
-                JSONObject applied = applyParams(params);
-                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
+                CamSettings req = apply(params);
                 try {
-                    engine.grabFrame(longParam(params, "timeout", 8000), 2);
+                    engine.grabFrame(req, longParam(params, "timeout", 8000, 100, 60000), 2);
                 } catch (Exception e) {
                     Log.d(TAG, "shading map frame: " + e);
                 }
@@ -309,14 +389,18 @@ public class HttpServer implements Runnable {
             }
 
             case "/api/nettest": {
-                // Diagnostic: can this app reach the network outbound at all?
-                String host = params.getOrDefault("host", "192.168.86.1");
-                int tport = (int) longParam(params, "port", 80);
+                // Diagnostic: can this app reach the network outbound at all? It answered
+                // that question, and it was also a port scanner that anyone on the network
+                // could drive through the phone without a password. It now probes only the
+                // address the request came from, which is the machine that wants to know.
+                apply(params);
+                int tport = (int) longParam(params, "port", 80, 1, 65535);
                 JSONObject o = new JSONObject();
-                o.put("target", host + ":" + tport);
+                o.put("target", peer + ":" + tport);
+                o.put("note", "this endpoint only probes the address the request came from");
                 long t0 = System.currentTimeMillis();
-                try (java.net.Socket probe = new java.net.Socket()) {
-                    probe.connect(new java.net.InetSocketAddress(host, tport), 4000);
+                try (Socket probe = new Socket()) {
+                    probe.connect(new java.net.InetSocketAddress(peer, tport), 4000);
                     o.put("ok", true);
                     o.put("connected_ms", System.currentTimeMillis() - t0);
                     o.put("local_address", String.valueOf(probe.getLocalAddress()));
@@ -339,59 +423,120 @@ public class HttpServer implements Runnable {
     }
 
     /** Settings changes need a moment to take effect when the AE loop is still running. */
-    private long defaultSettle(Map<String, String> params) {
+    private long settle(Map<String, String> params, CamSettings req) throws Exception {
         boolean changed = false;
         for (String k : params.keySet()) {
-            if (!k.equals("timeout") && !k.equals("settle") && !k.equals("t") && !k.equals("_")) {
-                changed = true;
-                break;
-            }
+            Params.P p = Params.get(k);
+            if (p != null && p.kind == Params.Kind.CAMERA) { changed = true; break; }
         }
-        if (!changed) return 0;
-        return engine.snapshot().aeAuto ? 350 : 120;
+        long dflt = changed ? (req.aeAuto ? 350 : 120) : 0;
+        long ms = longParam(params, "settle", dflt, 0, 5000);
+        if (ms > 0) Thread.sleep(ms);
+        return ms;
     }
 
-    private JSONObject applyParams(Map<String, String> params) throws Exception {
-        JSONObject o = new JSONObject();
-        if (params.isEmpty()) {
-            o.put("ok", true);
-            o.put("settings", engine.snapshot().toJson());
-            return o;
-        }
+    /**
+     * Reads the parameters of a request, keeps the camera ones, and hands back the
+     * settings this one request should use.
+     *
+     * Camera state persists; presentation lives and dies with the request that named it.
+     * That is decision D9. Every endpoint goes through here, so an unknown parameter or a
+     * bad value is an error everywhere and not only on the seven endpoints that used to
+     * check (rules R3 and R5).
+     */
+    private CamSettings apply(Map<String, String> params) throws Exception {
         CamSettings s = "1".equals(params.get("reset")) ? new CamSettings() : engine.snapshot();
         StringBuilder problems = new StringBuilder();
         s.apply(params, engine.caps(), problems);
-        if (problems.length() > 0) {
-            o.put("ok", false);
-            o.put("error", problems.toString().trim());
-            o.put("settings", engine.snapshot().toJson());
-            return o;
+        if (problems.length() > 0) throw new BadRequest(problems.toString().trim());
+
+        if (!touchesCamera(params)) return s;
+        CamSettings stored = engine.update(s);
+        stored.outW = s.outW;
+        stored.outH = s.outH;
+        stored.jpegQuality = s.jpegQuality;
+        return stored;
+    }
+
+    private static String presentationNames(Map<String, String> params) {
+        StringBuilder sb = new StringBuilder();
+        for (String k : params.keySet()) {
+            Params.P p = Params.get(k);
+            if (p != null && p.kind == Params.Kind.PRESENTATION) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(k);
+            }
         }
-        CamSettings applied = engine.update(s);
-        o.put("ok", true);
-        o.put("settings", applied.toJson());
-        return o;
+        return sb.toString();
+    }
+
+    private static boolean touchesCamera(Map<String, String> params) {
+        if ("1".equals(params.get("reset"))) return true;
+        for (String k : params.keySet()) {
+            Params.P p = Params.get(k);
+            if (p != null && p.kind == Params.Kind.CAMERA) return true;
+        }
+        return false;
+    }
+
+    private static String provenanceHeader(CameraEngine.Shot shot) {
+        return provenanceHeader(shot.provenance);
+    }
+
+    /**
+     * The record of the frame, on the response that carries the frame.
+     *
+     * The CLI used to build its sidecar from a second /api/status request made after the
+     * capture came back, so the state could move between the two and the sidecar could
+     * describe a different moment.
+     */
+    private static String provenanceHeader(JSONObject provenance) {
+        if (provenance == null) return "";
+        String json = provenance.toString().replaceAll("[\\r\\n]", " ");
+        if (json.length() > 7000) return "";     // do not risk a header nobody can parse
+        return "X-DeskCam-Provenance: " + json + "\r\n";
     }
 
     // -------------------------------------------------------------- stream
 
+    /**
+     * The live view.
+     *
+     * A stream is a window onto the camera, never a way to set it. Its parameters apply
+     * to this stream alone; a camera parameter is refused with the endpoint that does
+     * take it. Before this, a browser tab reconnecting its stream wrote its own rotation
+     * into the shared state and quietly changed the next capture an agent took.
+     */
     private void streamMjpeg(Map<String, String> params, BufferedOutputStream out) throws Exception {
-        JSONObject applied = applyParams(params);
-        if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
+        StringBuilder refused = new StringBuilder();
+        for (String k : params.keySet()) {
+            Params.P p = Params.get(k);
+            if (p == null) {
+                refused.append("unknown parameter '").append(k).append("'; ");
+            } else if (p.kind == Params.Kind.CAMERA) {
+                refused.append("'").append(k).append("' changes the camera, so /api/stream "
+                        + "does not take it; send it to /api/set; ");
+            }
+        }
+        if (refused.length() > 0) throw new BadRequest(refused.toString().trim());
 
-        double fps = clampDouble(doubleParam(params, "fps", 10), 0.1, 30);
+        CamSettings req = engine.snapshot();
+        StringBuilder problems = new StringBuilder();
+        req.apply(params, engine.caps(), problems);
+        if (problems.length() > 0) throw new BadRequest(problems.toString().trim());
+
+        double fps = Geom.clampDouble(doubleParam(params, "fps", 10), 0.1, 30);
         long minIntervalMs = (long) (1000.0 / fps);
-        long maxFrames = longParam(params, "n", Long.MAX_VALUE);
+        long maxFrames = longParam(params, "n", Long.MAX_VALUE, 1, Long.MAX_VALUE);
 
-        StringBuilder head = new StringBuilder();
-        head.append("HTTP/1.1 200 OK\r\n")
-            .append("Content-Type: multipart/x-mixed-replace; boundary=").append(BOUNDARY).append("\r\n")
-            .append("Cache-Control: no-store, no-cache, must-revalidate\r\n")
-            .append("Pragma: no-cache\r\n")
-            .append("Connection: close\r\n")
-            .append("Access-Control-Allow-Origin: *\r\n")
-            .append("\r\n");
-        out.write(head.toString().getBytes(StandardCharsets.US_ASCII));
+        String head = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: multipart/x-mixed-replace; boundary=" + BOUNDARY + "\r\n"
+                + "Cache-Control: no-store, no-cache, must-revalidate\r\n"
+                + "Pragma: no-cache\r\n"
+                + "Connection: close\r\n"
+                + "Access-Control-Allow-Origin: *\r\n"
+                + "\r\n";
+        out.write(head.getBytes(StandardCharsets.US_ASCII));
         out.flush();
 
         engine.addStreamClient(1);
@@ -399,14 +544,22 @@ public class HttpServer implements Runnable {
         try {
             long seq = 0;
             long sent = 0;
+            int failures = 0;
             while (running && sent < maxFrames) {
                 long t0 = System.currentTimeMillis();
                 byte[] jpeg;
                 try {
-                    jpeg = engine.frameAfter(seq, 5000);
+                    jpeg = engine.frameAfter(req, seq, 5000);
                     seq = engine.currentSeq();
+                    failures = 0;
                 } catch (Exception e) {
-                    // A stalled camera should not kill the connection; keep the client waiting.
+                    // A stall of a second or two should not kill the connection. A camera
+                    // that never comes back should, or the thread lives until the process
+                    // does.
+                    if (++failures >= STREAM_FAILURE_LIMIT) {
+                        Log.w(TAG, "stream giving up after " + failures + " failures: " + e);
+                        return;
+                    }
                     Thread.sleep(200);
                     continue;
                 }
@@ -429,7 +582,7 @@ public class HttpServer implements Runnable {
             Log.d(TAG, "stream client left after " + streamed + " bytes");
         } finally {
             engine.addStreamClient(-1);
-            lastSent = (int) Math.min(streamed, Integer.MAX_VALUE);
+            SENT.get()[1] = (int) Math.min(streamed, Integer.MAX_VALUE);
         }
     }
 
@@ -457,7 +610,9 @@ public class HttpServer implements Runnable {
                 String k = URLDecoder.decode(e < 0 ? pair : pair.substring(0, e), "UTF-8");
                 String v = e < 0 ? "" : URLDecoder.decode(pair.substring(e + 1), "UTF-8");
                 m.put(k.trim().toLowerCase(Locale.US), v.trim());
-            } catch (Exception ignored) { }
+            } catch (Exception e2) {
+                Log.d(TAG, "undecodable query pair: " + pair);
+            }
         }
         return m;
     }
@@ -480,35 +635,47 @@ public class HttpServer implements Runnable {
         sendBytes(out, code, type, body, "");
     }
 
-    /** Size and status of the most recent response, read by the request log. */
-    private static volatile int lastSent = 0;
-    private static volatile int lastCode = 200;
+    /** The head of a response whose body is written straight to the socket after it. */
+    private static void sendHead(OutputStream out, int code, String type, long length,
+                                 String extraHeaders) throws IOException {
+        int[] s = SENT.get();
+        s[0] = code;
+        s[1] = (int) Math.min(length, Integer.MAX_VALUE);
+        out.write(headerBlock(code, type, length, extraHeaders).getBytes(StandardCharsets.US_ASCII));
+    }
 
     private static void sendBytes(OutputStream out, int code, String type, byte[] body,
                                   String extraHeaders) throws IOException {
-        lastSent = body.length;
-        lastCode = code;
-        String head = "HTTP/1.1 " + code + " " + reason(code) + "\r\n"
+        int[] s = SENT.get();
+        s[0] = code;
+        s[1] = body.length;
+        String head = headerBlock(code, type, body.length, extraHeaders);
+        out.write(head.getBytes(StandardCharsets.US_ASCII));
+        out.write(body);
+        out.flush();
+    }
+
+    private static String headerBlock(int code, String type, long length, String extraHeaders) {
+        return "HTTP/1.1 " + code + " " + reason(code) + "\r\n"
                 + extraHeaders
                 + "Content-Type: " + type + "\r\n"
-                + "Content-Length: " + body.length + "\r\n"
+                + "Content-Length: " + length + "\r\n"
                 + "Cache-Control: no-store\r\n"
                 + "Access-Control-Allow-Origin: *\r\n"
                 + "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
                 + "Connection: close\r\n\r\n";
-        out.write(head.getBytes(StandardCharsets.US_ASCII));
-        out.write(body);
-        out.flush();
     }
 
     private static String reason(int c) {
         switch (c) {
             case 200: return "OK";
             case 204: return "No Content";
+            case 206: return "Partial Content";
             case 400: return "Bad Request";
             case 401: return "Unauthorized";
             case 404: return "Not Found";
             case 500: return "Internal Server Error";
+            case 503: return "Service Unavailable";
             default: return "Status";
         }
     }
@@ -518,16 +685,38 @@ public class HttpServer implements Runnable {
         catch (Exception e) { throw new RuntimeException(e); }
     }
 
-    private static long longParam(Map<String, String> p, String k, long dflt) {
-        try { return p.containsKey(k) ? Long.parseLong(p.get(k)) : dflt; }
-        catch (Exception e) { return dflt; }
+    /**
+     * A router parameter, with its range.
+     *
+     * It used to return the default whenever the value could not be read, so `timeout=x`
+     * looked exactly like no timeout at all. That is the opposite of rule R5: a value the
+     * caller wrote and the server could not use is an error, not a silence.
+     */
+    private static long longParam(Map<String, String> p, String k, long dflt, long lo, long hi)
+            throws BadRequest {
+        String v = p.get(k);
+        if (v == null || v.isEmpty()) return dflt;
+        long parsed;
+        try {
+            parsed = Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            throw new BadRequest("bad value for '" + k + "': '" + v + "' is not a whole number");
+        }
+        if (parsed < lo || parsed > hi) {
+            throw new BadRequest(k + " must be between " + lo + " and " + hi + ", got " + parsed);
+        }
+        return parsed;
     }
 
-    private static double doubleParam(Map<String, String> p, String k, double dflt) {
-        try { return p.containsKey(k) ? Double.parseDouble(p.get(k)) : dflt; }
-        catch (Exception e) { return dflt; }
+    private static double doubleParam(Map<String, String> p, String k, double dflt) throws BadRequest {
+        String v = p.get(k);
+        if (v == null || v.isEmpty()) return dflt;
+        try {
+            double d = Double.parseDouble(v.trim());
+            if (Double.isNaN(d)) throw new NumberFormatException("nan");
+            return d;
+        } catch (NumberFormatException e) {
+            throw new BadRequest("bad value for '" + k + "': '" + v + "' is not a number");
+        }
     }
-
-    private static long clampLong(long v, long lo, long hi) { return v < lo ? lo : (v > hi ? hi : v); }
-    private static double clampDouble(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
 }

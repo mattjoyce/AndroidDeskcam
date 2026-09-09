@@ -7,6 +7,12 @@ description = "Workstation console and CLI for the DeskCam bench camera"
 requires-python = ">=3.11"
 dependencies = ["segno"]   # pillow dropped: the phone makes the thumbnails
 
+[project.optional-dependencies]
+# Measuring what is in a picture needs array maths; taking one does not. Kept out of the
+# base install so the CLI and the console stay light, and so the boundary between
+# transport and measurement is visible in the packaging as well as in the code.
+analysis = ["numpy>=1.24", "pillow>=10"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -18,6 +24,12 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 quote-style = "double"
 
 [tool.mypy]
+# Off by default: the workstation code is small enough to be honest about its types.
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# segno ships no stubs. It is the one dependency and it is used in three lines.
+module = ["segno"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

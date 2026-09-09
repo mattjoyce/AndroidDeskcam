@@ -110,7 +110,7 @@ science, computer vision, and storage of old captures.
 | `CamSettings.java` | The control state, the ROI maths, the parameters, and the JSON |
 | `HttpServer.java` | HTTP/1.1 on a `ServerSocket`, the routes, and the MJPEG parts |
 | `WebUi.java` | The browser panel and the `/api/help` document |
-| `Sensors.java` | Gravity and ambient light, giving the tilt of the optical axis |
+| `Sensors.java` | Gravity and ambient light, giving the angle between the optical axis and gravity, averaged over 32 samples |
 | `Tar.java` | A small USTAR writer, for a burst in one response |
 | `CamService.java` | The foreground service, the life cycle, the notice, and the address |
 | `MainActivity.java` | The permissions, start and stop, and the headless start |
@@ -197,7 +197,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
 | `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
 | `/api/burst` | `application/x-tar` | `n` frames with identical settings. The headers give the frame count, the time, and the rate. |
-| `/api/orientation` | JSON | The tilt of the camera from the gravity sensor, and the ambient light. |
+| `/api/orientation` | JSON | The angle between the optical axis and gravity, averaged over 32 samples, and the ambient light. It equals the angle to a flat subject only on a level surface. |
 | `/api/shadingmap` | JSON | The lens shading map, if the device delivers one. Refer to section 4.3. |
 | `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
 | `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. |
@@ -206,18 +206,30 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/af` | JSON | Do one autofocus sweep. |
 | `/api/cameras` | JSON | List the cameras and the capabilities. |
 | `/api/help` | JSON | The self description. Refer to R6. |
-| `/api/nettest` | JSON | An outbound test. It finds the fault in section 4.4. |
+| `/api/nettest` | JSON | An outbound test. It finds the fault in section 4.4. It connects only to the address the request came from. |
 | `/` | `text/html` | The browser panel |
 
 Rule R3 applies to each endpoint. The server applies the control parameters before it
-makes the image.
+makes the image. `/api/stream` is the one exception, and it is decision D10.
 
-These are the control parameters:
+`/api/burst` answers **206 Partial Content**, not 200, when it produced fewer frames than
+were asked for. The headers `X-DeskCam-Frames` and `X-DeskCam-Frames-Requested` give both
+numbers. Each capture endpoint also returns `X-DeskCam-Provenance`, which holds the record
+of that frame as JSON, so a client never has to ask a second question about a picture it
+already has.
 
-`camera`, `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`,
-`exposure`, `iso`, `ev`, `aelock`, `awb`, `awblock`, `torch`, `jpegq`, `rotate`, `w`, `h`,
-`previewsize`, `stillsize`, `measure`, `shadingmap`, `reset`, `settle`, `timeout`, `fresh`,
-`n`, `fps`.
+**The parameters live in one place.** `Params.java` declares every name, its group, and
+its help text. The parser reads that list and `/api/help` is printed from it, so this
+document and the README describe it rather than repeat it. `deskcam api` prints the
+current list; if it disagrees with anything written here, it is right and this is stale.
+
+The groups are decision D9:
+
+| Group | Parameters | Life |
+|---|---|---|
+| Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
+| Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
+| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `t` | one request |
 
 **The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
 `cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use
@@ -226,7 +238,17 @@ each zoom value. The server keeps the ROI inside the frame.
 
 **Errors.** The server rejects an unknown parameter. The server rejects a parameter that
 it cannot read. The result is HTTP 400 with `{"ok": false, "error": "..."}`. The server
-changes nothing. Refer to R5.
+changes nothing. Refer to R5. This holds on **every** endpoint, including `/api/status`,
+`/api/reset`, `/api/af`, `/api/cameras`, `/api/orientation` and `/api/nettest`, which used
+to ignore both the parameters and the check. A router parameter with a value the server
+cannot read is a 400 as well; nothing falls back to a default in silence.
+
+**Limits.** Each numeric parameter has a range, and `/api/status` reports the ones that
+depend on the device under `limits`: `max_output_edge`, `max_output_pixels` and
+`burst_max`. They come from the heap this process was given, so a request that cannot fit
+in memory is refused before the capture instead of raising an `OutOfMemoryError` during
+it. `OutOfMemoryError` is an `Error` and not an `Exception`, so it used to walk past every
+handler and stop the service; the handlers now catch `Throwable`.
 
 **Access control.** There is an optional shared token. Send it as `?token=` or as
 `Authorization: Bearer`. The token is off by default. There is no TLS. Refer to section 7.
@@ -237,9 +259,22 @@ There are two paths. They have different costs and different purposes.
 
 **The still path.** The engine sends a `TEMPLATE_STILL_CAPTURE` request to a full
 resolution JPEG `ImageReader`. The server can send the JPEG of the camera **without a
-change**. This needs three conditions. The zoom is 1. There is no rotation. There is no
-resize. This is the quickest path. It is also the best quality. In other conditions `BitmapRegionDecoder` reads only
-the necessary tile. Thus a large zoom costs less than a small zoom.
+change**. This needs three conditions. The zoom is at or below **1.0001**. There is no
+rotation. There is no resize. This is the quickest path. It is also the best quality. In
+other conditions `BitmapRegionDecoder` reads only the necessary tile. Thus a large zoom
+costs less than a small zoom.
+
+**The limit of 1.0001 matters, so each capture records which side of it it was on.** Two
+captures that differ only in a zoom of 1.0 against 1.001 are different kinds of image: one
+is the camera's own JPEG, the other has been decoded and encoded again. A comparison
+across the limit measures the pipeline and not the subject. The settings block of every
+capture carries `capture_path`, which is `camera_jpeg` or `decoded_and_reencoded`.
+
+**Each capture carries the result of its own frame.** Every request goes with a
+`CaptureCallback`, and a frame is matched to its request by the sensor timestamp the HAL
+reports when the exposure starts, never by the order images arrive. Each capture path owns
+its own frames, so a still taken during a burst cannot take a frame of the burst. Refer to
+decision D8.
 
 **The preview path.** A repeating request fills a YUV_420_888 reader. The engine converts
 the frame to NV21. `YuvImage.compressToJpeg(rect, ...)` then crops the frame during the
@@ -314,10 +349,33 @@ touch has the same result at each zoom value.
 The panel has controls for the focus, the exposure, the white balance, and the torch. It
 exists to aim the camera. A pointer is easier than coordinates for this task.
 
-### 5.4 Desktop processing (planned)
+### 5.4 Desktop processing
 
-This part does not exist. The roadmap in section 8 goes here. This is the reason for the
-position of the split. The plan is Python with OpenCV, rawpy, and NumPy.
+`frontend/analysis/` holds the measurement tools: the noise floor of the instrument, the
+linearity of the response, the reduction of noise by averaging a burst, and the scale in
+pixels per millimetre. They need NumPy and Pillow, declared as the optional `analysis`
+extra, because taking a photograph needs neither and the packaging should say so.
+
+Three properties, and they are decision D12:
+
+**Nothing here speaks HTTP.** These read captures and sidecars off disk. Driving the camera
+is the CLI's job. That keeps the seam clean and means the tools work on captures taken last
+month, or by somebody else.
+
+**Every result carries its value, its interval, its sample count and its confidence
+together**, and a tool refuses below a stated limit rather than printing a number with a
+caveat beside it. A caveat beside a number does not travel with the number; a missing
+number does. The type in `analysis/result.py` enforces it: a refused measurement cannot
+hold a value.
+
+**Every limit is written down with the evidence for it**, in the module that applies it, so
+it can be argued with. See `scale.PEAK_LIMIT` for the clearest case.
+
+Exit codes are 0 for a measurement, 2 for a refusal, 1 for a tool that could not run, and
+`--json` gives the full record. That is what a caller acts on, rather than parsing English.
+
+The rest of the roadmap in section 8, the merging and stacking work, still does not exist.
+The plan for it remains Python with OpenCV, rawpy and NumPy.
 
 ## 6. Decisions
 
@@ -332,8 +390,15 @@ It gives direct control of the MJPEG parts.
 primary consumer writes URLs in a shell. A change of state as a GET is easy to script and
 easy to repeat.
 
-**D4. Each status response gives the measured values.** Refer to R4. This costs nothing.
-The engine already holds the `TotalCaptureResult`.
+**D4. Each status response gives the measured values.** Refer to R4. `/api/status`
+reports the values of the **preview**, and says so in `measured_from`, because the
+repeating preview request is the only thing it can describe. A capture describes itself.
+
+This decision used to claim the values cost nothing because the engine already held the
+`TotalCaptureResult`. It held the wrong one: every capture passed `null` as its callback,
+so each sidecar and each EXIF comment described a preview frame, which runs noise
+reduction and edge enhancement at `_FAST` where a still runs them at `_HIGH_QUALITY`.
+Decision D8 corrects it, and it does cost a callback per capture.
 
 **D5. An unknown parameter is an error.** If the server ignored it, the agent would get an
 unchanged image. The agent would then think that the setting applied.
@@ -342,7 +407,61 @@ unchanged image. The agent would then think that the setting applied.
 the same result at 1x and at 8x. A person and an agent both expect this.
 
 **D7. The engine converts a preview frame only on demand.** A bench camera that runs all
-day must cost nothing when nobody looks at it.
+day must cost nothing when nobody looks at it. The count of watching clients is an atomic
+counter, because a read-then-write on a plain field could lose an update and leave the
+count above zero for ever, which defeats the decision quietly.
+
+**D8. A capture describes itself.** Every capture request carries its own
+`CaptureCallback`, and a frame is paired with its result by sensor timestamp. The record
+comes back with the picture, in `X-DeskCam-Provenance` and in the EXIF `UserComment`, so
+the CLI never asks a second question about a moment that has already passed. Two captures
+running at once cannot exchange their records, and a still during a burst cannot take a
+frame of the burst.
+
+**D9. Camera state persists. Presentation lives for one request.** Rule R3 says a client
+never has to remember the state, and that is what makes the CLI easy to use, so
+persistence stays. The division is what changed.
+
+| Kind | Examples | Persists |
+|---|---|---|
+| Camera state | zoom, cx, cy, focus, exposure, iso, torch, awb, measure, rotate | yes |
+| Presentation | `w`, `h`, `jpegq` | no, one request only |
+
+`w` and `h` describe how one picture is returned. When they persisted they silently
+rescaled the next capture and disabled the untouched-JPEG path for ever, which is a
+measurement fault and not a convenience fault.
+
+`rotate` is **camera state**, because it describes how the phone is bolted down and not
+how one picture is presented. A person who mounts the phone upside down sets it once. It
+follows that `deskcam recall` restores it, and that `deskcam show` prints it.
+
+**D10. A stream is a view, never a way to set the camera.** `/api/stream` takes `fps`,
+`n`, `w`, `h` and `jpegq`. A parameter that would change the camera is refused with an
+HTTP 400 naming `/api/set`. Before this, a browser tab wrote its own rotation into the
+shared state on every stream reconnect, so opening the console changed the next capture an
+agent took.
+
+**D11. The server starts before the camera.** The part that reports a fault must not stop
+with the part that has the fault. A camera another app was holding at start time used to
+take the whole service down, so a client saw a refused connection and no reason, while the
+same camera lost one second later was recovered by the running engine within fifteen. The
+engine now reports `state` and `last_error` on `/api/status` and keeps trying. The watchdog
+runs on a thread of its own, not on the camera handler, and its test is that frames are
+still arriving rather than that the device handle is not null; a camera that is open and
+delivering nothing is what heat throttling looks like.
+
+**D12. A measurement refuses rather than guesses.** Three wrong measurements were made in
+one session and every one had the same shape: a method produced a number, nothing knew how
+large a difference had to be before it was a difference, and the number was published. The
+tools in `frontend/analysis/` return a confidence with every value and refuse below a
+stated limit. The same-against-same test measures what the instrument cannot tell apart and
+records it beside the captures, and the other tools enforce it.
+
+This is not theoretical. The first implementation of the burst noise tool reported 3.18x
+for an average of six frames, which is above the square root of six and therefore
+impossible, and it reported maximum confidence while doing so, because its interval was
+tight and its estimator was biased. Precision is not correctness, so the gate also knows
+the physical bound.
 
 ## 7. Non-goals
 
@@ -379,29 +498,40 @@ changing the image. It sets noise reduction off, edge enhancement off, hot pixel
 off, lens shading correction off, and chromatic aberration correction off. It sets the tone
 map to a linear `CONTRAST_CURVE`. It sets OIS off and locks the white balance.
 
-A test on the device confirms the result. The exposure was doubled four times. In
-measurement mode the pixel value rose by 2.02x for each doubling, which is linear. With the
-default pipeline it rose by 1.30x, near the 1.37x of an sRGB curve. At 1/120 s the default
-curve read 69.6 where the linear curve read 6.9, so the default lifts the shadows by about
-ten times. That is the error that a measurement must not contain.
+One test on the device, on 2026-09-09, is consistent with the design. The exposure was
+doubled four times. In measurement mode the pixel value rose by 2.02x for each doubling,
+which is linear. With the default pipeline it rose by 1.30x, near the 1.37x of an sRGB
+curve. At 1/120 s the default curve read 69.6 where the linear curve read 6.9.
+
+**These numbers are unconfirmed and should not be quoted.** They are one point estimate
+from one run with no interval; the 2.02x is the mean of four ratios with the variation
+dropped, and the lowest of those samples sits at the floor of the 8 bit range, which alone
+covers the difference between 2.02 and 2.00. The code that produced them is not in this
+repository. What the test does support is the shape: the default pipeline lifts the shadows
+by roughly an order of magnitude, and that is the error a measurement must not contain.
+Card 34 puts the method in `frontend/analysis/`; card 35 adds the same-against-same test
+that says how large a difference has to be before it means anything.
 
 `/api/status` gives a `pipeline` block. The block reports what the HAL applied, not what
 the request asked for. Rule R4 applies to the pipeline as much as to the exposure.
 
 **3. Burst capture (backend). DONE. Average (frontend) is card 4.** `/api/burst` sends the
 frames to the camera as one submission, so the HAL runs them back to back. The result is a
-tar archive. A test gave 12 full resolution frames in 642 ms, which is 18.7 frames per
-second at 12 megapixels.
+tar archive. One test gave 12 full resolution frames in 642 ms. The 18.7 frames per second
+that was reported counts 12 frames across 11 intervals; 11/0.642 is 17.1. Either way it is
+one run with no interval. **Unconfirmed.**
 
 Two changes were necessary. The still reader now holds 6 buffers, so the HAL can run ahead
 of the server. And the reader takes each image with `acquireNextImage`. The old code used
 `acquireLatestImage`, which discards frames and is correct for a preview and wrong for a
 burst.
 
-A measured result from 12 frames: an average of 6 frames had 2.25 times less noise than one
-frame, against a prediction of 2.45. JPEG compression makes the noise of neighbouring
-frames a little alike, and fixed pattern noise is equal in each frame, so an average never
-removes it. Card 10 removes that part with a dark frame.
+One result from 12 frames: an average of 6 frames had 2.25 times less noise than one frame,
+against a prediction of 2.45. **Unconfirmed.** One run, and the split of the 12 frames into
+two groups was one of several possible splits; which one was chosen was not recorded. The
+mechanism holds regardless: JPEG compression makes the noise of neighbouring frames a
+little alike, and fixed pattern noise is equal in each frame, so an average never removes
+it. Card 10 removes that part with a dark frame.
 
 **4. Focus sweep (backend) and focus stack (frontend).** At 98 mm the depth of field is
 one or two millimetres. Move the lens in **dioptre steps**. The depth of field is almost
@@ -433,8 +563,13 @@ not useful. RAW makes the white balance free and lossless later.
 ## 9. Known limits
 
 **Macro is an optical limit. Software cannot correct it.** At the 98 mm minimum focus
-distance the main camera gives 0.047x magnification. The field of view is 120.7 mm wide.
-The resolution is 33.4 pixels for each millimetre. This is 30 micrometres for each pixel.
+distance the main camera gives 0.047x magnification. The field of view is then 120.7 mm
+wide and the resolution 33.4 pixels for each millimetre, about 30 micrometres for each
+pixel. Those three are arithmetic from the sensor size, the focal length and the stated
+minimum focus distance; they are not a measurement, and `focusDistanceCalibration` on this
+device is `APPROXIMATE`, so treat them as the right order and not as figures. The scale of
+an actual picture depends on where the stand is and has to be measured from a reference in
+the frame (card 23).
 This is sufficient to read silkscreen and to find a part. It is not sufficient to see a
 solder fillet. A clip-on macro lens is the correction. The physical ultrawide camera
 (`id 3`) does not open directly, so it gives no other method.
