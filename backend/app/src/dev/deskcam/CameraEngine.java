@@ -122,6 +122,13 @@ public class CameraEngine {
      */
     private volatile String activeCameraId = "0";
     private Sensors sensors;
+    /**
+     * A small copy of the last still, for the phone's own screen. Decoded with
+     * inSampleSize, which reads a reduced image straight out of the JPEG rather than
+     * decoding 12 megapixels and throwing most of it away.
+     */
+    private volatile Bitmap lastStillThumb;
+    private volatile long lastStillAt = 0;
 
     public CameraEngine(Context ctx) {
         this.ctx = ctx;
@@ -657,7 +664,9 @@ public class CameraEngine {
         }
         byte[] jpeg = stillQueue.poll(timeoutMs, TimeUnit.MILLISECONDS);
         if (jpeg == null) throw new IllegalStateException("still capture timed out after " + timeoutMs + "ms");
-        return withExif(s.stillIsPristine() ? jpeg : cropJpeg(jpeg, s), s);
+        byte[] finished = withExif(s.stillIsPristine() ? jpeg : cropJpeg(jpeg, s), s);
+        makeThumb(finished);
+        return finished;
     }
 
     /**
@@ -871,6 +880,24 @@ public class CameraEngine {
     }
 
     public boolean rawAvailable() { return rawReader != null; }
+
+    private void makeThumb(byte[] jpeg) {
+        try {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = 8;               // a reduced read, not a full decode
+            Bitmap b = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length, o);
+            if (b != null) {
+                lastStillThumb = b;
+                lastStillAt = System.currentTimeMillis();
+            }
+        } catch (Exception | OutOfMemoryError e) {
+            Log.w(TAG, "thumbnail for the phone screen: " + e);
+        }
+    }
+
+    public Bitmap lastStillThumb() { return lastStillThumb; }
+    public long lastStillAt() { return lastStillAt; }
+    public int streamClients() { return streamClients; }
 
     /**
      * Drops the presentation-only parameters once a request has used them.

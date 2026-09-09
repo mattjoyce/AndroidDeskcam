@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light. The night folder holds the dark variant of the same names. -->
+    <color name="bg">#FFF7F9FC</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="line">#FFE2E8F0</color>
+    <color name="text">#FF14181F</color>
+    <color name="dim">#FF667085</color>
+    <color name="accent">#FF1F6FEB</color>
+    <color name="ok">#FF16A34A</color>
+    <color name="bad">#FFDC2626</color>
+    <color name="warn">#FFD97706</color>
+    <color name="shade">#FFEFF3F8</color>
+</resources>

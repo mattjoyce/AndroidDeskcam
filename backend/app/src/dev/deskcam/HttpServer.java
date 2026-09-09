@@ -36,6 +36,9 @@ public class HttpServer implements Runnable {
     private final String token;
 
     private ServerSocket serverSocket;
+    /** Connections being served right now, for the display on the phone. */
+    private static final java.util.concurrent.atomic.AtomicInteger LIVE =
+            new java.util.concurrent.atomic.AtomicInteger();
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private volatile boolean running = false;
 
@@ -73,6 +76,7 @@ public class HttpServer implements Runnable {
     }
 
     private void handleSafely(Socket s) {
+        LIVE.incrementAndGet();
         try {
             s.setTcpNoDelay(true);
             s.setSoTimeout(30000);
@@ -80,9 +84,12 @@ public class HttpServer implements Runnable {
         } catch (Exception e) {
             Log.d(TAG, "connection ended: " + e);
         } finally {
+            LIVE.decrementAndGet();
             try { s.close(); } catch (IOException ignored) { }
         }
     }
+
+    public static int liveConnections() { return LIVE.get(); }
 
     // ------------------------------------------------------------- routing
 
@@ -148,11 +155,16 @@ public class HttpServer implements Runnable {
         }
         params.remove("token");
 
+        long t0 = System.currentTimeMillis();
+        lastCode = 200;
+        lastSent = 0;
         try {
             route(path, params, out);
         } catch (Exception e) {
             Log.w(TAG, "handler " + path, e);
             try { sendJson(out, 500, err(e.toString())); } catch (Exception ignored) { }
+        } finally {
+            RequestLog.record(path, lastCode, System.currentTimeMillis() - t0, lastSent);
         }
     }
 
@@ -383,6 +395,7 @@ public class HttpServer implements Runnable {
         out.flush();
 
         engine.addStreamClient(1);
+        long streamed = 0;
         try {
             long seq = 0;
             long sent = 0;
@@ -405,12 +418,18 @@ public class HttpServer implements Runnable {
                 out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
                 out.flush();     // throws once the client goes away, ending the stream
                 sent++;
+                streamed += jpeg.length;
 
                 long spent = System.currentTimeMillis() - t0;
                 if (spent < minIntervalMs) Thread.sleep(minIntervalMs - spent);
             }
+        } catch (IOException closed) {
+            // A viewer closing the tab is how a stream normally ends. Letting it reach
+            // the handler made every stream finish as a 500 and count as an error.
+            Log.d(TAG, "stream client left after " + streamed + " bytes");
         } finally {
             engine.addStreamClient(-1);
+            lastSent = (int) Math.min(streamed, Integer.MAX_VALUE);
         }
     }
 
@@ -461,8 +480,14 @@ public class HttpServer implements Runnable {
         sendBytes(out, code, type, body, "");
     }
 
+    /** Size and status of the most recent response, read by the request log. */
+    private static volatile int lastSent = 0;
+    private static volatile int lastCode = 200;
+
     private static void sendBytes(OutputStream out, int code, String type, byte[] body,
                                   String extraHeaders) throws IOException {
+        lastSent = body.length;
+        lastCode = code;
         String head = "HTTP/1.1 " + code + " " + reason(code) + "\r\n"
                 + extraHeaders
                 + "Content-Type: " + type + "\r\n"

@@ -1,126 +1,226 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true">
 
+    <!-- fitsSystemWindows replaces the padding of the view it is set on, so the system
+         insets go on the outer view and the real padding stays on this one. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+    <!-- header: name, live dot, state -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="10dp">
 
         <TextView
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="wrap_content"
             android:text="DeskCam"
-            android:textSize="26sp"
+            android:textColor="@color/text"
+            android:textSize="22sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="HTTP-controlled bench camera"
-            android:textSize="14sp" />
+        <View
+            android:id="@+id/dot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginEnd="7dp"
+            android:background="@drawable/dot" />
 
         <TextView
             android:id="@+id/status"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
             android:text="stopped"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:textColor="@color/dim"
+            android:textSize="14sp" />
+    </LinearLayout>
 
-        <TextView
-            android:id="@+id/url"
+    <!-- the address, the thing a person came to read -->
+    <TextView
+        android:id="@+id/url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/pill"
+        android:padding="10dp"
+        android:fontFamily="monospace"
+        android:textColor="@color/accent"
+        android:textIsSelectable="true"
+        android:textSize="15sp"
+        android:text="not started" />
+
+    <!-- last capture beside the counters -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp"
+        android:baselineAligned="false">
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="130dp"
+            android:background="@drawable/thumb_bg">
+
+            <ImageView
+                android:id="@+id/thumb"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="last capture" />
+
+            <TextView
+                android:id="@+id/thumbwhen"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_margin="6dp"
+                android:background="#99000000"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:text="no capture yet"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="130dp"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical"
+            android:background="@drawable/card_bg"
+            android:padding="12dp">
+
+            <TextView android:id="@+id/statConn" style="@style/Stat" android:text="clients  0" />
+            <TextView android:id="@+id/statStream" style="@style/Stat" android:text="streams  0" />
+            <TextView android:id="@+id/statShots" style="@style/Stat" android:text="captures 0" />
+            <TextView android:id="@+id/statErr" style="@style/Stat" android:text="errors   0" />
+            <TextView android:id="@+id/statCam" style="@style/Stat" android:text="camera   -" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:layout_marginBottom="6dp"
+        android:text="REQUESTS"
+        android:textColor="@color/dim"
+        android:textSize="11sp"
+        android:letterSpacing="0.08"
+        android:textStyle="bold" />
+
+    <ScrollView
+        android:id="@+id/logscroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@drawable/card_bg"
+        android:padding="4dp">
+
+        <LinearLayout
+            android:id="@+id/log"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textIsSelectable="true"
-            android:fontFamily="monospace"
-            android:textSize="18sp"
-            android:text="" />
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <!-- controls -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp">
+
+        <Button
+            android:id="@+id/start"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:background="@drawable/btn"
+            android:textColor="#FFFFFFFF"
+            android:textAllCaps="false"
+            android:text="Start" />
+
+        <Button
+            android:id="@+id/stop"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/btn_quiet"
+            android:textColor="@color/text"
+            android:textAllCaps="false"
+            android:text="Stop" />
+
+        <Button
+            android:id="@+id/settings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/btn_quiet"
+            android:textColor="@color/text"
+            android:textAllCaps="false"
+            android:text="Setup" />
+    </LinearLayout>
+
+    <!-- hidden until Setup is pressed, because it is set once and then never touched -->
+    <LinearLayout
+        android:id="@+id/setup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/card_bg"
+        android:padding="12dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:text="Port "
-                android:textSize="15sp" />
-
-            <EditText
-                android:id="@+id/port"
-                android:layout_width="110dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="8080" />
+            <TextView android:layout_width="62dp" android:layout_height="wrap_content"
+                android:text="Port" android:textColor="@color/dim" android:textSize="13sp" />
+            <EditText android:id="@+id/port" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:inputType="number"
+                android:textColor="@color/text" android:textSize="14sp" android:text="8080" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:text="Token "
-                android:textSize="15sp" />
-
-            <EditText
-                android:id="@+id/token"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:hint="blank = no auth"
-                android:inputType="text" />
+            <TextView android:layout_width="62dp" android:layout_height="wrap_content"
+                android:text="Token" android:textColor="@color/dim" android:textSize="13sp" />
+            <EditText android:id="@+id/token" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:hint="blank = open"
+                android:textColor="@color/text" android:textSize="14sp" android:inputType="text" />
         </LinearLayout>
 
         <CheckBox
             android:id="@+id/autostart"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Try to start after reboot (Android 17 usually blocks this for camera apps)" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/start"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="Start" />
-
-            <Button
-                android:id="@+id/stop"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Stop" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/hint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:fontFamily="monospace"
+            android:textColor="@color/dim"
             android:textSize="12sp"
-            android:text="" />
+            android:text="Try to start after a reboot (Android usually refuses this for a camera app)" />
     </LinearLayout>
-</ScrollView>
+</LinearLayout>
+</LinearLayout>

@@ -42,11 +42,15 @@ public class CamService extends Service {
 
     private CameraEngine engine;
     private Sensors sensors;
+    private static volatile CameraEngine liveEngine;
     private HttpServer http;
     private PowerManager.WakeLock wakeLock;
 
     public static boolean isRunning() { return running; }
     public static String statusLine() { return statusLine; }
+
+    /** The running engine, for the activity to read. Null when stopped. */
+    public static CameraEngine engine() { return liveEngine; }
 
     @Override
     public IBinder onBind(Intent intent) { return null; }
@@ -97,6 +101,7 @@ public class CamService extends Service {
             engine = new CameraEngine(this);
             engine.setSensors(sensors);
             engine.start();
+            liveEngine = engine;
             http = new HttpServer(engine, port, token);
             http.start();
 
@@ -119,6 +124,7 @@ public class CamService extends Service {
         running = false;
         statusLine = "stopped";
         if (http != null) { http.stop(); http = null; }
+        liveEngine = null;
         if (engine != null) { engine.stop(); engine = null; }
         if (sensors != null) { sensors.stop(); sensors = null; }
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }

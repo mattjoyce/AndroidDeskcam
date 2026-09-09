@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      DeviceDefault follows the phone's own look, which on this device means Material You
+      with its dynamic colours, and it costs no library. DayNight follows the system dark
+      mode, which matters for a camera that sits on a bench in a dim room.
+    -->
+    <style name="DeskCam" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/dim</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+
+    <!-- one row of the counters block -->
+    <style name="Stat">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/text</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+</resources>
