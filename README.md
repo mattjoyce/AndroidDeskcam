@@ -78,12 +78,36 @@ the same reason the app has no libraries.
 The workstation half has its own gates:
 
 ```sh
-./frontend/check.sh                # ruff, ruff format, mypy, bandit, pytest
+./frontend/check.sh    # ruff, ruff format, mypy, bandit, pytest, then gofmt, vet, go test
 ```
 
 They need no phone either. The console tests run a real console on a loopback port with
-real files under `tmp_path`, and the contract tests read `Params.java` and fail if this
-README or the specification names a parameter that does not exist, or misses one that does.
+real files under a temporary directory, and the contract tests read `Params.java` and fail
+if this README or the specification names a parameter that does not exist, or misses one
+that does.
+
+### The Go binary
+
+`frontend/go/` builds one static binary with the CLI and the console in it:
+
+```sh
+cd frontend/go && go build -o deskcam .
+```
+
+Nothing runs behind it. Taking a picture needs no Python, no Node and no runtime at all;
+measuring what is in one still needs `pip install -e '.[analysis]'`, because that is array
+maths and NumPy's job. The binary invokes those tools by path and passes their exit codes
+through: 0 measured, 2 refused, 1 could not run.
+
+The parameter table in `params_gen.go` is generated from `Params.java`, the same file the
+Python contract test reads, so the client is not a fifth hand-typed copy of the contract.
+`go generate ./...` refreshes it, a test fails if it is stale, and another test compares it
+against a live phone's `/api/help` when `DESKCAM_URL` is set.
+
+The phone stays Java, and that is a decision rather than an accident. `DngCreator`,
+`BitmapRegionDecoder`, `ExifInterface` and `YuvImage` have no NDK equivalent, camera access
+is granted per app UID so a binary run from `adb shell` cannot open the camera at all, and
+a foreground service of type `camera` has to be a Java class. See card 53.
 
 ## Installation
 
@@ -503,6 +527,12 @@ The app converts a preview frame only when a client asks for one. An idle servic
 almost nothing.
 
 ### The console and the access key
+
+`deskcam token new` makes a random key, keeps it in `~/.config/deskcam/token` at mode 600,
+and the next pairing code carries it to the phone. `deskcam token clear` removes it and the
+next pairing tells the phone to forget it too. The console has the same two as buttons. The
+key is never typed on the phone's on-screen keyboard, which was the reason nobody turned it
+on.
 
 `deskcam serve` binds to every interface, because the phone has to reach it to pair. It
 answers with no secret: the pairing text carries the access key and the pairing code, so it

@@ -27,5 +27,25 @@ run "$BIN/bandit" -q -r frontend/console.py frontend/analysis
 
 run "$PY" -m pytest frontend/ -q
 
+# The Go half: the CLI and the console. Skipped rather than failed when there is no
+# toolchain, because the Python tools have to stay runnable on a machine without one.
+if command -v go >/dev/null 2>&1; then
+    echo ">> go (frontend/go)"
+    (
+        cd frontend/go
+        unformatted="$(gofmt -l .)"
+        if [ -n "$unformatted" ]; then
+            echo "gofmt would change:" >&2
+            echo "$unformatted" >&2
+            exit 1
+        fi
+        go vet ./...
+        go build -o deskcam .
+        go test ./...
+    )
+else
+    echo ">> go (skipped, no toolchain)"
+fi
+
 echo
 echo "all gates pass"
