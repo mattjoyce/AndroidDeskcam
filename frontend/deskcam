@@ -60,6 +60,72 @@ PY
 
 summarise() { python3 -c "$SUMMARISE_PY"; }
 
+# Every capture gets a JSON sidecar holding the settings and the measured values.
+# Without it a past capture cannot be repeated, so a comparison between two of them
+# means nothing. The roll reads these files and needs no other index.
+write_sidecar() {
+    local img="$1"
+    local base="${img%.*}"
+    local st
+    st="$(req /api/status "" 2>/dev/null)" || return 0
+    printf '%s' "$st" | python3 -c '
+import json, sys, os, datetime
+img, target = sys.argv[1], sys.argv[2]
+try:
+    st = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+out = {
+    "image": os.path.basename(img),
+    "captured_at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+    "target": target,
+    "bytes": os.path.getsize(img) if os.path.exists(img) else None,
+    "settings": st.get("settings", {}),
+    "measured": st.get("measured", {}),
+    "pipeline": st.get("pipeline", {}),
+    "sensor": st.get("sensor", {}),
+}
+with open(os.path.splitext(img)[0] + ".json", "w") as f:
+    json.dump(out, f, indent=2)
+' "$img" "$(resolve_url)" 2>/dev/null || true
+}
+
+# Turn a sidecar back into query parameters, so a capture can be repeated exactly.
+recall_query() {
+    python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+s = d.get("settings", d)
+q = []
+def add(k, v):
+    if v is not None:
+        q.append(f"{k}={v}")
+add("camera", s.get("camera"))
+add("zoom", s.get("zoom"))
+add("cx", s.get("cx"))
+add("cy", s.get("cy"))
+add("rotate", s.get("rotate"))
+add("jpegq", s.get("jpeg_quality"))
+add("torch", s.get("torch"))
+add("awb", s.get("awb"))
+add("awblock", 1 if s.get("awb_lock") else 0)
+if s.get("measure"):
+    add("measure", 1)
+if s.get("focus_diopters") is not None:
+    add("focus", s["focus_diopters"])
+else:
+    add("af", s.get("af"))
+if s.get("ae") == "manual":
+    if s.get("exposure_ns") is not None:
+        add("exposure", s["exposure_ns"])
+    add("iso", s.get("iso"))
+else:
+    add("ae", "on")
+    add("ev", s.get("ev"))
+print("&".join(q))
+' "$1"
+}
+
 timestamped() { echo "$SHOT_DIR/deskcam-$(date +%Y%m%d-%H%M%S).${1:-jpg}"; }
 
 adb_args() { [ -n "${DESKCAM_SERIAL:-}" ] && printf -- '-s\n%s\n' "$DESKCAM_SERIAL"; return 0; }
@@ -85,6 +151,7 @@ deskcam - control the bench camera over HTTP
   deskcam show                         one-line summary
   deskcam set k=v [k=v ...]            apply any control parameters
   deskcam reset                        restore defaults
+  deskcam recall FILE.json             restore the settings of a past capture
 
   deskcam zoom N                       set zoom (1.0 = full sensor)
   deskcam pan up|down|left|right [amt] nudge the view (default 0.25)
@@ -99,6 +166,7 @@ deskcam - control the bench camera over HTTP
   deskcam cameras                      list cameras and capabilities
   deskcam api                          machine-readable API description
   deskcam open                         open the web control panel
+  deskcam serve [PORT]                 local console with QR pairing (default 9000)
 
   deskcam use URL                      remember a target, e.g. http://192.168.86.120:8080
   deskcam usb [PORT]                   tunnel over USB via adb and use that
@@ -138,15 +206,18 @@ case "$CMD" in
     snap|still|shot)
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/still "$Q" "$OUT" || die "capture failed"
+        write_sidecar "$OUT"
         echo "$OUT" ;;
     frame|preview)
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/frame "$Q" "$OUT" || die "capture failed"
+        write_sidecar "$OUT"
         echo "$OUT" ;;
     raw|dng)
         # The DNG holds the whole sensor array. The zoom and pan do not apply to it.
         [ -z "$OUT" ] && OUT="$(timestamped dng)"
         req_bin /api/raw "$Q" "$OUT" || die "raw capture failed"
+        write_sidecar "$OUT"
         echo "$OUT" ;;
     burst)
         # A hardware burst of JPEGs arrives as one tar. RAW is captured one frame at a
@@ -170,6 +241,7 @@ case "$CMD" in
                 req_bin /api/burst "n=$N$Q" "$tmp" || die "burst failed"
                 tar xf "$tmp" -C "$OUT" && rm -f "$tmp" ;;
         esac
+        write_sidecar "$OUT/burst.jpg"    # names the sidecar burst.json
         echo "$OUT" ;;
 
     stream)
@@ -211,6 +283,16 @@ case "$CMD" in
     auto)          req /api/set "ae=on&af=continuous&focus=auto$Q" | summarise ;;
     torch|light)   [ "$nargs" -eq 0 ] && die "usage: deskcam torch 0-45|off|max"
                    req /api/set "torch=$a0$Q" | summarise ;;
+
+    recall)
+        [ "$nargs" -eq 0 ] && die "usage: deskcam recall FILE.json"
+        [ -f "$a0" ] || die "no such sidecar: $a0"
+        rq="$(recall_query "$a0")" || die "cannot read $a0"
+        req /api/set "reset=1&$rq$Q" | summarise ;;
+
+    serve|console)
+        exec python3 "$(dirname "$(readlink -f "$0")")/console.py" \
+            --port "${a0:-9000}" --shots "$SHOT_DIR" ;;
 
     cameras)       req /api/cameras "" | pretty ;;
     api)           req /api/help "" | pretty ;;

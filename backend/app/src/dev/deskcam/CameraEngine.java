@@ -111,6 +111,16 @@ public class CameraEngine {
     private volatile TotalCaptureResult lastResult;
     private volatile String state = "stopped";
     private volatile String lastError = null;
+    private final java.util.concurrent.atomic.AtomicBoolean reopening =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    /**
+     * The camera id, readable without the lock.
+     *
+     * The availability callbacks run on the camera handler. If they took the lock they
+     * would deadlock: a reopen thread holds the lock while it waits for onOpened, and
+     * onOpened is delivered on that same handler. The callback must never block.
+     */
+    private volatile String activeCameraId = "0";
 
     public CameraEngine(Context ctx) {
         this.ctx = ctx;
@@ -124,14 +134,92 @@ public class CameraEngine {
         camThread.start();
         camHandler = new Handler(camThread.getLooper());
         camExecutor = camHandler::post;
+        cm.registerAvailabilityCallback(availabilityCb, camHandler);
         openAndConfigure(settings.clone());
+        camHandler.postDelayed(watchdog, 15000);
     }
 
+    /**
+     * Only one app may hold a camera. Another app that opens it evicts us, and without
+     * this callback DeskCam stays dead until somebody restarts it. A bench camera has to
+     * come back by itself after you put the phone down.
+     */
+    private final CameraManager.AvailabilityCallback availabilityCb =
+            new CameraManager.AvailabilityCallback() {
+        @Override public void onCameraAvailable(String id) {
+            if (!id.equals(activeCameraId)) return;
+            if (device != null || "stopped".equals(state)) return;
+            reopenLater("camera " + id + " is free again");
+        }
+        @Override public void onCameraUnavailable(String id) {
+            if (id.equals(activeCameraId) && device == null && !"stopped".equals(state)) {
+                state = "disconnected";
+                lastError = "another app is using camera " + id;
+            }
+        }
+    };
+
+    /**
+     * Reopens on its own thread, never on the camera handler. openAndConfigure waits for
+     * the open callback, and that callback is delivered on the camera handler, so doing
+     * this work there would make the thread wait for itself.
+     */
+    private void reopenLater(String why) {
+        if (!reopening.compareAndSet(false, true)) return;
+        new Thread(() -> {
+            try {
+                // A few close attempts only. The other app may still be releasing the
+                // device. If these fail, the next availability callback or the watchdog
+                // will try again, so nothing is lost by giving up quickly here.
+                long[] waits = {300, 1200, 3000};
+                for (int i = 0; i < waits.length; i++) {
+                    if (camThread == null) return;               // service stopped
+                    try {
+                        Thread.sleep(waits[i]);
+                    } catch (InterruptedException ie) {
+                        return;
+                    }
+                    synchronized (lock) {
+                        if (device != null) return;              // already back
+                        try {
+                            Log.i(TAG, why + ", reopening (try " + (i + 1) + ")");
+                            openAndConfigure(settings.clone());
+                            lastError = null;
+                            Log.i(TAG, "camera recovered");
+                            return;
+                        } catch (Exception e) {
+                            Log.w(TAG, "reopen try " + (i + 1) + " failed: " + e);
+                            lastError = "waiting for the camera: " + e;
+                        }
+                    }
+                }
+            } finally {
+                reopening.set(false);
+            }
+        }, "deskcam-reopen").start();
+    }
+
+    /**
+     * A slow safety net. An availability callback can be missed, or can arrive while a
+     * reopen is already running and be dropped. This notices that case within 15 seconds.
+     */
+    private final Runnable watchdog = new Runnable() {
+        @Override public void run() {
+            if (camHandler == null) return;
+            if (device == null && !"stopped".equals(state) && !reopening.get()) {
+                reopenLater("watchdog saw no camera");
+            }
+            camHandler.postDelayed(this, 15000);
+        }
+    };
+
     public void stop() {
+        try { cm.unregisterAvailabilityCallback(availabilityCb); } catch (Exception ignored) { }
         synchronized (lock) {
             closeSessionAndDevice();
             state = "stopped";
         }
+        if (camHandler != null) camHandler.removeCallbacks(watchdog);
         if (camThread != null) {
             camThread.quitSafely();
             try { camThread.join(1500); } catch (InterruptedException ignored) { }
@@ -193,6 +281,7 @@ public class CameraEngine {
         state = "opening";
         lastError = null;
 
+        activeCameraId = s.cameraId;
         chars = cm.getCameraCharacteristics(s.cameraId);
         Rect aa = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
         if (aa != null) activeArray = aa;
@@ -290,13 +379,20 @@ public class CameraEngine {
                 cd.close();
                 if (device == cd) device = null;
                 state = "disconnected";
+                lastError = "another app took the camera";
                 synchronized (openLatch) { done[0] = true; openLatch.notifyAll(); }
+                // No retry here. Retrying while the other app still holds the camera only
+                // burns attempts. onCameraAvailable tells us when it is really free.
             }
             @Override public void onError(CameraDevice cd, int err) {
                 cd.close();
                 openErr[0] = new IllegalStateException("camera open error " + err);
-                state = "error";
-                lastError = "camera open error " + err;
+                // ERROR_CAMERA_IN_USE means somebody else has it. That is the same
+                // situation as an eviction, so report it the same way and wait.
+                state = (err == ERROR_CAMERA_IN_USE || err == ERROR_MAX_CAMERAS_IN_USE)
+                        ? "disconnected" : "error";
+                lastError = (err == ERROR_CAMERA_IN_USE || err == ERROR_MAX_CAMERAS_IN_USE)
+                        ? "another app is using the camera" : "camera open error " + err;
                 synchronized (openLatch) { done[0] = true; openLatch.notifyAll(); }
             }
         });
@@ -550,7 +646,7 @@ public class CameraEngine {
     public byte[] captureStill(long timeoutMs) throws Exception {
         CamSettings s;
         synchronized (lock) {
-            if (session == null || device == null) throw new IllegalStateException("camera not running");
+            if (session == null || device == null) throw new IllegalStateException(notRunning());
             s = settings.clone();
             stillQueue.clear();
             CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
@@ -607,7 +703,7 @@ public class CameraEngine {
             CameraCharacteristics ch;
             CamSettings s;
             synchronized (lock) {
-                if (session == null || device == null) throw new IllegalStateException("camera not running");
+                if (session == null || device == null) throw new IllegalStateException(notRunning());
                 if (rawReader == null) {
                     throw new IllegalStateException(rawSessionFailed
                             ? "RAW disabled: the capture session refused a RAW output"
@@ -677,7 +773,7 @@ public class CameraEngine {
         synchronized (rawCaptureLock) {      // one multi-frame operation at a time
             CamSettings s;
             synchronized (lock) {
-                if (session == null || device == null) throw new IllegalStateException("camera not running");
+                if (session == null || device == null) throw new IllegalStateException(notRunning());
                 s = settings.clone();
                 stillQueue.clear();
                 List<CaptureRequest> reqs = new ArrayList<>(n);
@@ -705,6 +801,12 @@ public class CameraEngine {
     }
 
     public boolean rawAvailable() { return rawReader != null; }
+
+    private String notRunning() {
+        return "disconnected".equals(state)
+                ? "another app is using the camera; DeskCam reopens it automatically when it is free"
+                : "camera not running (state " + state + ")";
+    }
 
     /** The ROI the user is aimed at, as pixels of the RAW frame, for the response header. */
     public String rawRoiHeader() {

@@ -20,7 +20,12 @@
 
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
 
+    <!-- The pairing callback is a plain HTTP request to the workstation. Android blocks
+         outbound cleartext by default from targetSdk 28, so the call fails with
+         "Cleartext HTTP traffic not permitted". This whole tool is HTTP on a trusted LAN
+         by design; refer to the non-goals in docs/SPEC.md. -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="DeskCam"
         android:icon="@android:drawable/ic_menu_camera"
         android:allowBackup="false"
@@ -34,6 +39,16 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Pairing. A QR code holds deskcam://pair?cb=... and opens this activity
+                 directly. A plain http URL cannot be used, because the browser enforces
+                 HTTPS first and refuses it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="deskcam" />
             </intent-filter>
         </activity>
 

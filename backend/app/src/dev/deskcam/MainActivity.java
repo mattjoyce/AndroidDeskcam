@@ -23,6 +23,11 @@ public class MainActivity extends Activity {
     private CheckBox autostart;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
+    /** Suppresses the status refresh so a pairing message stays readable. */
+    private long holdStatusUntil = 0;
+    /** The last pairing link acted on, so the same one is not used twice. */
+    private String handledLink = null;
+
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             refresh();
@@ -73,6 +78,18 @@ public class MainActivity extends Activity {
      */
     private void handleIntent(Intent intent) {
         if (intent == null) return;
+
+        // deskcam://pair?cb=<url>&token=<t> arrives from a scanned QR code.
+        android.net.Uri data = intent.getData();
+        if (data != null && "deskcam".equals(data.getScheme())) {
+            // onCreate and onNewIntent can both see the same launch intent, and pairing
+            // twice consumes two codes and races the console. Handle each link once.
+            String key = data.toString();
+            if (key.equals(handledLink)) return;
+            handledLink = key;
+            handlePairing(data);
+            return;
+        }
         boolean wantStart = CamService.ACTION_START.equals(intent.getAction())
                 || intent.getBooleanExtra("start", false);
         boolean wantStop = CamService.ACTION_STOP.equals(intent.getAction())
@@ -130,9 +147,73 @@ public class MainActivity extends Activity {
         startForegroundService(new Intent(this, CamService.class).setAction(CamService.ACTION_START));
     }
 
+    /**
+     * Completes a pairing started on the workstation.
+     *
+     * The workstation shows a QR code holding its own callback address. We start the
+     * service, then call that address and tell it where we are. The workstation could read
+     * our address from the source address of this request, but we send it as well, because
+     * the port is ours to choose and only we know it.
+     */
+    private void handlePairing(android.net.Uri uri) {
+        final String cb = uri.getQueryParameter("cb");
+        final String tok = uri.getQueryParameter("token");
+        if (tok != null) token.setText(tok);
+        if (cb == null) {
+            status.setText("pairing link had no callback address");
+            return;
+        }
+        status.setText("pairing...");
+        android.util.Log.i(CameraEngine.TAG, "pairing requested, cb=" + cb);
+        start();
+
+        new Thread(() -> {
+            String result;
+            try {
+                // Give the service a moment to bind its socket before we announce it.
+                for (int i = 0; i < 20 && !CamService.isRunning(); i++) Thread.sleep(250);
+                int p = 8080;
+                try {
+                    p = Integer.parseInt(port.getText().toString().trim());
+                } catch (Exception ignored) { }
+                String ip = CamService.localIpv4(this);
+                String url = cb + (cb.contains("?") ? "&" : "?")
+                        + "addr=" + (ip == null ? "" : ip) + "&port=" + p;
+                java.net.HttpURLConnection c =
+                        (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                c.setConnectTimeout(5000);
+                c.setReadTimeout(5000);
+                c.getInputStream().close();
+                int code = c.getResponseCode();
+                result = (code >= 200 && code < 300)
+                        ? "paired with " + hostOf(cb)
+                        : "pairing refused, code " + code;
+            } catch (Exception e) {
+                result = "pairing failed: " + e;
+                android.util.Log.w(CameraEngine.TAG, "pairing callback", e);
+            }
+            final String r = result;
+            android.util.Log.i(CameraEngine.TAG, "pairing result: " + r);
+            ui.post(() -> {
+                holdStatusUntil = System.currentTimeMillis() + 8000;
+                status.setText(r);
+            });
+        }, "deskcam-pair").start();
+    }
+
+    private static String hostOf(String url) {
+        try {
+            return new java.net.URL(url).getHost();
+        } catch (Exception e) {
+            return url;
+        }
+    }
+
     private void refresh() {
         boolean up = CamService.isRunning();
-        status.setText(up ? "running" : "stopped");
+        if (System.currentTimeMillis() > holdStatusUntil) {
+            status.setText(up ? "running" : "stopped");
+        }
         url.setText(up ? CamService.statusLine() : "");
         if (up) {
             String base = CamService.statusLine();
