@@ -41,6 +41,7 @@ public class CamService extends Service {
     private static volatile String statusLine = "stopped";
 
     private CameraEngine engine;
+    private Sensors sensors;
     private HttpServer http;
     private PowerManager.WakeLock wakeLock;
 
@@ -91,7 +92,10 @@ public class CamService extends Service {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "deskcam:service");
             wakeLock.acquire();
 
+            sensors = new Sensors(this);
+            sensors.start();
             engine = new CameraEngine(this);
+            engine.setSensors(sensors);
             engine.start();
             http = new HttpServer(engine, port, token);
             http.start();
@@ -116,6 +120,7 @@ public class CamService extends Service {
         statusLine = "stopped";
         if (http != null) { http.stop(); http = null; }
         if (engine != null) { engine.stop(); engine = null; }
+        if (sensors != null) { sensors.stop(); sensors = null; }
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         Log.i(TAG, "service down");
         super.onDestroy();

@@ -266,6 +266,11 @@ public class HttpServer implements Runnable {
                 return;
             }
 
+            case "/api/orientation": {
+                sendJson(out, 200, engine.orientation());
+                return;
+            }
+
             case "/api/shadingmap": {
                 // Turn the map on unless the caller said otherwise, then wait for a frame
                 // that was actually taken with it on.

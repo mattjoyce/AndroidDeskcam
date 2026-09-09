@@ -121,6 +121,7 @@ public class CameraEngine {
      * onOpened is delivered on that same handler. The callback must never block.
      */
     private volatile String activeCameraId = "0";
+    private Sensors sensors;
 
     public CameraEngine(Context ctx) {
         this.ctx = ctx;
@@ -953,6 +954,12 @@ public class CameraEngine {
 
     public CamSettings.Caps caps() { return caps; }
 
+    public void setSensors(Sensors s) { this.sensors = s; }
+
+    public JSONObject orientation() throws JSONException {
+        return sensors == null ? new JSONObject().put("available", false) : sensors.toJson();
+    }
+
     public JSONObject status() throws JSONException {
         JSONObject o = new JSONObject();
         o.put("state", state);
@@ -983,6 +990,7 @@ public class CameraEngine {
             if (wl != null) sensor.put("raw_white_level", wl);
         }
         o.put("sensor", sensor);
+        if (sensors != null) o.put("orientation", sensors.toJson());
 
         TotalCaptureResult r = lastResult;
         if (r != null) {
