@@ -112,7 +112,7 @@ def probe_phone(ip, token=None, timeout=4, port=PHONE_PORT):
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    state: State = None          # set on the server instance below
+    state: State                 # set on the server class below, before serving
 
     def log_message(self, fmt, *args):
         pass                     # the console is not a web server log
@@ -146,6 +146,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if path == "/qr.svg":
             import io
+
             import segno
             qr = segno.make(pair_qr(st), error="m")
             buf = io.BytesIO()          # segno writes bytes, not str
@@ -216,12 +217,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send(404, "text/plain", "no such capture")
             return
         if not thumb:
-            ctype = "image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg") else "application/octet-stream"
+            ctype = ("image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg")
+                     else "application/octet-stream")
             self.send(200, ctype, f.read_bytes())
             return
         try:
-            from PIL import Image
             import io
+
+            from PIL import Image
             key = (str(f), f.stat().st_mtime)
             hit = THUMBS.get(key)
             if hit is None:
@@ -285,7 +288,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       f"You can close this page.", True))
 
 
-THUMBS = {}
+THUMBS: dict[tuple[str, float], bytes] = {}
 
 
 def roll(shots, limit=60):
@@ -489,7 +492,8 @@ def page(st):
     <div class="view" id="wrap">
       <img id="live" alt="live view">
       <div id="box"></div>
-      <div class="hint">drag a box to frame &middot; click to centre &middot; shift-click resets</div>
+      <div class="hint">drag a box to frame &middot; click to centre
+        &middot; shift-click resets</div>
     </div>
     <div class="btns">
       <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
@@ -553,7 +557,8 @@ function sections(d,extra){
     + grp('Exposure', kv({mode:g.ae, exposure:m.exposure_human||g.exposure_human,
                           iso:(m.iso!=null?m.iso:g.iso), ev:g.ev, ae_lock:g.ae_lock,
                           awb:g.awb, awb_lock:g.awb_lock, measure:g.measure}))
-    + grp('Focus', kv({mode:g.af, dioptres:(m.focus_diopters!=null?m.focus_diopters:g.focus_diopters),
+    + grp('Focus', kv({mode:g.af,
+                       dioptres:(m.focus_diopters!=null?m.focus_diopters:g.focus_diopters),
                        metres_approx:g.focus_metres, af_state:m.af_state}))
     + grp('Light', kv({torch:g.torch, ambient_lux:o.ambient_lux}))
     + grp('Orientation', kv({tilt_degrees:o.tilt_degrees, aim:o.aim,
@@ -622,7 +627,10 @@ async function loadSidecar(n,target){
   el.innerHTML='<p class="muted" style="padding:10px;font-size:11px">loading...</p>';
   try{
     const d=await (await fetch('/sidecar/'+encodeURIComponent(n))).json();
-    if(d.error){ el.innerHTML='<p class="muted" style="padding:10px">'+esc(d.error)+'</p>'; return; }
+    if(d.error){
+      el.innerHTML='<p class="muted" style="padding:10px">'+esc(d.error)+'</p>';
+      return;
+    }
     const head=grp('Capture', kv({image:d.image, at:d.captured_at, bytes:d.bytes}));
     el.innerHTML=(target==='side'
       ? '<div style="padding:6px 10px"><button onclick="clearPick()">Back to live</button></div>'
