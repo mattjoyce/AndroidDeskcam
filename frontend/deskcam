@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# deskcam - command line control for the DeskCam bench camera.
+#
+# Target resolution order: --url flag, $DESKCAM_URL, saved config, then localhost.
+set -uo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/deskcam"
+CONFIG="$CONFIG_DIR/url"
+SHOT_DIR="${DESKCAM_SHOTS:-$PWD}"
+
+die() { echo "deskcam: $*" >&2; exit 1; }
+
+resolve_url() {
+    if [ -n "${_URL_FLAG:-}" ]; then echo "${_URL_FLAG%/}"; return; fi
+    if [ -n "${DESKCAM_URL:-}" ]; then echo "${DESKCAM_URL%/}"; return; fi
+    if [ -f "$CONFIG" ]; then tr -d '\n' < "$CONFIG"; return; fi
+    echo "http://127.0.0.1:8080"
+}
+
+build_url() {  # build_url <path> <query>
+    local url="$(resolve_url)$1" q="${2:-}"
+    q="${q#&}"
+    [ -n "${DESKCAM_TOKEN:-}" ] && q="${q:+$q&}token=${DESKCAM_TOKEN}"
+    [ -n "$q" ] && url="${url}?${q}"
+    echo "$url"
+}
+
+req()     { curl -fsS --max-time "${DESKCAM_TIMEOUT:-30}" "$(build_url "$1" "${2:-}")"; }
+req_bin() { curl -fsS --max-time "${DESKCAM_TIMEOUT:-30}" -o "$3" "$(build_url "$1" "${2:-}")"; }
+
+pretty() { if command -v jq >/dev/null 2>&1; then jq .; else cat; fi; }
+
+# Held in a variable so the heredoc does not fight with the JSON arriving on stdin.
+read -r -d '' SUMMARISE_PY <<'PY' || true
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception as e:
+    print('bad response:', e)
+    sys.exit(1)
+if not d.get('ok', True):
+    print('error:', d.get('error'))
+    sys.exit(1)
+s = d.get('settings', {})
+m = d.get('measured', {})
+bits = ['zoom {}x'.format(s.get('zoom')),
+        'at {},{}'.format(s.get('cx'), s.get('cy')),
+        'af {}'.format(s.get('af'))]
+if s.get('focus_metres') is not None:
+    bits.append('focus {}m'.format(s['focus_metres']))
+bits.append('ae {}'.format(s.get('ae')))
+if m.get('exposure_human'):
+    bits.append(m['exposure_human'])
+if m.get('iso'):
+    bits.append('iso {}'.format(m['iso']))
+if s.get('torch'):
+    bits.append('torch {}'.format(s['torch']))
+print('  '.join(str(b) for b in bits))
+PY
+
+summarise() { python3 -c "$SUMMARISE_PY"; }
+
+timestamped() { echo "$SHOT_DIR/deskcam-$(date +%Y%m%d-%H%M%S).jpg"; }
+
+adb_args() { [ -n "${DESKCAM_SERIAL:-}" ] && printf -- '-s\n%s\n' "$DESKCAM_SERIAL"; return 0; }
+
+device_ip() {
+    mapfile -t _a < <(adb_args)
+    adb "${_a[@]}" shell "ip -4 addr show wlan0 2>/dev/null | grep -o 'inet [0-9.]*' | cut -d' ' -f2" \
+        2>/dev/null | tr -d '\r\n'
+}
+
+usage() {
+cat <<'USAGE'
+deskcam - control the bench camera over HTTP
+
+  deskcam snap [-o FILE] [k=v ...]     full-resolution still, cropped to the ROI
+  deskcam frame [-o FILE] [k=v ...]    fast preview-resolution frame
+  deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file)
+
+  deskcam status                       full JSON state
+  deskcam show                         one-line summary
+  deskcam set k=v [k=v ...]            apply any control parameters
+  deskcam reset                        restore defaults
+
+  deskcam zoom N                       set zoom (1.0 = full sensor)
+  deskcam pan up|down|left|right [amt] nudge the view (default 0.25)
+  deskcam center                       recentre
+  deskcam af                           one autofocus sweep
+  deskcam focus METRES|auto            manual focus distance
+  deskcam exposure VALUE               1/120, 8ms, 250us, 0.5s
+  deskcam iso N                        manual sensitivity
+  deskcam auto                         back to auto exposure and focus
+  deskcam torch 0-45|off|max           rear LED brightness
+
+  deskcam cameras                      list cameras and capabilities
+  deskcam api                          machine-readable API description
+  deskcam open                         open the web control panel
+
+  deskcam use URL                      remember a target, e.g. http://192.168.86.120:8080
+  deskcam usb [PORT]                   tunnel over USB via adb and use that
+  deskcam wifi                         switch back to the device's Wi-Fi address
+  deskcam start | stop                 start or stop the service on the phone (needs adb)
+  deskcam which                        print the current target
+
+Any command also accepts k=v words, applied before the image is taken:
+  deskcam snap zoom=6 cx=0.3 cy=0.7 torch=25 exposure=1/120
+Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL
+USAGE
+}
+
+# ------------------------------------------------------------------ dispatch
+
+_URL_FLAG=""
+OUT=""
+ARGS=()   # positional words, e.g. the N in "deskcam zoom N"
+Q=""      # bare k=v words, appended as query parameters
+CMD="${1:-help}"; shift || true
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o|--out)  OUT="$2"; shift 2 ;;
+        --url)     _URL_FLAG="$2"; shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *=*)       Q="${Q}&$1"; shift ;;
+        *)         ARGS+=("$1"); shift ;;
+    esac
+done
+
+nargs=${#ARGS[@]}
+a0="${ARGS[0]:-}"
+a1="${ARGS[1]:-}"
+
+case "$CMD" in
+    snap|still|shot)
+        [ -z "$OUT" ] && OUT="$(timestamped)"
+        req_bin /api/still "$Q" "$OUT" || die "capture failed"
+        echo "$OUT" ;;
+    frame|preview)
+        [ -z "$OUT" ] && OUT="$(timestamped)"
+        req_bin /api/frame "$Q" "$OUT" || die "capture failed"
+        echo "$OUT" ;;
+    stream)
+        [ -z "$OUT" ] && OUT="$SHOT_DIR/deskcam-stream.mjpg"
+        [[ "$Q" != *"n="* ]] && Q="$Q&n=30"
+        req_bin /api/stream "$Q" "$OUT" || die "stream failed"
+        echo "$OUT" ;;
+
+    status)        req /api/status "$Q" | pretty ;;
+    show)          req /api/status "$Q" | summarise ;;
+    set)           [ -z "$Q" ] && die "usage: deskcam set key=value [...]"
+                   req /api/set "$Q" | summarise ;;
+    reset)         req /api/reset "$Q" | summarise ;;
+
+    zoom)          [ "$nargs" -eq 0 ] && die "usage: deskcam zoom N"
+                   req /api/set "zoom=$a0$Q" | summarise ;;
+    center|centre) req /api/set "cx=0.5&cy=0.5$Q" | summarise ;;
+    pan)
+        [ "$nargs" -eq 0 ] && die "usage: deskcam pan up|down|left|right [amount]"
+        amt="${a1:-0.25}"
+        case "$a0" in
+            left)  p="dx=-$amt" ;;
+            right) p="dx=$amt"  ;;
+            up)    p="dy=-$amt" ;;
+            down)  p="dy=$amt"  ;;
+            *) die "direction must be up, down, left or right" ;;
+        esac
+        req /api/set "$p$Q" | summarise ;;
+    af|autofocus)  req /api/af "$Q" | summarise ;;
+    focus)
+        [ "$nargs" -eq 0 ] && die "usage: deskcam focus METRES|auto"
+        if [ "$a0" = "auto" ]; then req /api/set "af=continuous&focus=auto$Q" | summarise
+        else req /api/set "focusm=$a0$Q" | summarise; fi ;;
+    exposure|shutter)
+        [ "$nargs" -eq 0 ] && die "usage: deskcam exposure 1/120|8ms|250us"
+        req /api/set "exposure=$a0$Q" | summarise ;;
+    iso)           [ "$nargs" -eq 0 ] && die "usage: deskcam iso N"
+                   req /api/set "iso=$a0$Q" | summarise ;;
+    auto)          req /api/set "ae=on&af=continuous&focus=auto$Q" | summarise ;;
+    torch|light)   [ "$nargs" -eq 0 ] && die "usage: deskcam torch 0-45|off|max"
+                   req /api/set "torch=$a0$Q" | summarise ;;
+
+    cameras)       req /api/cameras "" | pretty ;;
+    api)           req /api/help "" | pretty ;;
+    open)          u="$(resolve_url)"; echo "$u"; (xdg-open "$u" >/dev/null 2>&1 &) ;;
+    which)         echo "$(resolve_url)" ;;
+
+    use)
+        [ "$nargs" -eq 0 ] && die "usage: deskcam use http://host:8080"
+        mkdir -p "$CONFIG_DIR"; echo "${a0%/}" > "$CONFIG"
+        echo "target: $(resolve_url)" ;;
+    usb)
+        command -v adb >/dev/null || die "adb not found"
+        port="${a0:-8080}"
+        mapfile -t _a < <(adb_args)
+        adb "${_a[@]}" forward "tcp:$port" tcp:8080 >/dev/null || die "adb forward failed"
+        mkdir -p "$CONFIG_DIR"; echo "http://127.0.0.1:$port" > "$CONFIG"
+        echo "target: $(resolve_url)  (tunnelled over USB)" ;;
+    wifi)
+        command -v adb >/dev/null || die "adb not found"
+        ip="$(device_ip)"; [ -n "$ip" ] || die "could not read the device Wi-Fi address"
+        mkdir -p "$CONFIG_DIR"; echo "http://$ip:8080" > "$CONFIG"
+        echo "target: $(resolve_url)" ;;
+    start)
+        command -v adb >/dev/null || die "adb not found"
+        mapfile -t _a < <(adb_args)
+        adb "${_a[@]}" shell am start -n dev.deskcam/.MainActivity \
+            -a dev.deskcam.START --ez finish true >/dev/null 2>&1
+        sleep 4; req /api/status "" | summarise ;;
+    stop)
+        command -v adb >/dev/null || die "adb not found"
+        mapfile -t _a < <(adb_args)
+        adb "${_a[@]}" shell am start -n dev.deskcam/.MainActivity \
+            -a dev.deskcam.STOP --ez finish true >/dev/null 2>&1
+        echo "stopped" ;;
+
+    help|--help|-h) usage ;;
+    *) usage; exit 1 ;;
+esac
