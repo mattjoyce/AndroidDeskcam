@@ -40,7 +40,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
@@ -48,6 +48,9 @@ import java.util.concurrent.TimeUnit;
 public class CameraEngine {
 
     public static final String TAG = "DeskCam";
+
+    /** How many still buffers the HAL may hold. This sets the practical burst rate. */
+    private static final int BURST_READER_DEPTH = 6;
 
     /** An identity tone curve. Output equals input, so the JPEG stays proportional to light. */
     private static final TonemapCurve LINEAR_TONEMAP = new TonemapCurve(
@@ -94,7 +97,7 @@ public class CameraEngine {
     private volatile long lastDemandMs = 0;
     private volatile int streamClients = 0;
 
-    private final ArrayBlockingQueue<byte[]> stillQueue = new ArrayBlockingQueue<>(1);
+    private final LinkedBlockingQueue<byte[]> stillQueue = new LinkedBlockingQueue<>();
 
     /**
      * A RAW capture needs the Image and the TotalCaptureResult of the same frame, because
@@ -214,9 +217,12 @@ public class CameraEngine {
                 : largestSize(map.getOutputSizes(ImageFormat.JPEG));
         Size pv = nearestSize(map.getOutputSizes(ImageFormat.YUV_420_888), s.previewW, s.previewH);
 
-        stillReader = ImageReader.newInstance(stillSize.getWidth(), stillSize.getHeight(), ImageFormat.JPEG, 2);
+        // Deep enough that a burst keeps running while the server drains it.
+        stillReader = ImageReader.newInstance(stillSize.getWidth(), stillSize.getHeight(),
+                ImageFormat.JPEG, BURST_READER_DEPTH);
         stillReader.setOnImageAvailableListener(r -> {
-            try (Image img = r.acquireLatestImage()) {
+            // acquireNextImage, not acquireLatestImage: a burst must keep every frame.
+            try (Image img = r.acquireNextImage()) {
                 if (img == null) return;
                 ByteBuffer b = img.getPlanes()[0].getBuffer();
                 byte[] data = new byte[b.remaining()];
@@ -656,6 +662,45 @@ public class CameraEngine {
             } finally {
                 img.close();
             }
+        }
+    }
+
+    /**
+     * A burst of full-resolution JPEGs, all with the same settings.
+     *
+     * The frames go to the camera as one submission, so the HAL runs them back to back at
+     * the fastest rate the sensor allows. That matters because the point of a burst is to
+     * average the noise away, and every frame must see the same scene and the same
+     * exposure for the average to mean anything.
+     */
+    public List<byte[]> captureBurst(int n, long timeoutMs) throws Exception {
+        synchronized (rawCaptureLock) {      // one multi-frame operation at a time
+            CamSettings s;
+            synchronized (lock) {
+                if (session == null || device == null) throw new IllegalStateException("camera not running");
+                s = settings.clone();
+                stillQueue.clear();
+                List<CaptureRequest> reqs = new ArrayList<>(n);
+                for (int i = 0; i < n; i++) {
+                    CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                    b.addTarget(stillReader.getSurface());
+                    applyTo(b, s, true);
+                    reqs.add(b.build());
+                }
+                session.captureBurst(reqs, null, camHandler);
+            }
+
+            List<byte[]> frames = new ArrayList<>(n);
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            while (frames.size() < n) {
+                long wait = deadline - System.currentTimeMillis();
+                if (wait <= 0) break;
+                byte[] f = stillQueue.poll(Math.min(wait, 500), TimeUnit.MILLISECONDS);
+                if (f == null) continue;
+                frames.add(s.stillIsPristine() ? f : cropJpeg(f, s));
+            }
+            if (frames.isEmpty()) throw new IllegalStateException("burst produced no frames");
+            return frames;
         }
     }
 

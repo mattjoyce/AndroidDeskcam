@@ -194,6 +194,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/status` | JSON | The settings, the limits, the geometry, and the `measured` block |
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
 | `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
+| `/api/burst` | `application/x-tar` | `n` frames with identical settings. The headers give the frame count, the time, and the rate. |
 | `/api/shadingmap` | JSON | The lens shading map, if the device delivers one. Refer to section 4.3. |
 | `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
 | `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. |
@@ -212,7 +213,8 @@ These are the control parameters:
 
 `camera`, `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`,
 `exposure`, `iso`, `ev`, `aelock`, `awb`, `awblock`, `torch`, `jpegq`, `rotate`, `w`, `h`,
-`previewsize`, `stillsize`, `measure`, `shadingmap`, `reset`, `settle`, `timeout`, `fresh`.
+`previewsize`, `stillsize`, `measure`, `shadingmap`, `reset`, `settle`, `timeout`, `fresh`,
+`n`, `fps`.
 
 **The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
 `cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use
@@ -383,10 +385,20 @@ ten times. That is the error that a measurement must not contain.
 `/api/status` gives a `pipeline` block. The block reports what the HAL applied, not what
 the request asked for. Rule R4 applies to the pipeline as much as to the exposure.
 
-**3. Burst capture (backend) and average (frontend).** Take one idea from HDR+. Capture
-many frames below the correct exposure. Then merge them. The highlights do not clip. The
-noise falls with the square root of the frame count. The mount is fixed, so alignment
-costs nothing.
+**3. Burst capture (backend). DONE. Average (frontend) is card 4.** `/api/burst` sends the
+frames to the camera as one submission, so the HAL runs them back to back. The result is a
+tar archive. A test gave 12 full resolution frames in 642 ms, which is 18.7 frames per
+second at 12 megapixels.
+
+Two changes were necessary. The still reader now holds 6 buffers, so the HAL can run ahead
+of the server. And the reader takes each image with `acquireNextImage`. The old code used
+`acquireLatestImage`, which discards frames and is correct for a preview and wrong for a
+burst.
+
+A measured result from 12 frames: an average of 6 frames had 2.25 times less noise than one
+frame, against a prediction of 2.45. JPEG compression makes the noise of neighbouring
+frames a little alike, and fixed pattern noise is equal in each frame, so an average never
+removes it. Card 10 removes that part with a dark frame.
 
 **4. Focus sweep (backend) and focus stack (frontend).** At 98 mm the depth of field is
 one or two millimetres. Move the lens in **dioptre steps**. The depth of field is almost

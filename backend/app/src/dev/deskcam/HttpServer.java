@@ -243,6 +243,29 @@ public class HttpServer implements Runnable {
                 return;
             }
 
+            case "/api/burst": {
+                JSONObject applied = applyParams(params);
+                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
+                int n = (int) clampLong(longParam(params, "n", 8), 1, 64);
+                long settle = longParam(params, "settle", defaultSettle(params));
+                if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
+                long t0 = System.currentTimeMillis();
+                java.util.List<byte[]> frames =
+                        engine.captureBurst(n, longParam(params, "timeout", 5000L + 1500L * n));
+                long ms = System.currentTimeMillis() - t0;
+                Tar tar = new Tar(frames.size() * 2_000_000);
+                for (int i = 0; i < frames.size(); i++) {
+                    tar.add(String.format(java.util.Locale.US, "burst-%03d.jpg", i), frames.get(i));
+                }
+                byte[] body = tar.finish();
+                double fps = ms > 0 ? frames.size() * 1000.0 / ms : 0;
+                sendBytes(out, 200, "application/x-tar", body,
+                        "X-DeskCam-Frames: " + frames.size() + "\r\n"
+                        + "X-DeskCam-Millis: " + ms + "\r\n"
+                        + String.format(java.util.Locale.US, "X-DeskCam-Fps: %.2f\r\n", fps));
+                return;
+            }
+
             case "/api/shadingmap": {
                 // Turn the map on unless the caller said otherwise, then wait for a frame
                 // that was actually taken with it on.

@@ -130,6 +130,7 @@ Each operation is a GET. Get the same reference as JSON from `/api/help`.
 | `/api/status` | The settings, the sensor limits, and the measured exposure, ISO, and focus |
 | `/api/still` | A full resolution JPEG, cropped to the ROI |
 | `/api/raw` | A full sensor RAW frame as a DNG. Refer to the note below. |
+| `/api/burst` | `n` frames with identical settings, as one tar archive |
 | `/api/shadingmap` | The lens shading map, if the device gives one |
 | `/api/frame` | One preview JPEG. Much quicker. |
 | `/api/stream` | MJPEG. `fps` and `n` are optional. |
@@ -216,6 +217,30 @@ Lens shading correction is off in measurement mode, so the frame shows the true 
 response. You must divide out the vignetting yourself with a measured flat field. This
 camera does not give a lens shading map. It lists the map mode and the map size, but the
 map is not one of its result keys.
+
+## Burst capture
+
+A burst gives many frames with identical settings. Average them on the workstation and the
+noise falls with the square root of the frame count.
+
+```sh
+deskcam burst 16 measure=1 iso=56 exposure=1/60
+deskcam burst 8 format=raw            # DNG frames, one request each
+```
+
+The JPEG burst goes to the camera as one submission, so the HAL runs the frames back to
+back. A test on the device gave 12 full resolution frames in 642 ms, which is 18.7 frames
+per second at 12 megapixels.
+
+Set the exposure below the correct value. Then the highlights never clip, and the average
+recovers the shadows. This is the one useful idea from HDR+, and it works better here than
+on a phone, because a fixed mount needs no frame alignment.
+
+A measured result from 12 frames: the noise of an average of 6 frames was 2.25 times lower
+than the noise of one frame. The square root of 6 is 2.45, so the result is 92% of the
+prediction. Two effects explain the difference. JPEG compression makes the noise of
+neighbouring frames a little alike. Fixed pattern noise is the same in each frame, so an
+average never removes it. Subtract a dark frame to remove that part.
 
 ## Examples
 

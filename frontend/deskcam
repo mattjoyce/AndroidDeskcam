@@ -77,6 +77,8 @@ deskcam - control the bench camera over HTTP
   deskcam snap [-o FILE] [k=v ...]     full-resolution still, cropped to the ROI
   deskcam frame [-o FILE] [k=v ...]    fast preview-resolution frame
   deskcam raw [-o FILE] [k=v ...]      full-sensor RAW as a DNG, for measurement work
+  deskcam burst N [-o DIR] [k=v ...]   N frames with identical settings, into a directory
+                                       add format=raw for DNG frames
   deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file)
 
   deskcam status                       full JSON state
@@ -146,6 +148,30 @@ case "$CMD" in
         [ -z "$OUT" ] && OUT="$(timestamped dng)"
         req_bin /api/raw "$Q" "$OUT" || die "raw capture failed"
         echo "$OUT" ;;
+    burst)
+        # A hardware burst of JPEGs arrives as one tar. RAW is captured one frame at a
+        # time instead, because a full-sensor DNG is 24 MB and a burst of them will not
+        # fit in memory on the phone.
+        N="${a0:-8}"
+        [ -z "$OUT" ] && OUT="$SHOT_DIR/deskcam-burst-$(date +%Y%m%d-%H%M%S)"
+        mkdir -p "$OUT" || die "cannot make $OUT"
+        case "$Q" in
+            *format=raw*)
+                Q="${Q//format=raw/}"
+                [ -n "$Q" ] && req /api/set "$Q" >/dev/null
+                i=0
+                while [ "$i" -lt "$N" ]; do
+                    req_bin /api/raw "" "$(printf '%s/burst-%03d.dng' "$OUT" "$i")" \
+                        || die "raw burst failed at frame $i"
+                    i=$((i+1))
+                done ;;
+            *)
+                tmp="$OUT/.burst.tar"
+                req_bin /api/burst "n=$N$Q" "$tmp" || die "burst failed"
+                tar xf "$tmp" -C "$OUT" && rm -f "$tmp" ;;
+        esac
+        echo "$OUT" ;;
+
     stream)
         [ -z "$OUT" ] && OUT="$SHOT_DIR/deskcam-stream.mjpg"
         [[ "$Q" != *"n="* ]] && Q="$Q&n=30"
