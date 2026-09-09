@@ -87,8 +87,24 @@ public class CamSettings implements Cloneable {
         float z = Math.max(1.0f, zoom);
         int rw = Math.max(16, Math.round(w / z));
         int rh = Math.max(16, Math.round(h / z));
-        int left = Math.round(cx * w - rw / 2f);
-        int top = Math.round(cy * h - rh / 2f);
+
+        // cx and cy name a point in the picture the caller SEES, which is the rotated
+        // output. The crop happens before the rotation, in sensor space, so the centre
+        // must be mapped back. Without this, a rotated camera needs inverted coordinates
+        // and nobody can guess that.
+        //
+        // The size needs no change. A quarter turn swaps both the frame and the region,
+        // so a w/z by h/z rectangle stays a w/z by h/z rectangle.
+        float sx, sy;
+        switch (rotate) {
+            case 90:  sx = cy;      sy = 1f - cx; break;
+            case 180: sx = 1f - cx; sy = 1f - cy; break;
+            case 270: sx = 1f - cy; sy = cx;      break;
+            default:  sx = cx;      sy = cy;      break;
+        }
+
+        int left = Math.round(sx * w - rw / 2f);
+        int top = Math.round(sy * h - rh / 2f);
         left = clampInt(left, 0, w - rw);
         top = clampInt(top, 0, h - rh);
         return new Rect(left, top, left + rw, top + rh);
