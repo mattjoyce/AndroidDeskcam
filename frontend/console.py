@@ -361,6 +361,10 @@ def console_state(st):
         if s:
             out["settings"] = s.get("settings", {})
             out["measured"] = s.get("measured", {})
+            out["orientation"] = s.get("orientation", {})
+            out["pipeline"] = s.get("pipeline", {})
+            out["sensor"] = s.get("sensor", {})
+            out["state"] = s.get("state")
     else:
         out["online"] = False
     return out
@@ -399,8 +403,9 @@ def page(st):
  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
  .on{background:#3fb950}.off{background:#f85149}
  .muted{color:#8b949e}
- main{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;padding:16px;align-items:start}
- @media(max-width:900px){main{grid-template-columns:1fr}}
+ main{display:flex;flex-direction:column;gap:16px;padding:16px}
+ .livewrap{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0;min-height:0}
+ @media(max-width:900px){.livewrap{grid-template-columns:1fr}}
  .card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:14px}
  .card h2{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
           color:#8b949e;font-weight:600}
@@ -414,8 +419,8 @@ def page(st):
         padding:5px 11px;font-size:12px;cursor:pointer}
  button:hover{background:#30363d}
  button.p{background:#1f6feb;border-color:#1f6feb} button.p:hover{background:#388bfd}
- #roll{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;
-       max-height:74vh;overflow:auto}
+ #roll{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;
+       max-height:46vh;overflow:auto}
  .shot{background:#0d1117;border:1px solid #21262d;border-radius:7px;overflow:hidden;cursor:pointer}
  .shot img{display:block;width:100%;height:auto}
  .shot .m{padding:5px 7px;font:10px/1.35 ui-monospace,monospace;color:#8b949e}
@@ -428,6 +433,13 @@ def page(st):
  @media(max-width:820px){.dlgmain{grid-template-columns:1fr}}
  .frame{background:#0d1117;border-right:1px solid #21262d;padding:12px;
         display:flex;align-items:center;justify-content:center;min-height:0}
+ .livewrap .frame{border:1px solid #21262d;border-right:none;border-radius:8px 0 0 8px;padding:0}
+ .livewrap .side{border:1px solid #21262d;border-left:none;border-radius:0 8px 8px 0;
+                 max-height:none;background:#161b22}
+ @media(max-width:900px){
+   .livewrap .frame{border-radius:8px 8px 0 0;border-right:1px solid #21262d}
+   .livewrap .side{border-radius:0 0 8px 8px;border-left:1px solid #21262d;border-top:none}
+ }
  /* contain keeps the whole picture inside the frame at any aspect ratio */
  .frame img{max-width:100%;max-height:62vh;object-fit:contain;display:block;border-radius:4px}
  .side{overflow:auto;padding:12px 14px;min-height:0;max-height:62vh}
@@ -453,36 +465,41 @@ def page(st):
 </header>
 <main>
   <div>
-    <div class="view" id="wrap">
-      <img id="live" alt="live view">
-      <div id="box"></div>
-      <div class="hint">drag a box to frame it &middot; click to centre &middot; shift-click to reset</div>
+    <div class="livewrap">
+      <div class="frame">
+        <div class="view" id="wrap" style="width:100%">
+          <img id="live" alt="live view">
+          <div id="box"></div>
+          <div class="hint">drag a box to frame it &middot; click to centre &middot; shift-click to reset</div>
+        </div>
+      </div>
+      <div class="side" id="liveside"></div>
     </div>
     <div class="btns">
       <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
       <button onclick="cam('zoomby=1.5')">Zoom in</button>
       <button onclick="cam('zoomby=0.667')">Zoom out</button>
-      <button onclick="fetch('/api/cam?_=1').then(refresh)">Refresh</button>
+      <button onclick="cam('measure=1')">Measure mode</button>
+      <button onclick="cam('measure=0')">Normal</button>
       <button onclick="rot()">Rotate 180</button>
       <button onclick="restream()">Restart stream</button>
     </div>
   </div>
 
-  <div>
-    <div class="card">
-      <h2>Captures</h2>
-      <div id="roll"></div>
-      <p id="empty" class="muted" style="font-size:12px">
-        Nothing yet. Take one with <code>deskcam snap</code>.</p>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <details id="pairwrap">
-        <summary>Pair a phone</summary>
-        <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
-        <p><code id="purl"></code></p>
-        <button onclick="newcode()">New code</button>
-      </details>
-    </div>
+  <div class="card">
+    <h2>Captures</h2>
+    <div id="roll"></div>
+    <p id="empty" class="muted" style="font-size:12px">
+      Nothing yet. Take one with <code>deskcam snap</code>.</p>
+  </div>
+
+  <div class="card">
+    <details id="pairwrap">
+      <summary>Pair a phone</summary>
+      <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
+      <p><code id="purl"></code></p>
+      <button onclick="newcode()">New code</button>
+    </details>
   </div>
 </main>
 <dialog id="big">
@@ -527,7 +544,26 @@ async function refresh(){
       (g.zoom!==undefined ? 'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ' : '') +
       (m.exposure_human||'') + (m.iso? '  iso '+m.iso : '') + (g.measure? '  measure':'');
     if(S.online) restream();
+    renderLive();
   }catch(e){}
+}
+
+// The live panel uses the same sections as the one beside a capture, so what you read
+// while aiming is what gets written into the sidecar when you shoot.
+function renderLive(){
+  const el = document.getElementById('liveside');
+  if(!S.online){
+    el.innerHTML = '<h3>Camera</h3><p class="muted" style="font:11px ui-monospace,monospace">'
+      + (S.phone ? 'paired but not answering' : 'no phone paired') + '</p>';
+    return;
+  }
+  el.innerHTML =
+    '<h3>Now</h3>' + rows({state: S.state, address: S.phone}) +
+    (S.orientation && Object.keys(S.orientation).length ? '<h3>Orientation</h3>' + rows(S.orientation) : '') +
+    '<h3>Measured</h3>' + rows(S.measured) +
+    '<h3>Settings</h3>' + rows(S.settings) +
+    (S.pipeline && Object.keys(S.pipeline).length ? '<h3>Pipeline</h3>' + rows(S.pipeline) : '') +
+    (S.sensor && Object.keys(S.sensor).length ? '<h3>Sensor</h3>' + rows(S.sensor) : '');
 }
 
 async function loadRoll(){
