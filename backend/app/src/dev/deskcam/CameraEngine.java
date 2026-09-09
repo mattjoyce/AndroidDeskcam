@@ -13,6 +13,7 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.DngCreator;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
@@ -20,6 +21,7 @@ import android.hardware.camera2.params.MeteringRectangle;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.ExifInterface;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Build;
@@ -55,13 +57,16 @@ public class CameraEngine {
 
     private CameraDevice device;
     private CameraCaptureSession session;
-    private ImageReader previewReader, stillReader;
+    private ImageReader previewReader, stillReader, rawReader;
     private CaptureRequest.Builder previewBuilder;
 
     private CameraCharacteristics chars;
     private CamSettings.Caps caps = new CamSettings.Caps();
     private Rect activeArray = new Rect(0, 0, 4032, 3024);
     private Size stillSize = new Size(4032, 3024);
+    private Size rawSize = null;
+    /** Set once a session refuses to configure with a RAW output, so we stop asking. */
+    private boolean rawSessionFailed = false;
 
     private final Object lock = new Object();
     private CamSettings settings = new CamSettings();
@@ -77,6 +82,16 @@ public class CameraEngine {
     private volatile int streamClients = 0;
 
     private final ArrayBlockingQueue<byte[]> stillQueue = new ArrayBlockingQueue<>(1);
+
+    /**
+     * A RAW capture needs the Image and the TotalCaptureResult of the same frame, because
+     * DngCreator writes the sensor calibration out of the result. Both arrive on different
+     * callbacks, so they are collected here and the capture waits for the pair.
+     */
+    private final Object rawLock = new Object();
+    private final Object rawCaptureLock = new Object();
+    private Image pendingRaw;
+    private TotalCaptureResult pendingRawResult;
     private volatile TotalCaptureResult lastResult;
     private volatile String state = "stopped";
     private volatile String lastError = null;
@@ -116,6 +131,11 @@ public class CameraEngine {
         device = null;
         if (previewReader != null) { previewReader.close(); previewReader = null; }
         if (stillReader != null) { stillReader.close(); stillReader = null; }
+        if (rawReader != null) { rawReader.close(); rawReader = null; }
+        synchronized (rawLock) {
+            if (pendingRaw != null) { pendingRaw.close(); pendingRaw = null; }
+            pendingRawResult = null;
+        }
         synchronized (frameLock) { latestNv21 = null; }
     }
 
@@ -125,6 +145,34 @@ public class CameraEngine {
      * output size changes, since those are fixed at session-configuration time.
      */
     private void openAndConfigure(CamSettings s) throws Exception {
+        boolean wantRaw = !rawSessionFailed && deviceHasRaw(s.cameraId);
+        try {
+            configureSession(s, wantRaw);
+        } catch (Exception e) {
+            if (!wantRaw) throw e;
+            // A RAW output is a mandatory stream combination on paper. If this device
+            // disagrees, fall back rather than leave the camera unusable.
+            Log.w(TAG, "session with RAW refused, retrying without it: " + e);
+            rawSessionFailed = true;
+            configureSession(s, false);
+        }
+    }
+
+    private boolean deviceHasRaw(String cameraId) {
+        try {
+            CameraCharacteristics c = cm.getCameraCharacteristics(cameraId);
+            int[] caps = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+            if (caps == null) return false;
+            for (int x : caps) {
+                if (x == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW) return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "raw capability probe", e);
+        }
+        return false;
+    }
+
+    private void configureSession(CamSettings s, boolean withRaw) throws Exception {
         closeSessionAndDevice();
         state = "opening";
         lastError = null;
@@ -154,6 +202,25 @@ public class CameraEngine {
                 Log.w(TAG, "still reader", e);
             }
         }, camHandler);
+
+        rawSize = null;
+        if (withRaw) {
+            Size rs = largestSize(map.getOutputSizes(ImageFormat.RAW_SENSOR));
+            if (rs != null) {
+                rawSize = rs;
+                // One image only. A full frame is width * height * 2 bytes, about 24 MB here.
+                rawReader = ImageReader.newInstance(rs.getWidth(), rs.getHeight(), ImageFormat.RAW_SENSOR, 1);
+                rawReader.setOnImageAvailableListener(r -> {
+                    Image img = r.acquireNextImage();
+                    if (img == null) return;
+                    synchronized (rawLock) {
+                        if (pendingRaw != null) pendingRaw.close();
+                        pendingRaw = img;
+                        rawLock.notifyAll();
+                    }
+                }, camHandler);
+            }
+        }
 
         previewReader = ImageReader.newInstance(pv.getWidth(), pv.getHeight(), ImageFormat.YUV_420_888, 3);
         previewReader.setOnImageAvailableListener(r -> {
@@ -211,9 +278,10 @@ public class CameraEngine {
         if (openErr[0] != null) throw openErr[0];
         if (device == null) throw new IllegalStateException("camera did not open in time");
 
-        List<OutputConfiguration> outs = Arrays.asList(
-                new OutputConfiguration(previewReader.getSurface()),
-                new OutputConfiguration(stillReader.getSurface()));
+        List<OutputConfiguration> outs = new ArrayList<>();
+        outs.add(new OutputConfiguration(previewReader.getSurface()));
+        outs.add(new OutputConfiguration(stillReader.getSurface()));
+        if (rawReader != null) outs.add(new OutputConfiguration(rawReader.getSurface()));
 
         final Object sesLatch = new Object();
         final boolean[] sesDone = new boolean[1];
@@ -248,7 +316,8 @@ public class CameraEngine {
         settings.previewW = pv.getWidth();
         settings.previewH = pv.getHeight();
         state = "running";
-        Log.i(TAG, "camera " + s.cameraId + " running, preview " + pv + " still " + stillSize);
+        Log.i(TAG, "camera " + s.cameraId + " running, preview " + pv + " still " + stillSize
+                + (rawSize != null ? " raw " + rawSize : " raw unavailable"));
     }
 
     private final CameraCaptureSession.CaptureCallback resultCb = new CameraCaptureSession.CaptureCallback() {
@@ -406,6 +475,96 @@ public class CameraEngine {
         return out.toByteArray();
     }
 
+    /**
+     * A full-sensor RAW frame, written as a DNG.
+     *
+     * The software ROI is deliberately NOT applied. A DNG holds the whole sensor array so
+     * the workstation can demosaic and crop from linear data; the ROI is reported in the
+     * response header instead. Every value needed for correct colour, including the black
+     * and white levels and the calibration matrices, is written from the capture result.
+     */
+    public byte[] captureRaw(long timeoutMs) throws Exception {
+        synchronized (rawCaptureLock) {
+            CameraCharacteristics ch;
+            CamSettings s;
+            synchronized (lock) {
+                if (session == null || device == null) throw new IllegalStateException("camera not running");
+                if (rawReader == null) {
+                    throw new IllegalStateException(rawSessionFailed
+                            ? "RAW disabled: the capture session refused a RAW output"
+                            : "RAW is not available on camera " + settings.cameraId);
+                }
+                ch = chars;
+                s = settings.clone();
+                synchronized (rawLock) {
+                    if (pendingRaw != null) { pendingRaw.close(); pendingRaw = null; }
+                    pendingRawResult = null;
+                }
+                CaptureRequest.Builder b = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                b.addTarget(rawReader.getSurface());
+                applyTo(b, s, true);
+                session.capture(b.build(), new CameraCaptureSession.CaptureCallback() {
+                    @Override public void onCaptureCompleted(CameraCaptureSession cs, CaptureRequest rq,
+                                                             TotalCaptureResult res) {
+                        synchronized (rawLock) { pendingRawResult = res; rawLock.notifyAll(); }
+                    }
+                    @Override public void onCaptureFailed(CameraCaptureSession cs, CaptureRequest rq,
+                                                          android.hardware.camera2.CaptureFailure f) {
+                        Log.w(TAG, "raw capture failed, reason " + f.getReason());
+                        synchronized (rawLock) { rawLock.notifyAll(); }
+                    }
+                }, camHandler);
+            }
+
+            Image img;
+            TotalCaptureResult res;
+            synchronized (rawLock) {
+                long deadline = System.currentTimeMillis() + timeoutMs;
+                while (pendingRaw == null || pendingRawResult == null) {
+                    long wait = deadline - System.currentTimeMillis();
+                    if (wait <= 0) {
+                        if (pendingRaw != null) { pendingRaw.close(); pendingRaw = null; }
+                        pendingRawResult = null;
+                        throw new IllegalStateException("raw capture timed out after " + timeoutMs + "ms");
+                    }
+                    rawLock.wait(Math.min(wait, 200));
+                }
+                img = pendingRaw;
+                res = pendingRawResult;
+                pendingRaw = null;
+                pendingRawResult = null;
+            }
+
+            try (DngCreator dng = new DngCreator(ch, res)) {
+                dng.setOrientation(exifOrientation(s.rotate));
+                ByteArrayOutputStream out = new ByteArrayOutputStream(1 << 23);
+                dng.writeImage(out, img);
+                return out.toByteArray();
+            } finally {
+                img.close();
+            }
+        }
+    }
+
+    public boolean rawAvailable() { return rawReader != null; }
+
+    /** The ROI the user is aimed at, as pixels of the RAW frame, for the response header. */
+    public String rawRoiHeader() {
+        if (rawSize == null) return "";
+        CamSettings s = snapshot();
+        Rect r = s.roiFor(rawSize.getWidth(), rawSize.getHeight());
+        return r.left + "," + r.top + "," + r.width() + "," + r.height();
+    }
+
+    private static int exifOrientation(int rotateDegrees) {
+        switch (rotateDegrees) {
+            case 90:  return ExifInterface.ORIENTATION_ROTATE_90;
+            case 180: return ExifInterface.ORIENTATION_ROTATE_180;
+            case 270: return ExifInterface.ORIENTATION_ROTATE_270;
+            default:  return ExifInterface.ORIENTATION_NORMAL;
+        }
+    }
+
     /** A single preview frame, cropped to the ROI. Much faster than a still. */
     public byte[] grabFrame(long timeoutMs) throws Exception {
         lastDemandMs = System.currentTimeMillis();
@@ -536,6 +695,19 @@ public class CameraEngine {
         sensor.put("still_roi", roi.left + "," + roi.top + " " + roi.width() + "x" + roi.height());
         sensor.put("still_roi_megapixels",
                 CamSettings.round2(roi.width() * (double) roi.height() / 1e6));
+        sensor.put("raw_available", rawReader != null);
+        if (rawSize != null) sensor.put("raw_size", rawSize.getWidth() + "x" + rawSize.getHeight());
+        if (chars != null) {
+            android.hardware.camera2.params.BlackLevelPattern blp =
+                    chars.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN);
+            Integer wl = chars.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL);
+            if (blp != null) {
+                int[] v = new int[4];
+                blp.copyTo(v, 0);
+                sensor.put("raw_black_level", v[0]);
+            }
+            if (wl != null) sensor.put("raw_white_level", wl);
+        }
         o.put("sensor", sensor);
 
         TotalCaptureResult r = lastResult;

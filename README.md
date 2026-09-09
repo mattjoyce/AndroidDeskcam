@@ -129,6 +129,7 @@ Each operation is a GET. Get the same reference as JSON from `/api/help`.
 |---|---|
 | `/api/status` | The settings, the sensor limits, and the measured exposure, ISO, and focus |
 | `/api/still` | A full resolution JPEG, cropped to the ROI |
+| `/api/raw` | A full sensor RAW frame as a DNG. Refer to the note below. |
 | `/api/frame` | One preview JPEG. Much quicker. |
 | `/api/stream` | MJPEG. `fps` and `n` are optional. |
 | `/api/set` | Apply the parameters. Give the result. |
@@ -161,6 +162,27 @@ These parameters are correct on each endpoint:
 | `previewsize`, `stillsize` | The capture sizes. These make a new session. |
 | `reset=1` | Set all values to the default before the rest of this request |
 | `settle` | The wait in milliseconds after a change, before the capture |
+
+## RAW capture
+
+Use `/api/raw` or `deskcam raw` for measurement work. The JPEG pipeline applies tone maps,
+noise reduction, and sharpening. These steps remove the linear relation between light and
+pixel value. RAW keeps that relation.
+
+```sh
+deskcam raw -o panel.dng exposure=1/120 iso=56
+```
+
+**The software crop does not apply to a DNG.** A DNG holds the full sensor array, because
+the workstation must demosaic before it crops. The server reports your framing in the
+`X-DeskCam-ROI` response header.
+
+The file holds all data that correct colour needs. This includes the black level, the
+white level, both colour matrices, both forward matrices, and the two calibration
+illuminants. `dcraw`, `rawpy`, and `darktable` all read it.
+
+Keep the ISO at 56 and change only the exposure time. Above ISO 444 the sensor gain is
+digital. It is better to apply digital gain to the RAW data on the workstation.
 
 ## Examples
 

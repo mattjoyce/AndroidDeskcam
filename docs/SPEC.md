@@ -183,6 +183,7 @@ The server also accepts POST with a query string or a flat JSON body.
 |---|---|---|
 | `/api/status` | JSON | The settings, the limits, the geometry, and the `measured` block |
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
+| `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
 | `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
 | `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. |
 | `/api/set` | JSON | Apply the parameters. Give the result. |
@@ -351,9 +352,11 @@ the OIS position. Thus the method does not work on a fixed mount.
 The list is in order of value against work. Items 1 to 3 give most of the benefit. The
 kanban board holds these items as cards 1 to 11.
 
-**1. RAW and DNG capture (backend).** All measurement work needs linear data. The sensor
-is 10 bit. The black level is 64. The white level is 1023. The full DNG calibration data
-is present. `DngCreator` is in the framework.
+**1. RAW and DNG capture (backend). DONE.** All measurement work needs linear data. The
+sensor is 10 bit. The black level is 64. The white level is 1023. `DngCreator` writes the
+file. The engine adds a RAW_SENSOR output to the session. If a device refuses that stream
+combination, the engine configures the session again without RAW. Then the camera still
+works.
 
 **2. Measurement mode (backend).** One switch stops the pipeline from changing the image.
 Set noise reduction to off. Set edge enhancement to off. Set the tone map to a linear

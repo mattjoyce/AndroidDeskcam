@@ -60,7 +60,7 @@ PY
 
 summarise() { python3 -c "$SUMMARISE_PY"; }
 
-timestamped() { echo "$SHOT_DIR/deskcam-$(date +%Y%m%d-%H%M%S).jpg"; }
+timestamped() { echo "$SHOT_DIR/deskcam-$(date +%Y%m%d-%H%M%S).${1:-jpg}"; }
 
 adb_args() { [ -n "${DESKCAM_SERIAL:-}" ] && printf -- '-s\n%s\n' "$DESKCAM_SERIAL"; return 0; }
 
@@ -76,6 +76,7 @@ deskcam - control the bench camera over HTTP
 
   deskcam snap [-o FILE] [k=v ...]     full-resolution still, cropped to the ROI
   deskcam frame [-o FILE] [k=v ...]    fast preview-resolution frame
+  deskcam raw [-o FILE] [k=v ...]      full-sensor RAW as a DNG, for measurement work
   deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file)
 
   deskcam status                       full JSON state
@@ -139,6 +140,11 @@ case "$CMD" in
     frame|preview)
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/frame "$Q" "$OUT" || die "capture failed"
+        echo "$OUT" ;;
+    raw|dng)
+        # The DNG holds the whole sensor array. The zoom and pan do not apply to it.
+        [ -z "$OUT" ] && OUT="$(timestamped dng)"
+        req_bin /api/raw "$Q" "$OUT" || die "raw capture failed"
         echo "$OUT" ;;
     stream)
         [ -z "$OUT" ] && OUT="$SHOT_DIR/deskcam-stream.mjpg"

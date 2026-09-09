@@ -227,6 +227,19 @@ public class HttpServer implements Runnable {
                 return;
             }
 
+            case "/api/raw": {
+                JSONObject applied = applyParams(params);
+                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
+                long settle = longParam(params, "settle", defaultSettle(params));
+                if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
+                byte[] dng = engine.captureRaw(longParam(params, "timeout", 12000));
+                // The DNG holds the whole sensor array, so tell the client where the user
+                // was aimed rather than silently discarding the framing.
+                sendBytes(out, 200, "image/x-adobe-dng", dng,
+                        "X-DeskCam-ROI: " + engine.rawRoiHeader() + "\r\n");
+                return;
+            }
+
             case "/api/nettest": {
                 // Diagnostic: can this app reach the network outbound at all?
                 String host = params.getOrDefault("host", "192.168.86.1");
@@ -389,7 +402,13 @@ public class HttpServer implements Runnable {
     }
 
     private static void sendBytes(OutputStream out, int code, String type, byte[] body) throws IOException {
+        sendBytes(out, code, type, body, "");
+    }
+
+    private static void sendBytes(OutputStream out, int code, String type, byte[] body,
+                                  String extraHeaders) throws IOException {
         String head = "HTTP/1.1 " + code + " " + reason(code) + "\r\n"
+                + extraHeaders
                 + "Content-Type: " + type + "\r\n"
                 + "Content-Length: " + body.length + "\r\n"
                 + "Cache-Control: no-store\r\n"

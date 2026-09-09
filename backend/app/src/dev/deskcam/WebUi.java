@@ -22,6 +22,10 @@ public class WebUi {
         ep.put("GET /api/reset", "Restore every setting to its default.");
         ep.put("GET /api/af", "Run one autofocus sweep. Optional wait=ms (default 700).");
         ep.put("GET /api/still", "Full-resolution JPEG cropped to the ROI. Optional timeout=ms, settle=ms.");
+        ep.put("GET /api/raw", "Full-sensor RAW frame as a DNG. The software ROI is NOT applied, "
+                + "because a DNG carries the whole sensor array; the framing is reported in the "
+                + "X-DeskCam-ROI response header instead. Use this for measurement work, since the "
+                + "JPEG pipeline is not photometrically linear.");
         ep.put("GET /api/frame", "Single preview-resolution JPEG cropped to the ROI. Much faster than /api/still.");
         ep.put("GET /api/stream", "MJPEG stream (multipart/x-mixed-replace). Optional fps (default 10), n=max frames.");
         o.put("endpoints", ep);
@@ -69,6 +73,7 @@ public class WebUi {
         ex.put("curl -s 'http://HOST:8080/api/set?exposure=1/60&iso=200&awb=daylight' | jq .");
         ex.put("curl -o macro.jpg 'http://HOST:8080/api/still?focusm=0.12&torch=30&zoom=6'");
         ex.put("curl -s 'http://HOST:8080/api/set?dx=0.25' | jq .settings");
+        ex.put("curl -o frame.dng 'http://HOST:8080/api/raw?exposure=1/120&iso=56'");
         o.put("examples", ex);
         return o;
     }
