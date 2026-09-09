@@ -63,6 +63,14 @@ summarise() { python3 -c "$SUMMARISE_PY"; }
 # Every capture gets a JSON sidecar holding the settings and the measured values.
 # Without it a past capture cannot be repeated, so a comparison between two of them
 # means nothing. The roll reads these files and needs no other index.
+# The phone makes the thumbnail. It is already resizing, and doing it here would mean an
+# image library on the workstation for one small job.
+write_thumb() {
+    local img="$1"
+    local base="${img%.*}"
+    req_bin /api/frame "w=320" "${base}.thumb.jpg" 2>/dev/null || true
+}
+
 write_sidecar() {
     local img="$1"
     local base="${img%.*}"
@@ -208,17 +216,20 @@ case "$CMD" in
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/still "$Q" "$OUT" || die "capture failed"
         write_sidecar "$OUT"
+        write_thumb "$OUT"
         echo "$OUT" ;;
     frame|preview)
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/frame "$Q" "$OUT" || die "capture failed"
         write_sidecar "$OUT"
+        write_thumb "$OUT"
         echo "$OUT" ;;
     raw|dng)
         # The DNG holds the whole sensor array. The zoom and pan do not apply to it.
         [ -z "$OUT" ] && OUT="$(timestamped dng)"
         req_bin /api/raw "$Q" "$OUT" || die "raw capture failed"
         write_sidecar "$OUT"
+        write_thumb "$OUT"
         echo "$OUT" ;;
     burst)
         # A hardware burst of JPEGs arrives as one tar. RAW is captured one frame at a

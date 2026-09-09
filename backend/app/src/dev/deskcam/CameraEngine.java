@@ -872,6 +872,21 @@ public class CameraEngine {
 
     public boolean rawAvailable() { return rawReader != null; }
 
+    /**
+     * Drops the presentation-only parameters once a request has used them.
+     *
+     * `w` and `h` describe how to present one picture. They are not a property of the
+     * camera, unlike the zoom or the exposure, and when they persisted they silently
+     * rescaled the next capture and disabled the untouched-JPEG path for ever. Card 26
+     * carries the full separation; this stops the worst of it now.
+     */
+    public void clearPresentation() {
+        synchronized (lock) {
+            settings.outW = null;
+            settings.outH = null;
+        }
+    }
+
     private String notRunning() {
         return "disconnected".equals(state)
                 ? "another app is using the camera; DeskCam reopens it automatically when it is free"

@@ -5,7 +5,7 @@ name = "deskcam-frontend"
 version = "0.1.0"
 description = "Workstation console and CLI for the DeskCam bench camera"
 requires-python = ">=3.11"
-dependencies = ["segno", "pillow"]
+dependencies = ["segno"]   # pillow dropped: the phone makes the thumbnails
 
 [tool.ruff]
 line-length = 100

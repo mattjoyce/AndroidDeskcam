@@ -212,7 +212,12 @@ public class HttpServer implements Runnable {
                 if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
                 long settle = longParam(params, "settle", defaultSettle(params));
                 if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
-                byte[] jpeg = engine.captureStill(longParam(params, "timeout", 8000));
+                byte[] jpeg;
+                try {
+                    jpeg = engine.captureStill(longParam(params, "timeout", 8000));
+                } finally {
+                    engine.clearPresentation();
+                }
                 sendBytes(out, 200, "image/jpeg", jpeg);
                 return;
             }
@@ -225,7 +230,12 @@ public class HttpServer implements Runnable {
                 // The camera keeps requests in flight, so the next frame or two can still
                 // carry the previous settings. Skip them after any settings change.
                 int skip = (int) longParam(params, "fresh", settle > 0 ? 2 : 0);
-                byte[] jpeg = engine.grabFrame(longParam(params, "timeout", 8000), skip);
+                byte[] jpeg;
+                try {
+                    jpeg = engine.grabFrame(longParam(params, "timeout", 8000), skip);
+                } finally {
+                    engine.clearPresentation();
+                }
                 sendBytes(out, 200, "image/jpeg", jpeg);
                 return;
             }

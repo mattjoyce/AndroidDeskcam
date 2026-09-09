@@ -216,30 +216,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not f.is_file():
             self.send(404, "text/plain", "no such capture")
             return
-        if not thumb:
-            ctype = ("image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg")
-                     else "application/octet-stream")
-            self.send(200, ctype, f.read_bytes())
-            return
-        try:
-            import io
-
-            from PIL import Image
-            key = (str(f), f.stat().st_mtime)
-            hit = THUMBS.get(key)
-            if hit is None:
-                im = Image.open(f)
-                im.draft("RGB", (400, 400))       # cheap partial JPEG decode
-                im.thumbnail((300, 300))
-                buf = io.BytesIO()
-                im.convert("RGB").save(buf, "JPEG", quality=80)
-                hit = buf.getvalue()
-                if len(THUMBS) > 400:
-                    THUMBS.clear()
-                THUMBS[key] = hit
-            self.send(200, "image/jpeg", hit)
-        except Exception as e:
-            self.send(500, "text/plain", f"thumbnail failed: {e}")
+        # The phone writes NAME.thumb.jpg beside the capture, so there is nothing to
+        # decode here. A capture taken before that existed falls back to the full image.
+        if thumb:
+            t = f.with_suffix(".thumb.jpg")
+            if t.is_file():
+                self.send(200, "image/jpeg", t.read_bytes())
+                return
+        ctype = ("image/jpeg" if f.suffix.lower() in (".jpg", ".jpeg")
+                 else "application/octet-stream")
+        self.send(200, ctype, f.read_bytes())
 
     # --------------------------------------------------------------- pairing
 
@@ -288,9 +274,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       f"You can close this page.", True))
 
 
-THUMBS: dict[tuple[str, float], bytes] = {}
-
-
 def roll(shots, limit=60):
     """
     The captures of this session, newest first.
@@ -300,7 +283,8 @@ def roll(shots, limit=60):
     """
     out = []
     try:
-        files = sorted(shots.glob("*.jpg"), key=lambda f: f.stat().st_mtime, reverse=True)
+        files = sorted((f for f in shots.glob("*.jpg") if not f.name.endswith(".thumb.jpg")),
+                       key=lambda f: f.stat().st_mtime, reverse=True)
     except OSError:
         return out
     for f in files[:limit]:
