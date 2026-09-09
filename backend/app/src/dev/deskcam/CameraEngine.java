@@ -21,6 +21,7 @@ import android.hardware.camera2.params.MeteringRectangle;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.hardware.camera2.params.TonemapCurve;
 import android.media.ExifInterface;
 import android.media.Image;
 import android.media.ImageReader;
@@ -48,6 +49,12 @@ public class CameraEngine {
 
     public static final String TAG = "DeskCam";
 
+    /** An identity tone curve. Output equals input, so the JPEG stays proportional to light. */
+    private static final TonemapCurve LINEAR_TONEMAP = new TonemapCurve(
+            new float[]{0f, 0f, 1f, 1f},
+            new float[]{0f, 0f, 1f, 1f},
+            new float[]{0f, 0f, 1f, 1f});
+
     private final Context ctx;
     private final CameraManager cm;
 
@@ -67,6 +74,12 @@ public class CameraEngine {
     private Size rawSize = null;
     /** Set once a session refuses to configure with a RAW output, so we stop asking. */
     private boolean rawSessionFailed = false;
+    /**
+     * Some devices advertise the shading map mode and the map size but never put the map
+     * itself in a capture result. The Pixel 6a is one of them. Check the result keys rather
+     * than trust the mode list.
+     */
+    private boolean shadingMapSupported = false;
 
     private final Object lock = new Object();
     private CamSettings settings = new CamSettings();
@@ -181,6 +194,17 @@ public class CameraEngine {
         Rect aa = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
         if (aa != null) activeArray = aa;
         caps = CamSettings.Caps.from(chars, activeArray.width());
+        shadingMapSupported = false;
+        try {
+            for (CaptureResult.Key<?> k : chars.getAvailableCaptureResultKeys()) {
+                if (k.equals(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP)) {
+                    shadingMapSupported = true;
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "shading map key probe", e);
+        }
 
         StreamConfigurationMap map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
         if (map == null) throw new IllegalStateException("no stream configuration map");
@@ -399,11 +423,100 @@ public class CameraEngine {
 
         b.set(CaptureRequest.JPEG_QUALITY, (byte) s.jpegQuality);
         b.set(CaptureRequest.JPEG_ORIENTATION, 0);
-        if (forStill) {
-            b.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY);
-            b.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY);
+        // Both branches below set the same keys. The request builder is reused between
+        // updates, so a key that is set in only one branch stays at its old value when the
+        // mode changes. Every mode must therefore state every key it cares about.
+        if (!s.measure) {
+            trySet(b, CaptureRequest.NOISE_REDUCTION_MODE, forStill
+                    ? CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY
+                    : CaptureRequest.NOISE_REDUCTION_MODE_FAST);
+            trySet(b, CaptureRequest.EDGE_MODE, forStill
+                    ? CaptureRequest.EDGE_MODE_HIGH_QUALITY
+                    : CaptureRequest.EDGE_MODE_FAST);
+            trySet(b, CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_FAST);
+            trySet(b, CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_FAST);
+            trySet(b, CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
+                    CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_OFF);
+            trySet(b, CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_FAST);
+            trySet(b, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON);
+            trySet(b, CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, s.shadingMap
+                    ? CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE_ON
+                    : CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE_OFF);
+        }
+
+        // Each stage below is non-linear or varies across the frame. That is correct for a
+        // photograph and wrong for a measurement.
+        if (s.measure) {
+            trySet(b, CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_OFF);
+            trySet(b, CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_OFF);
+            trySet(b, CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_OFF);
+            // Lens shading correction off, so the frame shows the true optical response.
+            // Correct it on the workstation with a measured flat field. This affects the
+            // JPEG only; RAW is read before the ISP and never carries the correction.
+            trySet(b, CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_OFF);
+            trySet(b, CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE,
+                    CaptureRequest.COLOR_CORRECTION_ABERRATION_MODE_OFF);
+            trySet(b, CaptureRequest.TONEMAP_MODE, CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE);
+            trySet(b, CaptureRequest.TONEMAP_CURVE, LINEAR_TONEMAP);
+            // OIS drifts on a fixed mount and adds blur instead of removing it.
+            trySet(b, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
+            trySet(b, CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE,
+                    CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE_ON);
+            if (s.shadingMap) {
+                // The map only holds real gains while correction runs. Let the caller ask
+                // for the map even in measurement mode by turning correction back on.
+                trySet(b, CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_FAST);
+            }
         }
     }
+
+    /** Sets a key and keeps going if this device rejects it. */
+    private static <T> void trySet(CaptureRequest.Builder b, CaptureRequest.Key<T> key, T value) {
+        try {
+            b.set(key, value);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "device rejected " + key.getName());
+        }
+    }
+
+    /**
+     * The lens shading map of the last frame, as a grid of gain factors.
+     *
+     * A gain above 1.0 marks a position where the lens delivers less light, so the corners
+     * read high. Use it to check a measured flat field. It is only populated while
+     * measurement mode is on.
+     */
+    public JSONObject shadingMap() throws JSONException {
+        JSONObject o = new JSONObject();
+        TotalCaptureResult r = lastResult;
+        android.hardware.camera2.params.LensShadingMap m =
+                r == null ? null : r.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP);
+        if (m == null) {
+            o.put("ok", false);
+            o.put("supported", shadingMapSupported);
+            o.put("error", shadingMapSupported
+                    ? "no shading map yet; ask again with shadingmap=1 so a frame is taken with the map on"
+                    : "this camera does not report a lens shading map. It lists the map mode and the "
+                      + "map size, but android.statistics.lensShadingMap is not one of its result keys. "
+                      + "Measure a flat field instead.");
+            return o;
+        }
+        int rows = m.getRowCount(), cols = m.getColumnCount();
+        o.put("ok", true);
+        o.put("rows", rows);
+        o.put("columns", cols);
+        o.put("channels", 4);
+        o.put("channel_order", "RGGB");
+        float[] gains = new float[rows * cols * 4];
+        m.copyGainFactors(gains, 0);
+        JSONArray a = new JSONArray();
+        for (float g : gains) a.put(CamSettings.round3(g));
+        o.put("gains", a);
+        return o;
+    }
+
 
     private MeteringRectangle[] meteringForRoi(CamSettings s) {
         if (s.roiIsWholeFrame()) return null;
@@ -565,10 +678,23 @@ public class CameraEngine {
         }
     }
 
-    /** A single preview frame, cropped to the ROI. Much faster than a still. */
-    public byte[] grabFrame(long timeoutMs) throws Exception {
+    /**
+     * A single preview frame, cropped to the ROI. Much faster than a still.
+     *
+     * This always waits for a frame that arrives after the call. The buffered frame may
+     * have been exposed before the caller changed a setting, and returning it would report
+     * the previous exposure as though it were the new one. `skip` discards more frames,
+     * because the camera keeps several requests in flight and the first new frame can
+     * still carry the old settings.
+     */
+    public byte[] grabFrame(long timeoutMs, int skip) throws Exception {
         lastDemandMs = System.currentTimeMillis();
-        return frameAfter(0, timeoutMs);
+        long from = currentSeq() + Math.max(0, skip);
+        return frameAfter(from, timeoutMs);
+    }
+
+    public byte[] grabFrame(long timeoutMs) throws Exception {
+        return grabFrame(timeoutMs, 0);
     }
 
     /** Blocks until a frame newer than afterSeq arrives, then returns it as JPEG. */
@@ -696,6 +822,7 @@ public class CameraEngine {
         sensor.put("still_roi_megapixels",
                 CamSettings.round2(roi.width() * (double) roi.height() / 1e6));
         sensor.put("raw_available", rawReader != null);
+        sensor.put("shading_map_supported", shadingMapSupported);
         if (rawSize != null) sensor.put("raw_size", rawSize.getWidth() + "x" + rawSize.getHeight());
         if (chars != null) {
             android.hardware.camera2.params.BlackLevelPattern blp =
@@ -723,12 +850,48 @@ public class CameraEngine {
             Integer aes = r.get(CaptureResult.CONTROL_AE_STATE);
             if (aes != null) m.put("ae_state", aes);
             o.put("measured", m);
+
+            // What the HAL actually applied, which is not always what was requested.
+            // Rule R4 applies to the pipeline as much as to exposure.
+            JSONObject pipe = new JSONObject();
+            putName(pipe, "noise_reduction", r.get(CaptureResult.NOISE_REDUCTION_MODE),
+                    new String[]{"off", "fast", "high_quality", "minimal", "zero_shutter_lag"});
+            putName(pipe, "edge", r.get(CaptureResult.EDGE_MODE),
+                    new String[]{"off", "fast", "high_quality", "zero_shutter_lag"});
+            putName(pipe, "tonemap", r.get(CaptureResult.TONEMAP_MODE),
+                    new String[]{"contrast_curve", "fast", "high_quality", "gamma_value", "preset_curve"});
+            putName(pipe, "shading", r.get(CaptureResult.SHADING_MODE),
+                    new String[]{"off", "fast", "high_quality"});
+            putName(pipe, "hot_pixel", r.get(CaptureResult.HOT_PIXEL_MODE),
+                    new String[]{"off", "fast", "high_quality"});
+            putName(pipe, "aberration", r.get(CaptureResult.COLOR_CORRECTION_ABERRATION_MODE),
+                    new String[]{"off", "fast", "high_quality"});
+            putName(pipe, "ois", r.get(CaptureResult.LENS_OPTICAL_STABILIZATION_MODE),
+                    new String[]{"off", "on"});
+            TonemapCurve tc = r.get(CaptureResult.TONEMAP_CURVE);
+            if (tc != null) {
+                int n = tc.getPointCount(TonemapCurve.CHANNEL_GREEN);
+                pipe.put("tonemap_points", n);
+                // Two points from 0,0 to 1,1 is the identity curve we ask for.
+                if (n == 2) {
+                    float[] pts = new float[4];
+                    tc.copyColorCurve(TonemapCurve.CHANNEL_GREEN, pts, 0);
+                    pipe.put("tonemap_curve", "(" + pts[0] + "," + pts[1] + ") ("
+                            + pts[2] + "," + pts[3] + ")");
+                }
+            }
+            o.put("pipeline", pipe);
         }
         return o;
     }
 
     private static void putIf(JSONObject o, String k, Object v) throws JSONException {
         if (v != null) o.put(k, v);
+    }
+
+    private static void putName(JSONObject o, String key, Integer v, String[] names) throws JSONException {
+        if (v == null) return;
+        o.put(key, (v >= 0 && v < names.length) ? names[v] : String.valueOf(v));
     }
 
     private static String afStateName(int s) {

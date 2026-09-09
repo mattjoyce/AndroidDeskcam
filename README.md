@@ -130,6 +130,7 @@ Each operation is a GET. Get the same reference as JSON from `/api/help`.
 | `/api/status` | The settings, the sensor limits, and the measured exposure, ISO, and focus |
 | `/api/still` | A full resolution JPEG, cropped to the ROI |
 | `/api/raw` | A full sensor RAW frame as a DNG. Refer to the note below. |
+| `/api/shadingmap` | The lens shading map, if the device gives one |
 | `/api/frame` | One preview JPEG. Much quicker. |
 | `/api/stream` | MJPEG. `fps` and `n` are optional. |
 | `/api/set` | Apply the parameters. Give the result. |
@@ -160,6 +161,8 @@ These parameters are correct on each endpoint:
 | `rotate` | `0`, `90`, `180`, or `270`. This turns the pixels. |
 | `w`, `h` | Change the size after the crop. One value keeps the aspect ratio. |
 | `previewsize`, `stillsize` | The capture sizes. These make a new session. |
+| `measure` | `1` stops all non-linear processing. Use it for measurement. |
+| `fresh` | The number of frames to discard after a change. The default is 2. |
 | `reset=1` | Set all values to the default before the rest of this request |
 | `settle` | The wait in milliseconds after a change, before the capture |
 
@@ -183,6 +186,36 @@ illuminants. `dcraw`, `rawpy`, and `darktable` all read it.
 
 Keep the ISO at 56 and change only the exposure time. Above ISO 444 the sensor gain is
 digital. It is better to apply digital gain to the RAW data on the workstation.
+
+## Measurement mode
+
+Use `measure=1` for any capture that you intend to measure. The default pipeline makes a
+photograph look good. It applies a tone map, noise reduction, edge enhancement, and lens
+shading correction. Each step breaks the relation between light and pixel value.
+
+```sh
+deskcam set measure=1 iso=56 exposure=1/120
+deskcam snap -o panel.jpg
+```
+
+Measurement mode sets noise reduction, edge enhancement, hot pixel correction, lens shading
+correction, and aberration correction to off. It sets a linear tone curve. It sets OIS off,
+because OIS moves on a fixed mount. It locks the white balance.
+
+A test on the device shows the difference. The exposure was doubled four times:
+
+| Mode | Value change for each doubling |
+|---|---|
+| `measure=1` | 2.02x, which is linear |
+| `measure=0` | 1.30x, near the 1.37x of an sRGB curve |
+
+`deskcam status` gives a `pipeline` block. The block reports what the camera applied, not
+what you asked for.
+
+Lens shading correction is off in measurement mode, so the frame shows the true optical
+response. You must divide out the vignetting yourself with a measured flat field. This
+camera does not give a lens shading map. It lists the map mode and the map size, but the
+map is not one of its result keys.
 
 ## Examples
 

@@ -222,7 +222,10 @@ public class HttpServer implements Runnable {
                 if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
                 long settle = longParam(params, "settle", defaultSettle(params));
                 if (settle > 0) Thread.sleep(clampLong(settle, 0, 5000));
-                byte[] jpeg = engine.grabFrame(longParam(params, "timeout", 4000));
+                // The camera keeps requests in flight, so the next frame or two can still
+                // carry the previous settings. Skip them after any settings change.
+                int skip = (int) longParam(params, "fresh", settle > 0 ? 2 : 0);
+                byte[] jpeg = engine.grabFrame(longParam(params, "timeout", 8000), skip);
                 sendBytes(out, 200, "image/jpeg", jpeg);
                 return;
             }
@@ -237,6 +240,21 @@ public class HttpServer implements Runnable {
                 // was aimed rather than silently discarding the framing.
                 sendBytes(out, 200, "image/x-adobe-dng", dng,
                         "X-DeskCam-ROI: " + engine.rawRoiHeader() + "\r\n");
+                return;
+            }
+
+            case "/api/shadingmap": {
+                // Turn the map on unless the caller said otherwise, then wait for a frame
+                // that was actually taken with it on.
+                if (!params.containsKey("shadingmap")) params.put("shadingmap", "1");
+                JSONObject applied = applyParams(params);
+                if (!applied.optBoolean("ok", true)) { sendJson(out, 400, applied); return; }
+                try {
+                    engine.grabFrame(longParam(params, "timeout", 8000), 2);
+                } catch (Exception e) {
+                    Log.d(TAG, "shading map frame: " + e);
+                }
+                sendJson(out, 200, engine.shadingMap());
                 return;
             }
 

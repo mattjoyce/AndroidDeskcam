@@ -140,10 +140,20 @@ The design also uses these properties.
 | Min focus distance | 10.204 dioptres (98 mm) | Close work. This is also the macro limit. |
 | Focus calibration | `APPROXIMATE` | A sweep must be monotonic. Do not use the absolute values. |
 | Metering regions | AF 1, AE 1, AWB 0 | The focus and the metering follow the ROI |
-| Lens shading map | 33 x 25 | A check on the flat field |
+| Lens shading map | Advertised, but NOT delivered | Refer to the note below |
 | Torch | 45 steps | Controlled light for the bench |
 | High speed video | 1080p120 and 1080p240 | Display timing measurement |
 | Rolling shutter skew | Reported for each frame | The PWM frequency from one still image |
+
+**The lens shading map is not usable on this device.** The camera lists
+`availableLensShadingMapModes` as `[0, 1]` and gives a `shadingMapSize` of 33 x 25. But
+`android.statistics.lensShadingMap` is not one of its capture result keys, so the map never
+arrives. The engine tests the result keys at start-up and reports
+`sensor.shading_map_supported`. `/api/shadingmap` then gives a clear message instead of an
+empty result. Measure a flat field. Do not depend on the map.
+
+This is a general lesson for this device. A mode list says that a control is settable. It
+does not say that the result arrives.
 
 ### 4.4 Platform facts
 
@@ -184,6 +194,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/status` | JSON | The settings, the limits, the geometry, and the `measured` block |
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
 | `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
+| `/api/shadingmap` | JSON | The lens shading map, if the device delivers one. Refer to section 4.3. |
 | `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
 | `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. |
 | `/api/set` | JSON | Apply the parameters. Give the result. |
@@ -201,7 +212,7 @@ These are the control parameters:
 
 `camera`, `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`,
 `exposure`, `iso`, `ev`, `aelock`, `awb`, `awblock`, `torch`, `jpegq`, `rotate`, `w`, `h`,
-`previewsize`, `stillsize`, `reset`, `settle`, `timeout`.
+`previewsize`, `stillsize`, `measure`, `shadingmap`, `reset`, `settle`, `timeout`, `fresh`.
 
 **The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
 `cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use
@@ -358,11 +369,19 @@ file. The engine adds a RAW_SENSOR output to the session. If a device refuses th
 combination, the engine configures the session again without RAW. Then the camera still
 works.
 
-**2. Measurement mode (backend).** One switch stops the pipeline from changing the image.
-Set noise reduction to off. Set edge enhancement to off. Set the tone map to a linear
-`CONTRAST_CURVE`. Set OIS to off. Lock the white balance. Section 4.3 confirms that the
-device permits each control. The default pipeline makes a photograph look good. This is
-the opposite of a comparison between two renders.
+**2. Measurement mode (backend). DONE.** The parameter `measure=1` stops the pipeline from
+changing the image. It sets noise reduction off, edge enhancement off, hot pixel correction
+off, lens shading correction off, and chromatic aberration correction off. It sets the tone
+map to a linear `CONTRAST_CURVE`. It sets OIS off and locks the white balance.
+
+A test on the device confirms the result. The exposure was doubled four times. In
+measurement mode the pixel value rose by 2.02x for each doubling, which is linear. With the
+default pipeline it rose by 1.30x, near the 1.37x of an sRGB curve. At 1/120 s the default
+curve read 69.6 where the linear curve read 6.9, so the default lifts the shadows by about
+ten times. That is the error that a measurement must not contain.
+
+`/api/status` gives a `pipeline` block. The block reports what the HAL applied, not what
+the request asked for. Rule R4 applies to the pipeline as much as to the exposure.
 
 **3. Burst capture (backend) and average (frontend).** Take one idea from HDR+. Capture
 many frames below the correct exposure. Then merge them. The highlights do not clip. The
@@ -385,7 +404,8 @@ over the network. This is one of only two calculations that belong on the device
 
 **7. Calibration frames (frontend).** Subtract a dark frame. Divide by a flat field. Use a
 grey card for the white balance. The flat field is necessary for panel work. Lens
-vignetting looks the same as panel non-uniformity.
+vignetting looks the same as panel non-uniformity. The flat field must be measured, because
+this device does not deliver a lens shading map. Refer to section 4.3.
 
 **8. Display rectification (frontend).** Find the panel corners. Correct the perspective
 with a homography. Give an image of a constant size. This lets you compare two design

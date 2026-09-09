@@ -52,6 +52,18 @@ public class CamSettings implements Cloneable {
     public Integer outW = null;
     public Integer outH = null;
 
+    /**
+     * Measurement mode. Stops every stage that makes an image look good at the cost of a
+     * known relation between light and pixel value.
+     */
+    public boolean measure = false;
+
+    /**
+     * Ask the HAL to report its lens shading map. This is separate from measurement mode,
+     * because the map only holds real gains while shading correction is actually running.
+     */
+    public boolean shadingMap = false;
+
     public int previewW = 1280, previewH = 960;
     public int stillW = 0, stillH = 0;   // 0,0 means "largest the sensor offers"
 
@@ -147,6 +159,16 @@ public class CamSettings implements Cloneable {
 
                     case "torch":   torch = clampInt(parseTorch(v, caps.flashMaxLevel), 0, caps.flashMaxLevel); break;
 
+                    case "measure": {
+                        measure = parseBool(v);
+                        // A moving white balance invents colour differences between two
+                        // shots of the same subject, so lock it with the rest.
+                        if (measure) awbLock = true;
+                        break;
+                    }
+
+                    case "shadingmap": shadingMap = parseBool(v); break;
+
                     case "jpegq": case "quality":
                         jpegQuality = clampInt(Integer.parseInt(v), 1, 100); break;
                     case "rotate":  rotate = ((Integer.parseInt(v) % 360) + 360) % 360 / 90 * 90; break;
@@ -156,8 +178,13 @@ public class CamSettings implements Cloneable {
                     case "previewsize": { int[] s = parseSize(v); previewW = s[0]; previewH = s[1]; break; }
                     case "stillsize":   { int[] s = parseSize(v); stillW = s[0]; stillH = s[1]; break; }
 
-                    // Consumed by the router, not settings.
-                    case "t": case "_": case "fps": case "n": case "format": case "reset":
+                    // Consumed by the router or by the transport, not by the settings.
+                    // Any name the router reads must appear here, or rule R5 rejects a
+                    // request that is in fact valid.
+                    case "t": case "_": case "format": case "reset":
+                    case "fps": case "n":
+                    case "settle": case "timeout": case "wait": case "fresh":
+                    case "host": case "port":
                         break;
                     default:
                         problems.append("unknown parameter '").append(k).append("'; ");
@@ -255,6 +282,8 @@ public class CamSettings implements Cloneable {
         o.put("awb", awbName(awbMode));
         o.put("awb_lock", awbLock);
         o.put("torch", torch);
+        o.put("measure", measure);
+        o.put("shading_map", shadingMap);
         o.put("jpeg_quality", jpegQuality);
         o.put("rotate", rotate);
         o.put("out_w", outW == null ? JSONObject.NULL : outW);
