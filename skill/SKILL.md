@@ -65,6 +65,20 @@ img=$(deskcam snap zoom=5)
 `torch` is the rear LED, 0 to 45. It is the bench light. Use it whenever the part is in
 shadow. Turn it off after with `torch=0`.
 
+**To focus on one part of a wide picture, name it rather than zooming to it:**
+
+```sh
+deskcam set focusbox=0.35,0.35,0.15,0.15   # cx,cy,w,h of the frame, same coords as cx/cy
+deskcam focus hunt                          # hunts on the box, framing untouched
+deskcam snap                                # the whole frame, sharp on the box
+```
+
+`focusbox` moves the autofocus region and the region a sharpness reading measures. It does
+not move the crop and does not move the exposure metering, so the picture you framed is
+still the picture you get. `focusbox=off` goes back to judging focus on the whole crop,
+which is the default. A box outside the crop is refused, because that is focusing on
+something the capture will not contain.
+
 If focus is wrong, `deskcam af` runs one autofocus sweep, or set the distance yourself in
 metres with `focusm`. When you want a number rather than a claim, `deskcam focus hunt`
 walks the lens on the phone, prints the curve it measured, and leaves the lens at the

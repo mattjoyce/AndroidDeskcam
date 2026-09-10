@@ -893,6 +893,13 @@ public class CameraEngine {
             throw new IllegalArgumentException("no camera with id '" + next.cameraId
                     + "'; see /api/cameras");
         }
+        if (!next.focusBoxOverlapsRoi(activeArray.width(), activeArray.height())) {
+            throw new IllegalArgumentException("the focus box does not overlap the picture. "
+                    + "focusbox names a place in the frame with the same coordinates as cx "
+                    + "and cy, and this one falls outside the crop that zoom=" + next.zoom
+                    + " at " + next.cx + "," + next.cy + " takes, so it asks the camera to "
+                    + "focus on something the capture will not contain.");
+        }
         synchronized (lock) {
             boolean structural = !next.cameraId.equals(settings.cameraId)
                     || next.previewReqW != settings.previewReqW
@@ -996,12 +1003,17 @@ public class CameraEngine {
 
         // Point focus and metering at whatever region we are cropped to, so zooming in
         // on a component actually focuses and exposes for that component.
-        MeteringRectangle[] regions = meteringForRoi(s);
-        if (regions != null) {
-            Integer afRegions = chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF);
-            Integer aeRegions = chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE);
-            if (afRegions != null && afRegions > 0) b.set(CaptureRequest.CONTROL_AF_REGIONS, regions);
-            if (aeRegions != null && aeRegions > 0) b.set(CaptureRequest.CONTROL_AE_REGIONS, regions);
+        // Two rectangles now, not one. Where the picture is metered is still the crop;
+        // where focus is judged is the focus box when there is one. Card 60.
+        MeteringRectangle[] metering = meteringForRoi(s);
+        MeteringRectangle[] focusOn = focusRegions(s);
+        Integer afRegions = chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF);
+        Integer aeRegions = chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE);
+        if (focusOn != null && afRegions != null && afRegions > 0) {
+            b.set(CaptureRequest.CONTROL_AF_REGIONS, focusOn);
+        }
+        if (metering != null && aeRegions != null && aeRegions > 0) {
+            b.set(CaptureRequest.CONTROL_AE_REGIONS, metering);
         }
 
         b.set(CaptureRequest.JPEG_QUALITY, (byte) s.jpegQuality);
@@ -1105,6 +1117,22 @@ public class CameraEngine {
         Rect r = s.roiFor(activeArray.width(), activeArray.height());
         r.offset(activeArray.left, activeArray.top);
         return new MeteringRectangle[]{ new MeteringRectangle(r, MeteringRectangle.METERING_WEIGHT_MAX) };
+    }
+
+    /**
+     * Where the camera is told to put its focus.
+     *
+     * The focus box when one is set, and otherwise the crop, which is what it has always
+     * been. Note that a focus box applies at zoom 1 as well, where the crop is the whole
+     * frame and sets no region at all: naming a part of an uncropped frame is exactly the
+     * case this parameter exists for.
+     */
+    private MeteringRectangle[] focusRegions(CamSettings s) {
+        Rect box = s.focusBoxFor(activeArray.width(), activeArray.height());
+        if (box == null) return meteringForRoi(s);
+        box.offset(activeArray.left, activeArray.top);
+        return new MeteringRectangle[]{
+                new MeteringRectangle(box, MeteringRectangle.METERING_WEIGHT_MAX) };
     }
 
     /** One-shot autofocus sweep, useful after moving the bench or changing the subject. */
@@ -1748,7 +1776,7 @@ public class CameraEngine {
         // The luma plane is the first w*h bytes of NV21, which is why this costs nothing
         // beyond the arithmetic: no decode, no copy, no colour.
         CamSettings s = snapshot();
-        Rect roi = s.roiFor(w, h);
+        Rect roi = s.sharpnessRegionFor(w, h);
         long t0 = System.nanoTime();
         double value = Sharp.focus(nv21, w, h, roi.left, roi.top, roi.width(), roi.height());
         double costMs = (System.nanoTime() - t0) / 1e6;
@@ -1760,6 +1788,7 @@ public class CameraEngine {
         o.put("frame_seq", seq);
         o.put("cost_ms", CamSettings.round2(costMs));
         o.put("region", roi.left + "," + roi.top + " " + roi.width() + "x" + roi.height());
+        o.put("region_is", s.focusBox == null ? "the crop" : "the focus box");
         o.put("means", "variance of the Laplacian over the region of interest of a preview "
                 + "frame. Higher is sharper. It is a comparison and not a measurement: it "
                 + "moves with the subject, the region and the noise, so only compare values "
@@ -1783,7 +1812,7 @@ public class CameraEngine {
             h = latestH;
         }
         if (nv21 == null) return Sharp.NOT_MEASURABLE;
-        Rect roi = snapshot().roiFor(w, h);
+        Rect roi = snapshot().sharpnessRegionFor(w, h);
         return Sharp.focus(nv21, w, h, roi.left, roi.top, roi.width(), roi.height());
     }
 

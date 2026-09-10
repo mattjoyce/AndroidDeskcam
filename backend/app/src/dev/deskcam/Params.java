@@ -158,6 +158,17 @@ public final class Params {
         camera("on | off. Freeze auto white balance, which stops colour drifting between shots.",
                 (s, v, c) -> s.awbLock = Parse.bool(v), "awblock");
 
+        camera("Where focus is judged, as cx,cy,w,h in fractions of the frame, e.g. "
+                        + "0.3,0.7,0.15,0.15, or 'off' to follow the crop. The same "
+                        + "coordinates cx and cy use. It moves the autofocus region and the "
+                        + "region a sharpness reading and /api/focushunt measure. It does "
+                        + "NOT move the crop and does NOT move the metering: a wide frame "
+                        + "with one part sharp is the point, and a box that quietly changed "
+                        + "the exposure would be the same conflation in a new place. A box "
+                        + "that does not overlap the crop is refused, because that is "
+                        + "focusing on something the picture does not contain.",
+                (s, v, c) -> s.focusBox = Parse.focusBox(v), "focusbox");
+
         camera("0 to torch_max_level, or off | on | max. The rear LED, useful as bench light.",
                 (s, v, c) -> s.torch = Geom.clampInt(Parse.torch(v, c.flashMaxLevel), 0, c.flashMaxLevel),
                 "torch");

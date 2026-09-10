@@ -55,6 +55,10 @@ public final class Tests {
         waitIsTheOneVerbThatIsNotAnEndpoint();
         theThermalLadderOnlyEverSlowsDown();
         anUnknownThermalLevelChangesNothing();
+        aFocusBoxSitsWhereItWasNamed();
+        aFocusBoxTurnsWithTheFrame();
+        aFocusBoxIsClampedAndNeverInsideOut();
+        boxesOverlapOrTheyDoNot();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -625,6 +629,87 @@ public final class Tests {
         yes("but it is named as what it is", Thermal.word(99).contains("99"));
         yes("and described", Thermal.means(99).contains("hotter than critical"));
         no("an unknown level is not called throttling", Thermal.throttling(Thermal.UNKNOWN));
+    }
+
+    // -------------------------------------------------------- the focus box
+
+    /**
+     * The box lands where it was named, in the same coordinates cx and cy use.
+     *
+     * A second coordinate system in one API is how a measurement comes out wrong, so this
+     * is the same test the crop gets, asking the same question of the other rectangle.
+     */
+    private static void aFocusBoxSitsWhereItWasNamed() {
+        int[] b = Geom.box(1000, 800, 0.5f, 0.5f, 0.2f, 0.25f, 0);
+        eq("a fifth of the width", 200, b[2]);
+        eq("a quarter of the height", 200, b[3]);
+        eq("centred left", 400, b[0]);
+        eq("centred top", 300, b[1]);
+
+        int[] corner = Geom.box(1000, 800, 0.25f, 0.75f, 0.1f, 0.1f, 0);
+        eq("a quarter across", 200, corner[0]);
+        eq("three quarters down", 560, corner[1]);
+    }
+
+    /**
+     * Under rotation the caller still names what they see.
+     *
+     * Every framing fault this project has had was in this coordinate change. The box has
+     * to make the same journey as the crop, and a square box makes the arithmetic visible:
+     * at 180 degrees a point a quarter across and a quarter down must land three quarters
+     * across and three quarters down in the sensor.
+     */
+    private static void aFocusBoxTurnsWithTheFrame() {
+        int[] none = Geom.box(1000, 1000, 0.25f, 0.25f, 0.1f, 0.1f, 0);
+        eq("upright, left", 200, none[0]);
+        eq("upright, top", 200, none[1]);
+
+        int[] half = Geom.box(1000, 1000, 0.25f, 0.25f, 0.1f, 0.1f, 180);
+        eq("half a turn, left", 700, half[0]);
+        eq("half a turn, top", 700, half[1]);
+
+        int[] quarter = Geom.box(1000, 1000, 0.25f, 0.25f, 0.1f, 0.1f, 90);
+        eq("a quarter turn, left", 200, quarter[0]);
+        eq("a quarter turn, top", 700, quarter[1]);
+
+        int[] three = Geom.box(1000, 1000, 0.25f, 0.25f, 0.1f, 0.1f, 270);
+        eq("three quarters, left", 700, three[0]);
+        eq("three quarters, top", 200, three[1]);
+
+        // A quarter turn swaps width and height, exactly as it does for the crop.
+        int[] wide = Geom.box(1000, 500, 0.5f, 0.5f, 0.4f, 0.2f, 90);
+        eq("a turned box is as wide as it was tall", 100, wide[2]);
+        eq("and as tall as it was wide", 400, wide[3]);
+    }
+
+    private static void aFocusBoxIsClampedAndNeverInsideOut() {
+        // Named off the edge, it stays in the frame rather than describing pixels nobody has.
+        int[] off = Geom.box(1000, 800, 0f, 0f, 0.2f, 0.2f, 0);
+        eq("clamped left", 0, off[0]);
+        eq("clamped top", 0, off[1]);
+        int[] far = Geom.box(1000, 800, 1f, 1f, 0.2f, 0.2f, 0);
+        eq("clamped right", 800, far[0]);
+        eq("clamped bottom", 640, far[1]);
+
+        // Never smaller than the sharpness kernel can read, whatever fraction was asked for.
+        int[] tiny = Geom.box(1000, 800, 0.5f, 0.5f, 0.0001f, 0.0001f, 0);
+        yes("a box is never thinner than the kernel", tiny[2] >= 3 && tiny[3] >= 3);
+
+        int[] whole = Geom.box(1000, 800, 0.5f, 0.5f, 1f, 1f, 0);
+        eq("a whole frame box is the whole frame", 1000, whole[2]);
+        eq("and no taller than it", 800, whole[3]);
+    }
+
+    /** The test that decides whether a box names a place the picture contains. */
+    private static void boxesOverlapOrTheyDoNot() {
+        int[] roi = {400, 300, 200, 200};
+        yes("a box inside", Geom.overlap(new int[]{450, 350, 50, 50}, roi));
+        yes("a box straddling an edge", Geom.overlap(new int[]{350, 350, 100, 50}, roi));
+        no("a box to the left", Geom.overlap(new int[]{100, 350, 200, 50}, roi));
+        no("a box below", Geom.overlap(new int[]{450, 550, 50, 50}, roi));
+        // Touching is not overlapping: a rectangle that ends where the other starts
+        // shares no pixel, and a sharpness reading needs pixels.
+        no("a box that only touches", Geom.overlap(new int[]{200, 300, 200, 200}, roi));
     }
 
     // -------------------------------------------------------- the access key

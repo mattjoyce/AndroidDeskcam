@@ -260,7 +260,7 @@ The groups are decision D9:
 
 | Group | Parameters | Life |
 |---|---|---|
-| Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `awbgains`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
+| Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `focusbox`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `awbgains`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
 | Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
 | Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `from`, `to`, `steps`, `coarse`, `fine`, `base`, `stops`, `vary`, `values`, `t` | one request |
 
@@ -629,6 +629,29 @@ stream keeps its connection for as long as its `src` is set, whether the tab is 
 buried, or on a machine with the lid shut. Both panels stop their stream on
 `visibilitychange` and start it again when shown. Idling the engine achieves nothing while
 a forgotten tab holds it awake, which is how this was found.
+
+**D17. The crop and the focus region are two rectangles, not one.** `meteringForRoi()`
+derived the autofocus region, the metering region and the sharpness window from the crop,
+so "what I want in the picture" and "what should be sharp" were the same statement. They
+coincide most of the time, which is why the conflation went unnoticed until someone asked
+for a wide frame with one connector sharp.
+
+`focusbox=cx,cy,w,h` names the second rectangle, in the same coordinates as `cx` and `cy`
+and through the same rotation, because a second coordinate system in one API is how a
+measurement comes out wrong. It moves the autofocus region and the region a sharpness
+reading and `/api/focushunt` measure. It moves neither the crop nor the metering: a
+parameter named for focus that quietly changed the exposure would be the same conflation
+in a new place, and metering can have its own rectangle and its own decision if it ever
+needs one.
+
+A box that does not overlap the crop is **refused rather than clamped**. Clamping would
+silently focus somewhere other than where the caller said, and the caller has asked the
+camera to focus on something the capture will not contain, which is a mistake and not a
+preference.
+
+Measured on this bench, three hunts at an unchanged `zoom=1`: the whole frame peaked at
+20.92, a box on a detailed part at 47.33, and a box on a near-empty part at 0.70. The
+framing did not move between them.
 
 ## 7. Non-goals
 

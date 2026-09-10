@@ -89,6 +89,36 @@ public final class Parse {
      * cell and Camera2 gives them separate gains. They are usually equal and are not
      * always: the two greens sit under different neighbours and can be trimmed apart.
      */
+    /**
+     * A focus box as cx,cy,w,h, or nothing at all.
+     *
+     * Nothing is the default and means the box follows the crop, which is what this
+     * camera did before card 60 and is right whenever the thing you framed is the thing
+     * you want sharp.
+     */
+    public static float[] focusBox(String v) {
+        String t = v.trim().toLowerCase(Locale.US);
+        if (t.isEmpty() || t.equals("off") || t.equals("auto") || t.equals("roi")) return null;
+        String[] parts = t.split("[,: ]+");
+        if (parts.length != 4) {
+            throw new NumberFormatException("a focus box is cx,cy,w,h in fractions of the "
+                    + "frame, e.g. 0.3,0.7,0.15,0.15, or 'off' to follow the crop; got '"
+                    + v + "'");
+        }
+        float[] out = new float[4];
+        for (int i = 0; i < 4; i++) out[i] = number(parts[i]);
+        if (out[0] < 0 || out[0] > 1 || out[1] < 0 || out[1] > 1) {
+            throw new NumberFormatException("the centre of a focus box is 0 to 1 across and "
+                    + "down the frame, the same coordinates as cx and cy; got "
+                    + out[0] + "," + out[1]);
+        }
+        if (out[2] <= 0 || out[2] > 1 || out[3] <= 0 || out[3] > 1) {
+            throw new NumberFormatException("the size of a focus box is a fraction of the "
+                    + "frame, above 0 and at most 1; got " + out[2] + "x" + out[3]);
+        }
+        return out;
+    }
+
     public static float[] gains(String v) {
         String t = v.trim().toLowerCase(Locale.US);
         if (t.equals("auto") || t.isEmpty()) return null;

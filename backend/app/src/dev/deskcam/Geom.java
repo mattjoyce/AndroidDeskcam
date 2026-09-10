@@ -40,6 +40,50 @@ public final class Geom {
     }
 
     /**
+     * A named rectangle inside a frame of w by h pixels, as left, top, width, height.
+     *
+     * The same coordinates {@link #roi} uses: cx and cy name a point in the picture the
+     * caller SEES, and the mapping back through the rotation is the same one, because a
+     * second coordinate system in one API is how a measurement comes out wrong. bw and bh
+     * are fractions of the frame, and a quarter turn swaps them for the same reason the
+     * crop's do not need to change.
+     *
+     * Clamped to the frame, never larger than it, and never smaller than the 3 by 3 the
+     * sharpness kernel needs a neighbour on every side of. Card 60.
+     */
+    public static int[] box(int w, int h, float cx, float cy, float bw, float bh, int rotate) {
+        float fw = clamp(bw, 0f, 1f);
+        float fh = clamp(bh, 0f, 1f);
+        int rw, rh;
+        if (rotate == 90 || rotate == 270) {
+            rw = Math.round(h * fh);
+            rh = Math.round(w * fw);
+        } else {
+            rw = Math.round(w * fw);
+            rh = Math.round(h * fh);
+        }
+        rw = clampInt(rw, 3, w);
+        rh = clampInt(rh, 3, h);
+
+        float sx, sy;
+        switch (rotate) {
+            case 90:  sx = cy;      sy = 1f - cx; break;
+            case 180: sx = 1f - cx; sy = 1f - cy; break;
+            case 270: sx = 1f - cy; sy = cx;      break;
+            default:  sx = cx;      sy = cy;      break;
+        }
+        int left = clampInt(Math.round(sx * w - rw / 2f), 0, w - rw);
+        int top = clampInt(Math.round(sy * h - rh / 2f), 0, h - rh);
+        return new int[]{left, top, rw, rh};
+    }
+
+    /** Whether two rectangles, each as left, top, width, height, share any pixel. */
+    public static boolean overlap(int[] a, int[] b) {
+        return a[0] < b[0] + b[2] && b[0] < a[0] + a[2]
+                && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+    }
+
+    /**
      * Clamps a float, and refuses NaN.
      *
      * The old form was {@code v < lo ? lo : (v > hi ? hi : v)}, which passes NaN straight

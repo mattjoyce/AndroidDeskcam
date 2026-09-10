@@ -233,6 +233,7 @@ except `/api/stream`.
 | `dx`, `dy` | A relative move, in fractions of the current ROI width |
 | `af` | `off`, `auto`, `macro`, `continuous`, `video`, or `edof` |
 | `focus`, `focusm` | The manual focus in dioptres, or in metres |
+| `focusbox` | Where focus is judged, as `cx,cy,w,h` of the frame, or `off` to follow the crop |
 | `ae` | `on` or `off` |
 | `exposure`, `shutter` | `1/120`, `8ms`, `250us`, `0.5s`, or nanoseconds. This sets `ae=off`. |
 | `iso`, `sensitivity` | The sensitivity. This sets `ae=off`. |
@@ -416,6 +417,52 @@ It costs about **9 ms** on a Pixel 6a and the cost is reported with the value. T
 count is capped for that: rows are skipped, never columns and never the kernel's
 neighbours, because a kernel over subsampled pixels measures a blurrier image than the one
 in front of the camera and would put the peak in the wrong place.
+
+### Focusing on part of what you framed
+
+One rectangle used to do three jobs: the crop, the autofocus region, and the region a
+sharpness reading measures. That is right whenever the thing you framed is the thing you
+want sharp, and wrong the moment you want a wide picture of a board with one connector
+sharp.
+
+```sh
+deskcam set focusbox=0.35,0.35,0.15,0.15
+```
+
+`cx,cy,w,h` in the same 0 to 1 coordinates of the seen picture that `cx` and `cy` use,
+with the size as a fraction of the frame. `focusbox=off` follows the crop, which is the
+default and what this camera did before.
+
+It moves **two** things: the autofocus region, and the region `/api/focushunt` and
+`sharpness=1` measure. It moves neither the crop nor the metering. Three hunts at an
+unchanged `zoom=1`, on the same bench:
+
+| Region measured | Peak sharpness |
+|---|---|
+| The whole frame | 20.92 |
+| A box on a detailed part | 47.33 |
+| A box on a near-empty part | 0.70 |
+
+Same framing every time. `/api/status` reports which region a reading describes, in
+`sharpness.region_is`, so a number never has to be guessed at.
+
+**A box that does not overlap the crop is refused**, not clamped:
+
+```
+$ deskcam set zoom=6 focusbox=0.05,0.05,0.05,0.05
+deskcam: HTTP 400
+  the focus box does not overlap the picture ... it asks the camera to focus on
+  something the capture will not contain.
+```
+
+**The exposure deliberately stays on the crop.** A parameter called `focusbox` that
+quietly moved the metering would be the same conflation this fixes, in a new place. If
+metering ever needs its own rectangle it can have its own parameter.
+
+Without it, the same result costs a round trip through a framing you did not want: zoom
+in, hunt, zoom out, capture. That still works, and as one atomic tape it is four lines,
+because a hunt leaves the lens where it decided and manual focus survives a zoom change.
+It took 4.8 s, most of it a hunt at 6x that nobody wanted to look at.
 
 ### Hunting the focus
 

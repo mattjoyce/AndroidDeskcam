@@ -63,6 +63,14 @@ public class CamSettings implements Cloneable {
      */
     public float[] awbGains = null;
 
+    /**
+     * Where focus is judged, when that is not simply what was framed.
+     *
+     * null means the crop, which is what one rectangle used to mean for everything. As
+     * cx, cy, w, h in fractions of the seen picture. Card 60.
+     */
+    public float[] focusBox = null;
+
     /** 0 = torch off, otherwise 1..flashMaxLevel. */
     public int torch = 0;
 
@@ -128,6 +136,34 @@ public class CamSettings implements Cloneable {
     public Rect roiFor(int w, int h) {
         int[] r = Geom.roi(w, h, zoom, cx, cy, rotate);
         return new Rect(r[0], r[1], r[0] + r[2], r[1] + r[3]);
+    }
+
+    /** The focus box in the pixels of a w by h frame, or null when it follows the crop. */
+    public Rect focusBoxFor(int w, int h) {
+        if (focusBox == null) return null;
+        int[] b = Geom.box(w, h, focusBox[0], focusBox[1], focusBox[2], focusBox[3], rotate);
+        return new Rect(b[0], b[1], b[0] + b[2], b[1] + b[3]);
+    }
+
+    /**
+     * The region a sharpness reading describes.
+     *
+     * The focus box where there is one, and the crop where there is not. Clipped to the
+     * crop either way: a number measured outside the picture would describe something the
+     * capture does not contain, which is worse than no number.
+     */
+    public Rect sharpnessRegionFor(int w, int h) {
+        Rect roi = roiFor(w, h);
+        Rect box = focusBoxFor(w, h);
+        if (box == null) return roi;
+        Rect clipped = new Rect(box);
+        return clipped.intersect(roi) ? clipped : roi;
+    }
+
+    /** Whether the focus box names a place the picture actually contains. */
+    public boolean focusBoxOverlapsRoi(int w, int h) {
+        Rect box = focusBoxFor(w, h);
+        return box == null || Rect.intersects(box, roiFor(w, h));
     }
 
     /**
@@ -229,6 +265,13 @@ public class CamSettings implements Cloneable {
             JSONArray g = new JSONArray();
             for (float v : awbGains) g.put(round3(v));
             o.put("awb_gains_set", g);
+        }
+        if (focusBox == null) {
+            o.put("focus_box", JSONObject.NULL);
+        } else {
+            JSONArray fb = new JSONArray();
+            for (float v : focusBox) fb.put(round3(v));
+            o.put("focus_box", fb);
         }
         o.put("torch", torch);
         o.put("measure", measure);

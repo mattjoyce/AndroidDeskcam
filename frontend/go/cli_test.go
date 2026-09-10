@@ -120,6 +120,7 @@ func TestRecallNamesCameraStateAndNothingElse(t *testing.T) {
 		"exposure_ns": 8333333.0, "iso": 200.0, "focus_diopters": 6.67,
 		"jpeg_quality": 92.0, "out_w": 320.0, "out_h": 240.0,
 		"preview_size_requested": "1280x960", "still_size": "max",
+		"focus_box": []any{0.35, 0.35, 0.15, 0.15},
 	}}
 	raw, _ := json.Marshal(doc)
 	if err := os.WriteFile(sidecar, raw, 0o644); err != nil {
@@ -131,7 +132,9 @@ func TestRecallNamesCameraStateAndNothingElse(t *testing.T) {
 	}
 	for _, want := range []string{"zoom=6", "cx=0.3", "rotate=180", "measure=1",
 		"torch=25", "awb=daylight", "focus=6.67", "exposure=8333333", "iso=200",
-		"previewsize=1280x960"} {
+		"previewsize=1280x960",
+		// A list goes back as the phone parses it, not as Go prints a slice. Card 60.
+		"focusbox=0.35,0.35,0.15,0.15"} {
 		if !strings.Contains(q, want) {
 			t.Errorf("recall should name %s, got %q", want, q)
 		}
@@ -638,5 +641,29 @@ func TestShowSaysWhenThePhoneIsTooHot(t *testing.T) {
 	// An older phone, or one that never reported, must not print an empty marker.
 	if none := line(nil); strings.Contains(none, "HOT") {
 		t.Errorf("no reading is not a hot phone, got %q", none)
+	}
+}
+
+// A capture with no focus box must not recall one, or a session that judged focus on the
+// whole crop would come back judging it somewhere else. Card 60.
+func TestRecallLeavesAnAbsentFocusBoxAbsent(t *testing.T) {
+	dir := t.TempDir()
+	sidecar := filepath.Join(dir, "shot.json")
+	for _, absent := range []any{nil, []any{}} {
+		doc := map[string]any{"settings": map[string]any{
+			"camera": "0", "zoom": 1.0, "cx": 0.5, "cy": 0.5, "ae": "manual",
+			"exposure_ns": 8333333.0, "iso": 200.0, "focus_box": absent,
+		}}
+		raw, _ := json.Marshal(doc)
+		if err := os.WriteFile(sidecar, raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		q, err := recallQuery(sidecar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(q, "focusbox") {
+			t.Errorf("focus_box %v should recall nothing, got %q", absent, q)
+		}
 	}
 }

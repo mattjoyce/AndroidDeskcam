@@ -41,11 +41,27 @@ func recallQuery(sidecar string) (string, error) {
 		}
 	}
 
+	// A list of numbers goes back as the phone parses it, not as Go prints a slice.
+	addList := func(key string, value any) {
+		items, ok := value.([]any)
+		if !ok || len(items) == 0 {
+			return
+		}
+		parts := make([]string, 0, len(items))
+		for _, v := range items {
+			parts = append(parts, valueString(v))
+		}
+		q = append(q, key+"="+strings.Join(parts, ","))
+	}
+
 	add("camera", settings["camera"])
 	add("zoom", settings["zoom"])
 	add("cx", settings["cx"])
 	add("cy", settings["cy"])
 	add("rotate", settings["rotate"])
+	// Where focus was judged is part of how a capture was made, so a session that is
+	// recalled to be compared against has to judge it in the same place. Card 60.
+	addList("focusbox", settings["focus_box"])
 	add("torch", settings["torch"])
 	add("awb", settings["awb"])
 	boolAs01("awblock", settings["awb_lock"])

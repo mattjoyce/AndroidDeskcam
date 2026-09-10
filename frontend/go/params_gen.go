@@ -26,6 +26,7 @@ var Params = map[string]Kind{
 	"exposure":    Camera,
 	"fine":        Router,
 	"focus":       Camera,
+	"focusbox":    Camera,
 	"focusm":      Camera,
 	"format":      Router,
 	"fps":         Router,
