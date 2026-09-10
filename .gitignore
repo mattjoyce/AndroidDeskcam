@@ -6,3 +6,7 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 frontend/go/deskcam
+
+# The luminary panel write-ups. Kept on disk, because several kanban cards cite them as
+# the record of why a decision was made, and out of the repository on purpose.
+reviews/
