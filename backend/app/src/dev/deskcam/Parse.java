@@ -111,6 +111,20 @@ public final class Parse {
         return out;
     }
 
+    /**
+     * A value turned into something that can be part of a filename.
+     *
+     * A walk names its frames after what they were taken at, and the values people type
+     * are full of characters a path is not: 1/240, 0.5s, 1.99,1,1,2.07. Everything outside
+     * a small safe set becomes a dash, so a name still reads as the value it came from.
+     */
+    public static String fileSafe(String value) {
+        String out = value.trim().replaceAll("[^A-Za-z0-9._+-]", "-").replaceAll("-{2,}", "-");
+        out = out.replaceAll("^-+|-+$", "");
+        if (out.isEmpty()) out = "value";
+        return out.length() > 24 ? out.substring(0, 24) : out;
+    }
+
     /** Rounds a rotation onto a quarter turn in 0, 90, 180, 270. */
     public static int rotation(String v) {
         int deg = Integer.parseInt(v.trim());

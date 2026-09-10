@@ -51,6 +51,8 @@ var Params = map[string]Kind{
 	"timeout":     Router,
 	"to":          Router,
 	"torch":       Camera,
+	"values":      Router,
+	"vary":        Router,
 	"w":           Presentation,
 	"wait":        Router,
 	"zoom":        Camera,

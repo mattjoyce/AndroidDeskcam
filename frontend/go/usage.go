@@ -14,6 +14,9 @@ func usage() {
                                        walk the lens and keep a still at each step, for
                                        focus stacking. The steps are equal in dioptres,
                                        which is equal in depth of field
+  deskcam walk vary=NAME values=A,B,C  one still at each value, e.g. vary=torch
+                                       values=0,10,20,45. You supply the values; the two
+                                       axes with a step rule of their own are below
   deskcam bracket [-o DIR] [base=1/240 stops=4]
                                        stills at doubling exposures, for merging a lit
                                        panel against a dark bezel. Set the base to one

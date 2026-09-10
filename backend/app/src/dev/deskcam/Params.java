@@ -228,6 +228,13 @@ public final class Params {
                 + "Defaults to 1/240.", "base");
         router("/api/bracket: how many frames, each twice the exposure of the one before. "
                 + "2..burst_max.", "stops");
+        router("/api/walk: the camera parameter to walk, e.g. vary=torch. Only camera "
+                + "state can be walked; presentation dies with the request that named it "
+                + "and the router never reaches the camera.", "vary");
+        router("/api/walk: the list to walk, in the order given, e.g. values=0,10,20,45. "
+                + "This endpoint knows no step rule and invents no values. Use "
+                + "/api/focussweep and /api/bracket for the two axes whose step rule is "
+                + "knowledge. 2..burst_max values.", "values");
         router("A cache buster. Ignored.", "t", "_");
     }
 

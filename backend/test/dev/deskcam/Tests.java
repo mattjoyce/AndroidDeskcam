@@ -40,6 +40,7 @@ public final class Tests {
         theAccessKeyRule();
         aSweepIsEvenInDiopters();
         whiteBalanceGainsParsing();
+        aValueBecomesAFilename();
         sharpnessRisesWithDetail();
         sharpnessPeaksAtFocus();
         sharpnessOnAnImpossibleRegion();
@@ -298,6 +299,27 @@ public final class Tests {
         threw("a gain of zero", () -> Parse.gains("0,1,1,1"));
         threw("a gain of a hundred", () -> Parse.gains("100,1,1,1"));
         threw("words", () -> Parse.gains("warm,1,1,1"));
+    }
+
+    /**
+     * A walk names its frames after what they were taken at, and people type values that
+     * are not filenames: 1/240, 0.5s, 1.99,1,1,2.07. Card 55.
+     */
+    private static void aValueBecomesAFilename() {
+        yes("a plain number is left alone", "20".equals(Parse.fileSafe("20")));
+        yes("a decimal keeps its point", "4.25".equals(Parse.fileSafe("4.25")));
+        yes("a fraction loses its slash", "1-240".equals(Parse.fileSafe("1/240")));
+        yes("a unit survives", "8ms".equals(Parse.fileSafe("8ms")));
+        yes("a list of gains", "1.99-1-1-2.07".equals(Parse.fileSafe("1.99,1,1,2.07")));
+        yes("spaces do not reach a path", "a-b".equals(Parse.fileSafe("a b")));
+        yes("a run of junk collapses", "a-b".equals(Parse.fileSafe("a///b")));
+        yes("nothing dangles at the ends", "x".equals(Parse.fileSafe("//x//")));
+        // A name is part of a path, so nothing here may ever produce one.
+        yes("a traversal cannot survive", "..".equals(Parse.fileSafe("../..")) == false);
+        no("no slash gets through", Parse.fileSafe("../../etc/passwd").contains("/"));
+        yes("a value of pure punctuation still has a name",
+                "value".equals(Parse.fileSafe("///")));
+        yes("a very long value is cut", Parse.fileSafe("x".repeat(200)).length() <= 24);
     }
 
     // ------------------------------------------------------- the focus sweep

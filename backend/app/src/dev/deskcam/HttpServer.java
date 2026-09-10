@@ -402,28 +402,34 @@ public class HttpServer implements Runnable {
                         + "field. The lens calibration is APPROXIMATE, so these are ordered "
                         + "positions and not distances.");
 
+                java.util.List<String> labels = new java.util.ArrayList<>();
+                java.util.List<JSONObject> asked = new java.util.ArrayList<>();
+                for (int i = 0; i < steps; i++) {
+                    float at = Geom.sweepStep(from, to, i, steps);
+                    labels.add(String.format(Locale.US, "%.3fd", at));
+                    asked.add(new JSONObject().put("focus_diopters_asked", CamSettings.round3(at)));
+                }
                 sendWalk(out, params, req, engine.focusSteps(req, from, to, steps),
-                        manifest, "focus", i -> String.format(Locale.US, "%.3fd",
-                                Geom.sweepStep(from, to, i, steps)));
+                        manifest, "focus", labels, asked);
                 return;
             }
 
             case "/api/bracket": {
                 CamSettings req = apply(params);
                 CamSettings.Caps caps = engine.caps();
-                long asked;
+                long given;
                 try {
-                    asked = Parse.exposureNs(params.getOrDefault("base", "1/240"));
+                    given = Parse.exposureNs(params.getOrDefault("base", "1/240"));
                 } catch (NumberFormatException e) {
                     throw new BadRequest("bad value for 'base': " + e.getMessage());
                 }
-                if (asked < caps.minExposureNs || asked > caps.maxExposureNs) {
+                if (given < caps.minExposureNs || given > caps.maxExposureNs) {
                     throw new BadRequest("'base' must be between "
                             + CamSettings.humanExposure(caps.minExposureNs) + " and "
                             + CamSettings.humanExposure(caps.maxExposureNs) + ", got "
-                            + CamSettings.humanExposure(asked));
+                            + CamSettings.humanExposure(given));
                 }
-                final long baseNs = asked;
+                final long baseNs = given;
                 int stops = (int) longParam(params, "stops", 4, 2, caps.maxBurst);
                 long longest = baseNs << (stops - 1);
                 if (longest > caps.maxExposureNs) {
@@ -454,10 +460,75 @@ public class HttpServer implements Runnable {
                 }
                 manifest.put("warnings", warnings);
 
+                java.util.List<String> labels = new java.util.ArrayList<>();
+                java.util.List<JSONObject> asked = new java.util.ArrayList<>();
+                for (int i = 0; i < stops; i++) {
+                    labels.add(Parse.fileSafe(CamSettings.humanExposure(baseNs << i)));
+                    asked.add(new JSONObject()
+                            .put("exposure_ns_asked", baseNs << i)
+                            .put("base_periods_asked", 1L << i));
+                }
                 sendWalk(out, params, req, engine.exposureSteps(req, baseNs, stops),
-                        manifest, "exposure",
-                        i -> CamSettings.humanExposure(baseNs << i).replace("/", "-")
-                                .replaceAll("[ ()]", ""));
+                        manifest, "exposure", labels, asked);
+                return;
+            }
+
+            case "/api/walk": {
+                CamSettings req = apply(params);
+                CamSettings.Caps caps = engine.caps();
+
+                String vary = params.getOrDefault("vary", "").trim().toLowerCase(Locale.US);
+                Params.P p = Params.get(vary);
+                if (vary.isEmpty() || p == null) {
+                    throw new BadRequest("'vary' names the camera parameter to walk, e.g. "
+                            + "vary=torch. '" + vary + "' is not a parameter this build knows; "
+                            + "see /api/help.");
+                }
+                if (p.kind != Params.Kind.CAMERA) {
+                    // Presentation dies with the request that named it and Router is read
+                    // by the router, so neither means anything across a set of frames.
+                    throw new BadRequest("'" + vary + "' is a " + p.kind.name().toLowerCase(Locale.US)
+                            + " parameter, and only camera state can be walked. "
+                            + (p.kind == Params.Kind.PRESENTATION
+                                ? "Presentation applies to the one request that names it and is "
+                                  + "then forgotten, so it is the same camera in every frame."
+                                : "The router reads this one; it never reaches the camera.")
+                            + " See decision D9.");
+                }
+
+                String raw = params.getOrDefault("values", "").trim();
+                if (raw.isEmpty()) {
+                    throw new BadRequest("'values' is the list to walk, e.g. "
+                            + "values=0,10,20,45. This endpoint knows no step rule and "
+                            + "invents no values: /api/focussweep and /api/bracket are the "
+                            + "ones that know where their steps belong.");
+                }
+                java.util.List<String> values = new java.util.ArrayList<>();
+                for (String v : raw.split(",")) {
+                    if (!v.trim().isEmpty()) values.add(v.trim());
+                }
+                if (values.size() < 2 || values.size() > caps.maxBurst) {
+                    throw new BadRequest("a walk takes between 2 and " + caps.maxBurst
+                            + " values on this device, and was given " + values.size()
+                            + ". One frame at one value is /api/still.");
+                }
+
+                JSONObject manifest = new JSONObject();
+                manifest.put("walk", vary);
+                manifest.put("values", new JSONArray(values));
+                manifest.put("steps_are", "the values given, in the order given. This "
+                        + "endpoint knows no step rule: /api/focussweep steps in diopters "
+                        + "and /api/bracket in whole PWM periods because those rules are "
+                        + "knowledge, and a list you typed cannot hand you a wrong one.");
+
+                java.util.List<String> labels = new java.util.ArrayList<>();
+                java.util.List<JSONObject> asked = new java.util.ArrayList<>();
+                for (String v : values) {
+                    labels.add(Parse.fileSafe(v));
+                    asked.add(new JSONObject().put("vary", vary).put("value_asked", v));
+                }
+                sendWalk(out, params, req, engine.valueSteps(req, vary, values),
+                        manifest, vary, labels, asked);
                 return;
             }
 
@@ -785,11 +856,6 @@ public class HttpServer implements Runnable {
      * looked exactly like no timeout at all. That is the opposite of rule R5: a value the
      * caller wrote and the server could not use is an error, not a silence.
      */
-    /** Names one frame of a walk, from its index. */
-    private interface StepLabel {
-        String of(int i);
-    }
-
     /**
      * Runs a walk and answers with the frames and one record of the set.
      *
@@ -800,7 +866,8 @@ public class HttpServer implements Runnable {
      */
     private void sendWalk(BufferedOutputStream out, Map<String, String> params, CamSettings req,
                           java.util.List<CamSettings> steps, JSONObject manifest,
-                          String prefix, StepLabel label) throws Exception {
+                          String prefix, java.util.List<String> labels,
+                          java.util.List<JSONObject> asked) throws Exception {
         // Longer than a burst by default. Each step moves the camera and waits for it, and
         // a frame taken before it arrives is a frame at the wrong setting wearing the
         // right label.
@@ -824,6 +891,28 @@ public class HttpServer implements Runnable {
 
         manifest.put("tool", "DeskCam");
         manifest.put("millis", ms);
+
+        // A walk varies one thing on purpose. Anything the camera is still deciding for
+        // itself varies alongside it, and the set stops being a controlled comparison.
+        // Measured, the same torch walk at 0, 20 and 45 run twice. Under automatic
+        // exposure the frames came out at 139, 173 and 141 DN, which is not even
+        // monotone: the exposure loop gave back the light the torch added, and nothing in
+        // the frames says so. With the exposure fixed the same walk read 32, 107 and 140,
+        // which is the curve that was there all along.
+        JSONArray warnings = manifest.optJSONArray("warnings");
+        if (warnings == null) {
+            warnings = new JSONArray();
+            manifest.put("warnings", warnings);
+        }
+        if (req.aeAuto) {
+            warnings.put("automatic exposure was on, so the camera changed the exposure "
+                    + "between these frames as well as the thing being walked. Fix "
+                    + "exposure= and iso= for a set that can be compared.");
+        }
+        if (req.awbGains == null) {
+            warnings.put("the white balance was left to the camera, so the colour moved "
+                    + "between these frames too. awbgains= holds it. Card 42.");
+        }
         JSONArray entries = new JSONArray();
         java.util.List<String> names = new java.util.ArrayList<>();
         java.util.List<byte[]> files = new java.util.ArrayList<>();
@@ -831,13 +920,24 @@ public class HttpServer implements Runnable {
             CameraEngine.SweepFrame f = frames.get(i);
             // The setting is in the name as well as the manifest, because a frame that is
             // untarred on its own has to still say which one it is.
-            String name = String.format(Locale.US, "%s-%02d-%s.jpg", prefix, i, label.of(i));
+            String name = String.format(Locale.US, "%s-%02d-%s.jpg", prefix, i, labels.get(i));
             names.add(name);
             files.add(f.jpeg);
             JSONObject entry = f.provenance == null ? new JSONObject()
                     : new JSONObject(f.provenance.toString());
             entry.put("file", name);
             entry.put("step", i);
+            // What this step was asked for, beside what the camera reported it did. The
+            // two are not the same and the difference is the point of a walk: a lens
+            // lands near a diopter, a sensor quantises an exposure. Card 5 wanted this
+            // per frame and it was lost when the two endpoints were generalised into one.
+            if (asked != null && i < asked.size()) {
+                JSONObject want = asked.get(i);
+                for (java.util.Iterator<String> k = want.keys(); k.hasNext();) {
+                    String key = k.next();
+                    entry.put(key, want.get(key));
+                }
+            }
             entries.put(entry);
         }
         manifest.put("frames", entries);

@@ -1189,6 +1189,24 @@ public class CameraEngine {
     }
 
     /**
+     * The settings of a walk over one named parameter, one per value given.
+     *
+     * The values go through the same parser every other request uses, so a walk clamps,
+     * refuses and implies exactly what `deskcam set` would for the same word. There is no
+     * second idea here of what a parameter means. Card 31, card 55.
+     */
+    public List<CamSettings> valueSteps(CamSettings base, String name, List<String> values) {
+        List<CamSettings> out = new ArrayList<>(values.size());
+        for (String value : values) {
+            CamSettings step = base.clone();
+            String problem = Params.apply(step, name, value, caps);
+            if (problem != null) throw new IllegalArgumentException(problem);
+            out.add(step);
+        }
+        return out;
+    }
+
+    /**
      * The exposures of a bracket, each a whole multiple of the base period.
      *
      * Powers of two from one period, so every step is one stop apart AND every step

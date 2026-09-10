@@ -132,6 +132,10 @@ func run(argv []string) int {
 		return walkCommand(in, "/api/focussweep", "sweep")
 	case "bracket":
 		return walkCommand(in, "/api/bracket", "bracket")
+	case "walk":
+		// Named after what is being varied, so a shots directory with three walks in it
+		// says which is which without opening one.
+		return walkCommand(in, "/api/walk", "walk-"+varyName(in.query))
 	case "stream":
 		return stream(in)
 
@@ -584,8 +588,9 @@ func splitWalk(dir string, manifest []byte) error {
 		return err
 	}
 	var doc struct {
-		BaseNs float64          `json:"base_ns"`
-		Frames []map[string]any `json:"frames"`
+		BaseNs   float64          `json:"base_ns"`
+		Warnings []string         `json:"warnings"`
+		Frames   []map[string]any `json:"frames"`
 	}
 	if err := json.Unmarshal(manifest, &doc); err != nil {
 		return fmt.Errorf("%s is not JSON: %w", walkManifest, err)
@@ -617,6 +622,12 @@ func splitWalk(dir string, manifest []byte) error {
 			return err
 		}
 	}
+	// A warning nobody reads is not a warning. These were going into walk.json and
+	// nowhere else, which is how the bracket's own note about digital gain stayed
+	// invisible to everyone who did not open the file.
+	for _, warning := range doc.Warnings {
+		fmt.Fprintln(os.Stderr, "deskcam: "+warning)
+	}
 	// A bracket is merged on the real exposures and not the nominal stops, so the real
 	// exposures are put in front of the operator rather than left in a file.
 	if len(report) > 0 {
@@ -637,6 +648,24 @@ func splitWalk(dir string, manifest []byte) error {
 // every other error in a merge and large enough to notice a base that is not a period at
 // all.
 const periodTolerance = 0.02
+
+// varyName pulls the axis out of the query, for naming the directory. An absent or odd
+// value is not this function's problem: the phone refuses it and says so.
+func varyName(query string) string {
+	for _, pair := range strings.Split(query, "&") {
+		if name, value, found := strings.Cut(pair, "="); found && name == "vary" {
+			if clean := strings.Map(func(r rune) rune {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+					return r
+				}
+				return -1
+			}, strings.ToLower(value)); clean != "" {
+				return clean
+			}
+		}
+	}
+	return "any"
+}
 
 // checkPeriods is the whole point of an exposure bracket, checked rather than assumed.
 //

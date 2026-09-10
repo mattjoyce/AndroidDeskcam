@@ -187,6 +187,7 @@ this table ever disagrees with `/api/help`, `/api/help` is right and this is sta
 | `/api/af` | Do one autofocus sweep |
 | `/api/focussweep` | `steps` stills as the lens walks from `from` to `to` in dioptres, as one tar |
 | `/api/bracket` | `stops` stills at doubling exposures from `base`, as one tar |
+| `/api/walk` | One still at each of `values`, walking the camera parameter named by `vary` |
 | `/api/reset` | Set all values to the default |
 | `/api/orientation` | The angle to gravity and the ambient light |
 | `/api/cameras` | List the cameras |
@@ -249,6 +250,7 @@ untouched-JPEG path for ever, which is a measurement fault rather than an inconv
 | `sharpness` | `sharpness=1` makes `/api/status` convert one fresh preview frame first |
 | `from`, `to`, `steps` | The focus sweep: the first and last lens position in dioptres, and how many frames |
 | `base`, `stops` | The exposure bracket: the shortest exposure, and how many frames of twice the one before |
+| `vary`, `values` | The walk: which camera parameter to vary, and the list to vary it over |
 
 ### Sweeping the focus
 
@@ -270,6 +272,40 @@ lens landed within 0.02 of every step it was asked for.
 
 The starting focus is put back afterwards, including when a step fails. A sweep is an
 excursion, not a change.
+
+### Walking anything else
+
+`/api/focussweep` and `/api/bracket` exist because their step rule is knowledge: dioptres
+for one, whole PWM periods for the other. For every other axis you already know the values
+you want, so you give them:
+
+```sh
+deskcam walk vary=torch values=0,10,20,45 exposure=40ms iso=100 awbgains=neutral
+```
+
+One still per value, as a tar, with a sidecar apiece recording what it was asked for beside
+what the camera reported. Only camera state can be walked, since presentation dies with the
+request that names it and the router never reaches the camera. It knows no step rule and
+invents no values, which is the point: a list you typed cannot hand you a wrong rule.
+
+**Fix everything you are not walking.** A walk varies one thing on purpose, and anything
+the camera is still deciding varies alongside it. The same torch walk at 0, 20 and 45, run
+twice on this bench:
+
+| | torch 0 | torch 20 | torch 45 |
+|---|---|---|---|
+| automatic exposure | 139 DN | 173 DN | 141 DN |
+| exposure fixed | 32 DN | 107 DN | 140 DN |
+
+The first row is not even monotone: the exposure loop gave back the light the torch added,
+and nothing in the frames says so. The second is the curve that was there all along. The
+manifest warns when `ae` or the white balance was left to the camera, and the CLI prints
+the warning.
+
+Good axes: `torch` (1..45 here) for specular subjects, `iso` (56..7111, analogue only to
+444) for a gain walk, and `exposure` with the lens covered for dark frames or against a
+flat field for flats. **Not `zoom`** — zoom is a crop of the sensor, so at zoom 1 you
+already have every pixel and walking it gains no resolution.
 
 ### Bracketing a lit panel
 

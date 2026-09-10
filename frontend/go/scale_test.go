@@ -309,3 +309,21 @@ func TestAWalkWithNoBasePeriodIsNotChecked(t *testing.T) {
 		t.Fatal("nothing should be recorded about periods that do not apply")
 	}
 }
+
+// A shots directory with three walks in it should say which is which without opening one.
+func TestAWalkIsNamedAfterWhatItVaried(t *testing.T) {
+	for _, tc := range []struct{ query, want string }{
+		{"vary=torch&values=0,10", "torch"},
+		{"values=0,10&vary=iso", "iso"},
+		{"vary=TORCH&values=0,10", "torch"},
+		{"", "any"},
+		{"values=0,10", "any"},
+		// A name is part of a path. Nothing typed into it may ever produce one.
+		{"vary=../../etc&values=1,2", "etc"},
+		{"vary=&values=1,2", "any"},
+	} {
+		if got := varyName(tc.query); got != tc.want {
+			t.Errorf("varyName(%q) = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+}

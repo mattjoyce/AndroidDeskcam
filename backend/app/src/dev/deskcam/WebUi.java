@@ -48,6 +48,14 @@ public class WebUi {
                 + "walk.json, which records the lens position asked for and reached at every "
                 + "frame. For focus stacking. The largest steps this device can hold is "
                 + "limits.burst_max.");
+        ep.put("GET /api/walk", "One still at each of the values given, as a tar: "
+                + "vary=NAME&values=A,B,C. Only camera state can be walked. This endpoint "
+                + "knows no step rule and invents no values, which is why the two axes "
+                + "whose step rule is knowledge have their own endpoints: /api/focussweep "
+                + "steps in diopters and /api/bracket in whole PWM periods. Useful for "
+                + "torch levels, ISO, and for dark and flat frames. Not for zoom: zoom is "
+                + "a crop of the sensor, so walking it gains no resolution. The largest "
+                + "number of values this device can hold is limits.burst_max.");
         ep.put("GET /api/bracket", "stops stills at doubling exposures from base, as a tar. "
                 + "Powers of two from one period, so every frame is one stop from the next "
                 + "AND a whole number of base periods: set base to one period of a lit "
