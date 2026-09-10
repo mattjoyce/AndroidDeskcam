@@ -632,8 +632,11 @@ distinguishable from outside instead of both being a frame counter that stopped.
 **A page that nobody is looking at does not hold the camera awake.** An `<img>` on an MJPEG
 stream keeps its connection for as long as its `src` is set, whether the tab is visible,
 buried, or on a machine with the lid shut. Both panels stop their stream on
-`visibilitychange` and start it again when shown. Idling the engine achieves nothing while
-a forgotten tab holds it awake, which is how this was found.
+`visibilitychange`, and again after 30 seconds with no pointer, key, wheel or touch,
+starting it on the next thing anyone does. **Being visible is not the same as being
+watched**: a page open on a second monitor with nobody in the room is the case most likely
+to be left running, and the first version of this covered every case except that one.
+Idling the engine achieves nothing while a forgotten page holds it awake.
 
 **D17. The crop and the focus region are two rectangles, not one.** `meteringForRoi()`
 derived the autofocus region, the metering region and the sharpness window from the crop,

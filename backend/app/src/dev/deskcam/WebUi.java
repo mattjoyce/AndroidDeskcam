@@ -198,6 +198,8 @@ public class WebUi {
   main { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; padding:16px; align-items:start; }
   @media (max-width:900px) { main { grid-template-columns:1fr; } }
   .viewport { position:relative; background:#000; border:1px solid #21262d; border-radius:8px; overflow:hidden; }
+  .asleep { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+            background:rgba(1,4,9,0.82); color:#8b949e; font-size:13px; letter-spacing:0.02em; }
   .viewport img { display:block; width:100%; height:auto; cursor:crosshair; }
   .hint { position:absolute; left:8px; bottom:8px; background:rgba(13,17,23,.82); border:1px solid #30363d;
           border-radius:5px; padding:4px 8px; font-size:11px; color:#8b949e; pointer-events:none; }
@@ -231,6 +233,7 @@ public class WebUi {
   <div>
     <div class="viewport">
       <img id="view" src="/api/stream?fps=12" alt="live view">
+      <div class="asleep" id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
       <div class="hint">click to centre &middot; scroll to zoom &middot; shift-click to reset</div>
     </div>
     <div class="btns" style="margin-top:10px">
@@ -418,19 +421,54 @@ function restream() {
   view.src = '/api/stream?fps=12&t=' + Date.now();
 }
 
-/* A tab nobody is looking at must not hold the camera awake.
+/* A page nobody is using must not hold the camera awake, and a page can be wide open on
+   a second monitor with nobody in the room. Being visible is not the same as being
+   watched, so the signal is whether anyone is doing anything.
 
-   An <img> pointed at an MJPEG stream keeps its connection open for as long as the src
-   is set, whether the tab is visible, buried behind twenty others, or on a laptop with
-   its lid shut. A panel left open overnight was found holding this camera at full rate
-   until morning, which defeats the engine's own idling and is most of why the phone was
-   too hot to trust. Card 59. */
+   An <img> pointed at an MJPEG stream keeps its connection open for as long as the src is
+   set, whether the tab is visible, buried behind twenty others, or on a laptop with its
+   lid shut. A panel left open overnight was found holding this camera at full rate until
+   morning. Cards 59 and 63. */
 function stopView() {
   view.removeAttribute('src');
 }
 
+var VIEW_IDLE_MS = 30000;
+var lastUse = Date.now();
+var viewAsleep = false;
+
+function paintAsleep() {
+  document.getElementById('asleep').hidden = !viewAsleep;
+}
+
+function usedTheView() {
+  lastUse = Date.now();
+  if (viewAsleep) { viewAsleep = false; paintAsleep(); restream(); }
+}
+
+function checkViewIdle() {
+  if (document.hidden || viewAsleep) return;
+  if (Date.now() - lastUse > VIEW_IDLE_MS) {
+    viewAsleep = true;
+    stopView();
+    paintAsleep();
+  }
+}
+
+['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(function (e) {
+  document.addEventListener(e, usedTheView, { passive: true });
+});
+setInterval(checkViewIdle, 2000);
+
 document.addEventListener('visibilitychange', function () {
-  if (document.hidden) { stopView(); } else { restream(); }
+  if (document.hidden) {
+    stopView();
+  } else {
+    lastUse = Date.now();
+    viewAsleep = false;
+    paintAsleep();
+    restream();
+  }
 });
 window.addEventListener('pagehide', stopView);
 

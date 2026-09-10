@@ -24,6 +24,8 @@
  .col>h2{flex:0 0 auto;margin:0;padding:7px 11px;font-size:10px;text-transform:uppercase;
          letter-spacing:.07em;color:#8b949e;font-weight:600;border-bottom:1px solid #21262d}
  .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0}
+ #asleep{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+         background:rgba(1,4,9,0.82);color:#8b949e;font-size:13px}
 
  #roll{display:flex;flex-direction:column;gap:7px;padding:8px}
  .shot{background:#0d1117;border:1px solid #21262d;border-radius:6px;overflow:hidden;
@@ -100,6 +102,7 @@
   <div class="col">
     <div class="view" id="wrap">
       <img id="live" alt="live view">
+      <div id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
       <div id="box"></div>
       <div class="hint">drag a box to frame &middot; click to centre
         &middot; shift-click resets</div>
@@ -210,15 +213,32 @@ function restream(){
   const u='/api/stream?fps=10&t='+Date.now();
   if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
 }
-/* A tab nobody is looking at must not hold the camera awake. An <img> on an MJPEG stream
-   keeps its connection for as long as its src is set, visible or not, and a console left
-   open overnight held this camera at full rate until morning. Card 59. */
+/* A page nobody is using must not hold the camera awake, and a page can be wide open on a
+   second monitor with nobody in the room. Being visible is not being watched, so the
+   signal is whether anyone is doing anything. An <img> on an MJPEG stream keeps its
+   connection for as long as its src is set, visible or not, and a console left open
+   overnight held this camera at full rate until morning. Cards 59 and 63. */
 function stopView(){
   streamUrl='';
   document.getElementById('live').removeAttribute('src');
 }
+const VIEW_IDLE_MS=30000;
+let lastUse=Date.now(), viewAsleep=false;
+function paintAsleep(){ document.getElementById('asleep').hidden=!viewAsleep; }
+function usedTheView(){
+  lastUse=Date.now();
+  if(viewAsleep){ viewAsleep=false; paintAsleep(); restream(); }
+}
+function checkViewIdle(){
+  if(document.hidden||viewAsleep) return;
+  if(Date.now()-lastUse>VIEW_IDLE_MS){ viewAsleep=true; stopView(); paintAsleep(); }
+}
+['pointermove','pointerdown','keydown','wheel','touchstart'].forEach(e=>
+  document.addEventListener(e,usedTheView,{passive:true}));
+setInterval(checkViewIdle,2000);
 document.addEventListener('visibilitychange',function(){
-  if(document.hidden){ stopView(); } else { restream(); }
+  if(document.hidden){ stopView(); }
+  else { lastUse=Date.now(); viewAsleep=false; paintAsleep(); restream(); }
 });
 window.addEventListener('pagehide',stopView);
 /* An <img> that fails learns only that it failed. The console saw the phone's answer and

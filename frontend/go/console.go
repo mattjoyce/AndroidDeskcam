@@ -385,8 +385,10 @@ func (s *consoleState) handleState(w http.ResponseWriter, r *http.Request) {
 		if host, port, ok := splitPhone(phone); ok {
 			if status := probePhone(host, port, token, 2*time.Second); status != nil {
 				out["online"] = true
+				// preview and device let the page show whether the camera is asleep
+				// and how hot the phone is, rather than leaving both a mystery.
 				for _, key := range []string{"settings", "measured", "orientation",
-					"pipeline", "sensor", "state"} {
+					"pipeline", "sensor", "state", "preview", "device"} {
 					if v, ok := status[key]; ok {
 						out[key] = v
 					}
