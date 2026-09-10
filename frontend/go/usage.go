@@ -45,6 +45,9 @@ func usage() {
   deskcam analyse scale FILE           the measurement without recording it
   deskcam analyse linearity DIR        pixel value against exposure
   deskcam analyse burst-noise DIR      how far averaging a burst lowers the noise
+  deskcam analyse average DIR          average a burst into one 16-bit image
+  deskcam analyse stack DIR            one image sharp at every depth, from a focus sweep
+  deskcam analyse hdr DIR              one linear image from a bracket, on the real exposures
 
   deskcam zoom N                       set zoom (1.0 = full sensor)
   deskcam pan up|down|left|right [amt] nudge the view (default 0.25)

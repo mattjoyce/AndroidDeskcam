@@ -51,11 +51,11 @@ def load_sidecar(image: Path) -> dict[str, Any]:
 
 
 def settings_of(image: Path) -> dict[str, Any]:
-    return load_sidecar(image).get("settings", {})
+    return frame_record(image).get("settings", {})
 
 
 def measured_of(image: Path) -> dict[str, Any]:
-    return load_sidecar(image).get("measured", {})
+    return frame_record(image).get("measured", {})
 
 
 def gains_of(image: Path) -> tuple[float, ...] | None:
@@ -89,6 +89,41 @@ def gains_differ(
     if a is None or b is None:
         return False
     return any(abs(x - y) > tolerance * max(1.0, abs(x)) for x, y in zip(a, b, strict=True))
+
+
+def set_sidecar(directory: Path) -> dict[str, Any]:
+    """
+    The record a whole set of frames shares, or an empty dict.
+
+    A burst writes one sidecar for the set rather than one per frame, because its frames
+    share an exposure and a scene by construction: `burst.json` beside `burst-000.jpg` and
+    the rest. A walk writes `walk.json` for the set and a sidecar per frame as well,
+    because every frame of a walk differs in the thing the walk exists to vary.
+
+    So a tool that reads a directory has to look for both, and this is the one place that
+    knows where a set puts its record.
+    """
+    for name in ("burst.json", "walk.json"):
+        candidate = directory / name
+        if candidate.is_file():
+            try:
+                loaded = json.loads(candidate.read_text())
+            except (OSError, ValueError):
+                continue
+            if isinstance(loaded, dict):
+                return loaded
+    return {}
+
+
+def frame_record(image: Path) -> dict[str, Any]:
+    """
+    How one frame was taken, from its own sidecar or from the one its set shares.
+
+    A frame's own record wins when it has one: a walk gives every frame its own because
+    every frame differs. A burst has none per frame and the shared one describes them all.
+    """
+    own = load_sidecar(image)
+    return own if own else set_sidecar(image.parent)
 
 
 def captures_in(directory: Path) -> list[Path]:

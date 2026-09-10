@@ -15,11 +15,24 @@ from __future__ import annotations
 
 import json
 import math
+import struct
+import zlib
 from pathlib import Path
 
 import numpy as np
 import pytest
-from analysis import aatest, burstnoise, distance, images, linearity, scale
+from analysis import (
+    aatest,
+    average,
+    burstnoise,
+    distance,
+    hdr,
+    images,
+    linearity,
+    png16,
+    scale,
+    stack,
+)
 from analysis.result import Measurement, NoiseFloor, Scale, mean_interval, t95
 from PIL import Image
 
@@ -546,3 +559,222 @@ def test_linearity_warns_when_the_colour_changed_mid_series(tmp_path: Path) -> N
         )
     m = linearity.measure(tmp_path)
     assert any("white balance gains are not constant" in n for n in m.notes)
+
+
+# --------------------------------------------------- the 16-bit PNG writer
+
+
+def read_png16(path: Path) -> tuple[int, int, int, np.ndarray]:
+    """Decodes a PNG by hand, because Pillow reads a 16-bit RGB one down to 8 bits."""
+    raw = path.read_bytes()
+    assert raw[:8] == b"\x89PNG\r\n\x1a\n"
+    pos = 8
+    chunks: dict[bytes, bytes] = {}
+    while pos < len(raw):
+        n = struct.unpack(">I", raw[pos : pos + 4])[0]
+        kind, body = raw[pos + 4 : pos + 8], raw[pos + 8 : pos + 8 + n]
+        crc = struct.unpack(">I", raw[pos + 8 + n : pos + 12 + n])[0]
+        assert crc == zlib.crc32(kind + body) & 0xFFFFFFFF, f"CRC on {kind!r}"
+        chunks[kind] = chunks.get(kind, b"") + body
+        pos += 12 + n
+    w, h, depth, colour = struct.unpack(">IIBB", chunks[b"IHDR"][:10])
+    planes = 3 if colour == 2 else 1
+    flat = np.frombuffer(zlib.decompress(chunks[b"IDAT"]), np.uint8).reshape(h, -1)
+    assert (flat[:, 0] == 0).all(), "every row carries filter type 0"
+    pixels = flat[:, 1:].reshape(h, w, planes * 2).view(">u2").reshape(h, w, planes)
+    return w, h, depth, pixels.astype(np.uint16)
+
+
+def test_a_16_bit_png_survives_the_values_8_bits_cannot_hold(tmp_path: Path) -> None:
+    """The whole reason this writer exists: neighbouring values near the top of the range."""
+    rgb = np.zeros((8, 8, 3), np.uint16)
+    rgb[:, :, 0] = np.arange(64).reshape(8, 8) + 65000
+    rgb[:, :, 1] = 1000
+    rgb[:, :, 2] = 40000
+    w, h, depth, back = read_png16(png16.write(tmp_path / "rgb.png", rgb))
+    assert (w, h, depth) == (8, 8, 16)
+    assert np.array_equal(back, rgb)
+
+
+def test_a_16_bit_png_can_be_greyscale(tmp_path: Path) -> None:
+    grey = (np.arange(64).reshape(8, 8) * 1000).astype(np.uint16)
+    _, _, depth, back = read_png16(png16.write(tmp_path / "g.png", grey))
+    assert depth == 16
+    assert np.array_equal(back[:, :, 0], grey)
+    # Pillow can read a 16-bit greyscale PNG, so this one round-trips through it too.
+    assert np.array_equal(np.asarray(Image.open(tmp_path / "g.png")), grey)
+
+
+def test_a_png_clips_rather_than_rescaling(tmp_path: Path) -> None:
+    """Two files of one subject have to be comparable, so nothing is renormalised."""
+    _, _, _, back = read_png16(png16.write(tmp_path / "c.png", np.array([[-5.0, 70000.0]])))
+    assert back[0, 0, 0] == 0
+    assert back[0, 1, 0] == 65535
+
+
+def test_a_png_refuses_an_array_that_is_not_an_image(tmp_path: Path) -> None:
+    for bad in (np.zeros((4, 4, 2)), np.zeros(4), np.zeros((0, 4))):
+        with pytest.raises(ValueError):
+            png16.write(tmp_path / "bad.png", bad)
+
+
+# ------------------------------------------------------------ burst average
+
+
+def test_averaging_a_burst_writes_16_bit_and_measures_what_it_bought(tmp_path: Path) -> None:
+    rng = np.random.default_rng(21)
+    scene = np.full((240, 320), 120.0)
+    for i in range(12):
+        write_capture(tmp_path / f"burst-{i:03d}.jpg", scene + rng.normal(0, 4, scene.shape))
+    (tmp_path / "burst.json").write_text((tmp_path / "burst-000.json").read_text())
+    for i in range(12):
+        (tmp_path / f"burst-{i:03d}.json").unlink()
+
+    m = average.measure(tmp_path)
+    assert m.ok, m.reason
+    # The improvement is measured by burstnoise, not predicted here.
+    assert m.value == pytest.approx(math.sqrt(12 // 4), rel=0.3)
+    _, _, depth, _ = read_png16(tmp_path / f"{tmp_path.name}-average.png")
+    assert depth == 16
+
+
+def test_averaging_refuses_frames_that_are_not_one_burst(tmp_path: Path) -> None:
+    rng = np.random.default_rng(22)
+    scene = np.full((120, 160), 120.0)
+    write_capture(tmp_path / "a.jpg", scene + rng.normal(0, 3, scene.shape), zoom=1.0)
+    write_capture(tmp_path / "b.jpg", scene + rng.normal(0, 3, scene.shape), zoom=4.0)
+    m = average.measure(tmp_path)
+    assert not m.ok
+    assert "not taken alike" in str(m.reason)
+    assert "zoom" in str(m.reason)
+
+
+# -------------------------------------------------------------- the hdr merge
+
+
+def a_bracket(directory: Path, exposures_ns: list[int], scale: float = 4e-7) -> None:
+    """A bracket of one scene: a ramp of true radiance, sampled at several exposures."""
+    _, x = np.mgrid[0:120, 0:200]
+    radiance = 200.0 + x * 60.0  # DN per second, a wide range across the frame
+    for ns in exposures_ns:
+        level = np.clip(radiance * (ns * 1e-9) / scale * 4e-7, 0, 255)
+        write_capture(directory / f"exposure-{ns}.jpg", level, exposure_ns=ns, measure=True)
+        side = directory / f"exposure-{ns}.json"
+        doc = json.loads(side.read_text())
+        doc["pipeline"] = {"tonemap_points": 2, "tonemap_curve": "(0.0,0.0) (1.0,1.0)"}
+        side.write_text(json.dumps(doc))
+    (directory / "walk.json").write_text(
+        json.dumps({"pipeline": {"tonemap_points": 2, "tonemap_curve": "(0.0,0.0) (1.0,1.0)"}})
+    )
+
+
+def test_a_merge_recovers_one_radiance_from_several_exposures(tmp_path: Path) -> None:
+    a_bracket(tmp_path, [4_000_000, 8_000_000, 16_000_000, 32_000_000])
+    m = hdr.measure(tmp_path)
+    assert m.ok, m.reason
+    merged = np.load(tmp_path / f"{tmp_path.name}-hdr.npy")
+    assert merged.dtype == np.float32
+    # The radiance of the ramp is recovered in proportion: twice as bright is twice the
+    # number, whatever exposure measured it.
+    row = merged[60, :, 0]
+    assert row[150] / row[50] == pytest.approx((200 + 150 * 60) / (200 + 50 * 60), rel=0.05)
+
+
+def test_a_merge_refuses_a_tone_mapped_bracket(tmp_path: Path) -> None:
+    """value / exposure is only radiance when the response is linear. Refuse, do not guess."""
+    a_bracket(tmp_path, [4_000_000, 8_000_000])
+    (tmp_path / "walk.json").write_text(
+        json.dumps({"pipeline": {"tonemap_points": 32, "tonemap_curve": "(0.0,0.0) (0.5,0.7)"}})
+    )
+    m = hdr.measure(tmp_path)
+    assert not m.ok
+    assert "tone map" in str(m.reason)
+    assert "measure=1" in str(m.reason)
+
+
+def test_a_merge_refuses_a_burst(tmp_path: Path) -> None:
+    a_bracket(tmp_path, [8_000_000])
+    write_capture(tmp_path / "same.jpg", np.full((120, 200), 100.0), exposure_ns=8_000_000)
+    side = json.loads((tmp_path / "same.json").read_text())
+    side["pipeline"] = {"tonemap_points": 2, "tonemap_curve": "(0.0,0.0) (1.0,1.0)"}
+    (tmp_path / "same.json").write_text(json.dumps(side))
+    m = hdr.measure(tmp_path)
+    assert not m.ok
+    assert "burst and not a bracket" in str(m.reason)
+
+
+# ------------------------------------------------------------- the focus stack
+
+
+def a_sweep(directory: Path, blurs: list[tuple[int, int]], mags: list[float]) -> None:
+    """A sweep of a scene whose left and right halves are at different depths."""
+    rng = np.random.default_rng(11)
+    height, width = 400, 600
+    scene = np.clip(rng.normal(128, 45, (height, width)), 0, 255)
+    for i, ((left, right), mag) in enumerate(zip(blurs, mags, strict=True)):
+        frame = np.zeros_like(scene)
+        frame[:, : width // 2] = _blur(scene[:, : width // 2], left)
+        frame[:, width // 2 :] = _blur(scene[:, width // 2 :], right)
+        write_capture(directory / f"focus-{i:02d}.jpg", stack._resample(frame, mag))
+
+
+def _blur(a: np.ndarray, k: int) -> np.ndarray:
+    # Odd only. An even window leaves the result one row and one column larger, which is
+    # the same off-by-one the tool's own box blur had.
+    k = k | 1
+    if k <= 1:
+        return a
+    pad = k // 2
+    out = np.pad(a, pad, mode="edge")
+    c = np.vstack([np.zeros((1, out.shape[1])), out.cumsum(0)])
+    rows = (c[k:, :] - c[:-k, :]) / k
+    c2 = np.hstack([np.zeros((rows.shape[0], 1)), rows.cumsum(1)])
+    return (c2[:, k:] - c2[:, :-k]) / k
+
+
+def test_a_stack_is_sharper_than_any_frame_that_went_into_it(tmp_path: Path) -> None:
+    """Each frame is sharp in one half, so a stack of both must beat either. Card 6."""
+    a_sweep(tmp_path, [(1, 5), (1, 3), (3, 3), (3, 1), (5, 1)], [1.0] * 5)
+    m = stack.measure(tmp_path)
+    assert m.ok, m.reason
+    sharper = [n for n in m.notes if "times as sharp" in n]
+    assert sharper and float(sharper[0].split()[3]) > 1.2, sharper
+
+
+def test_a_stack_refuses_a_subject_that_did_not_need_one(tmp_path: Path) -> None:
+    """A flat subject's best frame is already the answer; blending can only blur it."""
+    a_sweep(tmp_path, [(3, 3), (2, 2), (1, 1), (2, 2), (3, 3)], [1.0] * 5)
+    m = stack.measure(tmp_path)
+    assert not m.ok
+    assert "flat" in str(m.limit_justification)
+
+
+def test_a_stack_measures_the_magnification_rather_than_assuming_it(tmp_path: Path) -> None:
+    """Focus breathing, and the direction of the correction. Half a percent a step."""
+    mags = [0.990, 0.995, 1.000, 1.005, 1.010]
+    a_sweep(tmp_path, [(1, 5), (1, 3), (3, 3), (3, 1), (5, 1)], mags)
+    m = stack.measure(tmp_path)
+    assert m.ok, m.reason
+    found = next(n for n in m.notes if "magnification against" in n)
+    scales = [float(v) for v in found.split("reference ")[1].split(", ")]
+    # A frame magnified by more than the reference is corrected by less than 1, and the
+    # corrections walk one way across the sweep rather than wandering.
+    assert scales == sorted(scales, reverse=True), scales
+    assert max(scales) - min(scales) == pytest.approx(0.02, abs=0.01)
+
+
+def test_a_box_blur_matches_a_window_mean() -> None:
+    """The summed-area table had an off-by-one that only showed as a broadcast error."""
+    rng = np.random.default_rng(1)
+    for shape in ((9, 11), (32, 32), (17, 5)):
+        for size in (1, 3, 5, 15):
+            a = rng.normal(50, 10, shape)
+            pad = size // 2
+            p = np.pad(a, pad, mode="edge")
+            want = np.array(
+                [
+                    [p[i : i + size, j : j + size].mean() for j in range(shape[1])]
+                    for i in range(shape[0])
+                ]
+            )
+            assert np.allclose(stack._box(a, size), want), (shape, size)

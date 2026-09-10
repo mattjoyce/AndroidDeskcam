@@ -618,6 +618,40 @@ locked onto graph paper, was told it was looking at millimetres, and reported a 
 times too large with 107 strips agreeing and a healthy correlation. Nothing about the fit
 was wrong.
 
+### Making one image out of many
+
+Three tools that turn a set of frames into a single image. Each writes the picture and then
+says what it can prove about it, and each refuses rather than handing back something that
+looks like a result and is not.
+
+```sh
+deskcam burst 16 && deskcam analyse average DIR   # one clean image, 16-bit
+deskcam focussweep from=3 to=6 steps=7 && deskcam analyse stack DIR
+deskcam bracket base=1/240 stops=6 && deskcam analyse hdr DIR
+```
+
+**Average** is the useful half of HDR+. It writes 16-bit, because averaging sixteen frames
+lowers the noise by a factor of four and 8 bits would throw away the two bits that bought.
+The improvement is measured rather than predicted: `before / sqrt(N)` is arithmetic, so the
+figure comes from `burst-noise`, which splits the burst many ways and measures both ends of
+the ratio the same way. Measured on twelve frames here: 1.757x less noise, 95% interval
+1.689 to 1.807, against a prediction of sqrt(3) = 1.732.
+
+**Stack** takes the sharp part of every frame of a focus sweep. It corrects focus breathing,
+measured between neighbouring frames and chained rather than taken against one reference,
+because frames from opposite ends of a sweep are sharp in different places and correlate at
+-0.38. It refuses when one frame is sharpest over most of the picture: that subject fits
+inside one depth of field, its best frame is already the answer, and blending can only blur
+it.
+
+**Hdr** merges a bracket into radiance, in DN per second, as 32-bit float with a 16-bit
+linear view beside it. No tone map, ever; that is a separate step. It merges on each frame's
+**measured** exposure and refuses a bracket taken without `measure=1`, because
+`value / exposure` is only radiance when the response is linear. It also checks that the
+frames agree with each other: neighbouring exposures of one scene should give the same
+radiance, and on this camera they differ by 1 to 3%, which is a small negative offset in the
+pipeline that a dark frame would measure.
+
 ## What each capture records
 
 Every capture writes a JSON sidecar beside the image, and the same record goes into the

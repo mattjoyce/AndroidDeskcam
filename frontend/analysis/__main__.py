@@ -14,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import aatest, burstnoise, distance, linearity, scale
+from . import aatest, average, burstnoise, distance, hdr, linearity, scale, stack
 from .images import image_size, load_sidecar, parse_region
 from .result import Measurement, Scale
 
@@ -121,6 +121,30 @@ def main(argv: list[str] | None = None) -> int:
     p_lin = sub.add_parser("linearity", parents=[common], help="pixel value against exposure")
     p_lin.add_argument("directory", type=Path)
 
+    p_avg = sub.add_parser(
+        "average",
+        parents=[common],
+        help="average a burst into one 16-bit image, and measure what that bought",
+    )
+    p_avg.add_argument("directory", type=Path)
+    p_avg.add_argument("-o", "--out", type=Path, default=None, help="where to write the image")
+
+    p_hdr = sub.add_parser(
+        "hdr",
+        parents=[common],
+        help="merge an exposure bracket into one linear image, on the measured exposures",
+    )
+    p_hdr.add_argument("directory", type=Path)
+    p_hdr.add_argument("-o", "--out", type=Path, default=None, help="where to write it")
+
+    p_stack = sub.add_parser(
+        "stack",
+        parents=[common],
+        help="stack a focus sweep into one image that is sharp at every depth",
+    )
+    p_stack.add_argument("directory", type=Path)
+    p_stack.add_argument("-o", "--out", type=Path, default=None, help="where to write it")
+
     p_burst = sub.add_parser(
         "burst-noise", parents=[common], help="how far averaging a burst lowers the noise"
     )
@@ -158,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "linearity":
             result = linearity.measure(args.directory, region=region or linearity.CENTRE)
+        elif args.command == "average":
+            result = average.measure(args.directory, out=args.out, region=region or average.CENTRE)
+        elif args.command == "hdr":
+            result = hdr.measure(args.directory, out=args.out)
+        elif args.command == "stack":
+            result = stack.measure(args.directory, out=args.out)
         elif args.command == "burst-noise":
             result = burstnoise.measure(
                 args.directory, group=args.group, region=region or burstnoise.CENTRE
