@@ -118,6 +118,9 @@ that frame.
 | Linear sensor data | `deskcam raw -o x.dng` | 10-bit, unprocessed, for real measurement. 24 MB. |
 | Less noise | `deskcam burst 16` | Average the frames. Noise falls by about the square root of the count. |
 | Repeat an old shot | `deskcam recall old.json` | Restores the camera settings, so a comparison is valid. |
+| Find the best focus | `deskcam show sharpness=1` | A number, not a picture. Move the focus, read it again, keep the peak. |
+| Everything sharp at once | `deskcam focussweep from=3 to=6 steps=7` | A still at each lens position, for stacking. Steps are equal in dioptres. |
+| A lit panel in a dark bezel | `deskcam bracket base=1/240 stops=4` | Doubling exposures, each a whole multiple of the panel's PWM period. |
 
 Every capture writes `NAME.json` beside the image. It comes from the capture itself, in the
 `X-DeskCam-Provenance` header of the reply that carried the picture, so it describes that
@@ -186,7 +189,9 @@ The tools live in `frontend/analysis/` and need `pip install -e '.[analysis]'`:
 | How large must a difference be to be real? | `deskcam aatest` |
 | Does the pixel value track the light? | `deskcam analyse linearity DIR` |
 | How much does averaging a burst help? | `deskcam analyse burst-noise DIR` |
-| How many pixels per millimetre, in this picture? | `deskcam analyse scale FILE --pitch-mm 1.0` |
+| How many pixels per millimetre, in this picture? | `deskcam scale FILE --pitch-mm 1.0` |
+| How far apart are these two points, in mm? | `deskcam measure FILE 412,308 1190,306` |
+| How sharp is what the camera is looking at? | `deskcam show sharpness=1` |
 
 Each one prints its value with an interval and a sample count, and refuses rather than
 guessing when its confidence is too low. A refusal exits 2 and carries no number, on
@@ -196,6 +201,20 @@ for the full record.
 **Scale is not a camera specification.** It changes whenever the stand moves, so measure it
 from a rule or graph paper inside the picture you are actually reporting on. If more than
 one regular pattern is in frame, the tool says so and you have to choose.
+
+`deskcam scale` records what it measured, and every capture taken afterwards carries the
+number in its sidecar while the framing holds. Change the zoom, the pan, the rotation or
+the camera and the sidecar says which one changed and that the scale no longer describes
+it. What none of it can see is the stand moving, so a sidecar carrying a scale is making a
+claim about the settings and never about the bench.
+
+**Sharpness is a comparison, never a measurement.** It moves with the subject, with how
+much of the frame the region of interest holds, and with the noise. Only compare readings
+taken with everything but the focus held still, and check the age the reading comes with.
+
+**Merge a bracket on the measured exposure, never on the nominal stop.** The sensor does
+not deliver exactly what it was asked for. Every frame records `exposure_ns`,
+`base_periods` and `period_error` for that reason.
 
 ## Judgement
 

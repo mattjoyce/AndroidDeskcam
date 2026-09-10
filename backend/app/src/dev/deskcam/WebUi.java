@@ -42,6 +42,18 @@ public class WebUi {
         ep.put("GET /api/burst", "n frames with one set of settings, as a tar of JPEGs. Answers "
                 + "206 rather than 200 when it produced fewer frames than were asked for. The "
                 + "largest n this device can hold is limits.burst_max.");
+        ep.put("GET /api/focussweep", "steps stills as the lens walks from=diopters to "
+                + "to=diopters, spread equally in diopters, as a tar. Equal in diopters is "
+                + "equal in depth of field; equal in millimetres is not. The archive holds "
+                + "walk.json, which records the lens position asked for and reached at every "
+                + "frame. For focus stacking. The largest steps this device can hold is "
+                + "limits.burst_max.");
+        ep.put("GET /api/bracket", "stops stills at doubling exposures from base, as a tar. "
+                + "Powers of two from one period, so every frame is one stop from the next "
+                + "AND a whole number of base periods: set base to one period of a lit "
+                + "panel's PWM, or its frames read different parts of the duty cycle. The "
+                + "ISO is not touched. Merge on the measured exposure of each frame and "
+                + "never on the nominal stop; walk.json carries both.");
         ep.put("GET /api/stream", "MJPEG stream (multipart/x-mixed-replace). Takes presentation "
                 + "parameters only: fps, n, w, h, jpegq. A parameter that would change the camera "
                 + "is refused, so one viewer cannot alter what another client captures.");

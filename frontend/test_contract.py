@@ -19,7 +19,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-PARAMS = ROOT / "backend" / "app" / "src" / "dev" / "deskcam" / "Params.java"
+BACKEND = ROOT / "backend" / "app" / "src" / "dev" / "deskcam"
+SERVER = BACKEND / "HttpServer.java"
+HELP = BACKEND / "WebUi.java"
+PARAMS = BACKEND / "Params.java"
 README = ROOT / "README.md"
 SPEC = ROOT / "docs" / "SPEC.md"
 
@@ -108,3 +111,21 @@ def test_the_presentation_group_is_exactly_what_the_decision_says(
 def test_rotate_is_camera_state(declared: dict[str, list[str]]) -> None:
     """The other half of decision D9, which the specification had to settle explicitly."""
     assert "rotate" in declared["camera"]
+
+
+def test_api_help_names_every_endpoint() -> None:
+    """
+    Rule R6: an agent learns the whole surface from /api/help.
+
+    The endpoint list is written by hand while the routes are a switch, so the two drift
+    apart in silence. They did: /api/focussweep and /api/bracket were built, tested and
+    documented for people, and an agent reading /api/help could not find either. The
+    parameters cannot drift this way because they are generated from one table; this is
+    the same check for the other half of the surface.
+    """
+    routes = set(re.findall(r'case "(/api/[a-z]+)"', SERVER.read_text()))
+    advertised = set(re.findall(r'ep\.put\("GET (/api/[a-z]+)"', HELP.read_text()))
+    missing = sorted(routes - advertised)
+    assert not missing, f"/api/help does not mention {missing}"
+    invented = sorted(advertised - routes)
+    assert not invented, f"/api/help offers {invented}, which the server does not answer"
