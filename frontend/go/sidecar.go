@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,12 +44,42 @@ func writeSidecar(image string, reply *Reply, client *Client, target string) err
 	if info, err := os.Stat(image); err == nil {
 		doc["bytes"] = info.Size()
 	}
+	width, height := pixelSize(image)
+	if width > 0 {
+		doc["width_px"] = width
+		doc["height_px"] = height
+	}
+
+	// The scale measured from a reference in an earlier capture, carried forward while it
+	// still describes the framing. Card 23. When it does not, the sidecar says so rather
+	// than going quiet, because a missing scale and a stale one are different problems and
+	// only one of them is fixed by measuring again.
+	if block := scaleFor(readScale(filepath.Dir(image)), sub(doc, "settings"), width, height); block != nil {
+		doc["scale"] = block
+	}
 
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(sidecarPath(image), append(out, '\n'), 0o644)
+}
+
+// pixelSize reads the dimensions out of the header without decoding the image.
+func pixelSize(path string) (int, int) {
+	if !isJPEG(path) {
+		return 0, 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer func() { _ = f.Close() }()
+	cfg, err := jpeg.DecodeConfig(f)
+	if err != nil {
+		return 0, 0
+	}
+	return cfg.Width, cfg.Height
 }
 
 func sidecarPath(image string) string {

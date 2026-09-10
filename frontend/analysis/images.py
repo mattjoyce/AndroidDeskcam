@@ -27,6 +27,12 @@ def load_rgb(path: Path) -> np.ndarray:
         return np.asarray(im.convert("RGB"), dtype=np.float64)
 
 
+def image_size(path: Path) -> tuple[int, int]:
+    """The pixel dimensions of a capture, without decoding it."""
+    with Image.open(path) as im:
+        return int(im.size[0]), int(im.size[1])
+
+
 def load_sidecar(image: Path) -> dict[str, Any]:
     """
     The record written beside a capture, or an empty dict.

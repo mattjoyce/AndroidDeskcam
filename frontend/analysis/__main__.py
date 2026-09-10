@@ -14,9 +14,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import aatest, burstnoise, linearity, scale
-from .images import parse_region
-from .result import Measurement
+from . import aatest, burstnoise, distance, linearity, scale
+from .images import image_size, load_sidecar, parse_region
+from .result import Measurement, Scale
 
 REFUSED = 2
 
@@ -31,6 +31,33 @@ def _emit(result: Measurement, as_json: bool) -> int:
         if not result.ok and result.limit_justification:
             print(f"  the limit for this method: {result.limit_justification}")
     return 0 if result.ok else REFUSED
+
+
+def _record_scale(
+    result: Measurement, image: Path, pitch_mm: float, directory: Path
+) -> Path | None:
+    """
+    Writes the measured scale beside the captures, for later ones to carry.
+
+    Only the settings are recorded with it, never a claim that the bench has not moved.
+    Nothing here can see the stand move, and the check a later capture gets says so.
+    """
+    if result.value is None:
+        return None
+    width, height = image_size(image)
+    sidecar = load_sidecar(image)
+    record = Scale(
+        px_per_mm=result.value,
+        pitch_mm=pitch_mm,
+        width_px=width,
+        height_px=height,
+        settings=sidecar.get("settings", {}),
+        measured_at=str(sidecar.get("captured_at", "")),
+        image=image.name,
+        interval=result.interval,
+        confidence=result.confidence,
+    )
+    return record.save(directory)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,6 +102,21 @@ def main(argv: list[str] | None = None) -> int:
         default=1.0,
         help="the real pitch of the reference, e.g. 1.0 for a rule, 5.0 for graph paper",
     )
+    p_scale.add_argument(
+        "--write",
+        type=Path,
+        default=None,
+        help="directory to record the scale in, so later captures carry it",
+    )
+
+    p_dist = sub.add_parser(
+        "distance",
+        parents=[common],
+        help="millimetres between two points in a capture, from the scale in its sidecar",
+    )
+    p_dist.add_argument("image", type=Path)
+    p_dist.add_argument("first", type=str, help="x,y in pixels")
+    p_dist.add_argument("second", type=str, help="x,y in pixels")
 
     p_lin = sub.add_parser("linearity", parents=[common], help="pixel value against exposure")
     p_lin.add_argument("directory", type=Path)
@@ -103,10 +145,17 @@ def main(argv: list[str] | None = None) -> int:
     given = getattr(args, "region", None)
     as_json = getattr(args, "json", False)
     region = parse_region(given) if given else None
+    recorded: Path | None = None
 
     try:
         if args.command == "scale":
             result = scale.measure(args.image, pitch_mm=args.pitch_mm, region=region)
+            if args.write is not None and result.ok:
+                recorded = _record_scale(result, args.image, args.pitch_mm, args.write)
+        elif args.command == "distance":
+            result = distance.measure(
+                args.image, distance.parse_point(args.first), distance.parse_point(args.second)
+            )
         elif args.command == "linearity":
             result = linearity.measure(args.directory, region=region or linearity.CENTRE)
         elif args.command == "burst-noise":
@@ -120,7 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as e:
         print(f"analysis: {e}", file=sys.stderr)
         return 1
-    return _emit(result, as_json)
+    code = _emit(result, as_json)
+    # After the measurement, and never in JSON, which has one document in it and no room
+    # for a remark.
+    if recorded is not None and not as_json:
+        print(f"  recorded in {recorded}; later captures with this framing carry it")
+    return code
 
 
 if __name__ == "__main__":

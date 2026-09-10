@@ -24,7 +24,12 @@ func usage() {
   deskcam aatest [k=v ...]             two captures, same settings. Prints the smallest
                                        difference a measurement can honestly claim, and
                                        records it for the analysis tools to enforce.
-  deskcam analyse scale FILE           px/mm from a rule or graph paper in the frame
+  deskcam scale FILE [--pitch-mm N]    px/mm from a rule or graph paper in the frame, and
+                                       records it, so later captures with the same framing
+                                       carry it in their sidecars
+  deskcam measure FILE X1,Y1 X2,Y2     millimetres between two points of a capture, using
+                                       the scale in its sidecar
+  deskcam analyse scale FILE           the measurement without recording it
   deskcam analyse linearity DIR        pixel value against exposure
   deskcam analyse burst-noise DIR      how far averaging a burst lowers the noise
 

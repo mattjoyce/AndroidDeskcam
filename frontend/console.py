@@ -873,6 +873,7 @@ function sections(d,extra){
     + grp('Light', kv({torch:g.torch, ambient_lux:o.ambient_lux}))
     + grp('Orientation', kv({tilt_degrees:o.tilt_degrees, aim:o.aim,
                              pitch:o.pitch_degrees, roll:o.roll_degrees, gravity:o.gravity}))
+    + grp('Scale', d.scale ? kv(d.scale) : '')
     + grp('Pipeline', kv(d.pipeline))
     + grp('Sensor', kv(d.sensor))
     + grp('Raw', '<textarea class="raw" readonly>'+esc(JSON.stringify(d,null,1))+'</textarea>');

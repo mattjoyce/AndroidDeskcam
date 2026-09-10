@@ -19,8 +19,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from analysis import aatest, burstnoise, linearity, scale
-from analysis.result import Measurement, NoiseFloor, mean_interval, t95
+from analysis import aatest, burstnoise, distance, linearity, scale
+from analysis.result import Measurement, NoiseFloor, Scale, mean_interval, t95
 from PIL import Image
 
 SETTINGS = {
@@ -371,3 +371,95 @@ def test_the_noise_floor_survives_a_round_trip(tmp_path: Path) -> None:
 
 def test_no_noise_floor_is_not_an_error(tmp_path: Path) -> None:
     assert NoiseFloor.load(tmp_path) is None
+
+
+# ----------------------------------------------------------------- distance
+
+
+def with_scale(path: Path, **scale_block: object) -> Path:
+    """Adds a scale block to a capture's sidecar, the way the CLI does when it writes one."""
+    side = path.with_suffix(".json")
+    doc = json.loads(side.read_text())
+    doc["scale"] = scale_block
+    side.write_text(json.dumps(doc))
+    return path
+
+
+def a_capture(tmp_path: Path, name: str = "shot.jpg") -> Path:
+    return write_capture(tmp_path / name, np.full((300, 400), 120.0))
+
+
+def test_a_distance_is_the_scale_and_nothing_else(tmp_path: Path) -> None:
+    path = with_scale(a_capture(tmp_path), applies=True, px_per_mm=20.0)
+    m = distance.measure(path, (100.0, 100.0), (300.0, 100.0))
+    assert m.ok, m.reason
+    assert m.value == pytest.approx(10.0)
+
+
+def test_a_distance_is_measured_along_the_diagonal(tmp_path: Path) -> None:
+    path = with_scale(a_capture(tmp_path), applies=True, px_per_mm=10.0)
+    m = distance.measure(path, (0.0, 0.0), (30.0, 40.0))
+    assert m.ok
+    assert m.value == pytest.approx(5.0)
+
+
+def test_a_distance_carries_the_scales_interval_the_right_way_round(tmp_path: Path) -> None:
+    """More pixels per millimetre is a shorter distance, so the ends of the span swap."""
+    path = with_scale(a_capture(tmp_path), applies=True, px_per_mm=20.0, interval=[19.0, 21.0])
+    m = distance.measure(path, (0.0, 0.0), (200.0, 0.0))
+    assert m.interval is not None
+    lo, hi = m.interval
+    assert lo == pytest.approx(200 / 21)
+    assert hi == pytest.approx(200 / 19)
+    assert lo < m.value < hi  # type: ignore[operator]
+
+
+def test_a_distance_refuses_a_scale_that_no_longer_applies(tmp_path: Path) -> None:
+    path = with_scale(a_capture(tmp_path), applies=False, why="the zoom changed")
+    m = distance.measure(path, (0.0, 0.0), (10.0, 0.0))
+    assert not m.ok
+    assert m.value is None
+    assert "the zoom changed" in str(m.reason)
+
+
+def test_a_distance_refuses_a_capture_with_no_scale(tmp_path: Path) -> None:
+    m = distance.measure(a_capture(tmp_path), (0.0, 0.0), (10.0, 0.0))
+    assert not m.ok
+    assert "no scale" in str(m.reason)
+
+
+def test_a_distance_refuses_a_capture_with_no_sidecar(tmp_path: Path) -> None:
+    lonely = tmp_path / "lonely.jpg"
+    Image.fromarray(np.full((10, 10), 120, dtype=np.uint8)).save(lonely)
+    m = distance.measure(lonely, (0.0, 0.0), (10.0, 0.0))
+    assert not m.ok
+    assert "no sidecar" in str(m.reason)
+
+
+def test_a_point_is_x_comma_y(tmp_path: Path) -> None:
+    assert distance.parse_point(" 12 , 34 ") == (12.0, 34.0)
+    for bad in ("12", "12,34,56", "a,b", ""):
+        with pytest.raises(ValueError):
+            distance.parse_point(bad)
+
+
+def test_the_scale_survives_a_round_trip(tmp_path: Path) -> None:
+    record = Scale(
+        px_per_mm=16.43,
+        pitch_mm=1.0,
+        width_px=2016,
+        height_px=1512,
+        settings={"zoom": 2.0},
+        measured_at="2026-09-10T12:41:52+10:00",
+        image="deskcam-1.jpg",
+        interval=(16.40, 16.46),
+    )
+    record.save(tmp_path)
+    back = Scale.load(tmp_path)
+    assert back is not None
+    assert back.px_per_mm == pytest.approx(16.43)
+    assert back.settings["zoom"] == pytest.approx(2.0)
+
+
+def test_no_recorded_scale_is_not_an_error(tmp_path: Path) -> None:
+    assert Scale.load(tmp_path) is None

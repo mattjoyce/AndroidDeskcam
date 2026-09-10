@@ -205,6 +205,55 @@ class NoiseFloor:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+@dataclass
+class Scale:
+    """
+    A measured scale, written down so later captures can carry it.
+
+    It is not a property of the camera. It is a property of one geometry: this camera, at
+    this zoom and this pan, at this distance from the subject, sampled into this many
+    pixels. Everything in that list except the distance is recorded here with the number,
+    so a later capture can be checked against it.
+
+    The distance is the one that cannot be recorded, because nothing in the system can see
+    the stand move. That is why the check a capture gets is about its settings and never a
+    promise about the bench. Card 23 says the scale cannot be stored; this stores what was
+    true when it was measured, which is a different claim.
+    """
+
+    px_per_mm: float
+    pitch_mm: float
+    width_px: int
+    height_px: int
+    settings: dict[str, Any]
+    measured_at: str
+    image: str
+    interval: tuple[float, float] | None = None
+    confidence: float | None = None
+
+    FILENAME = "deskcam-scale.json"
+
+    def save(self, directory: Path) -> Path:
+        path = directory / self.FILENAME
+        path.write_text(json.dumps(asdict(self), indent=2, default=_plain))
+        return path
+
+    @classmethod
+    def load(cls, directory: Path) -> Scale | None:
+        path = directory / cls.FILENAME
+        if not path.is_file():
+            return None
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        known = {f for f in cls.__dataclass_fields__}
+        try:
+            return cls(**{k: v for k, v in data.items() if k in known})
+        except TypeError:
+            return None
+
+
 def _plain(o: Any) -> Any:
     if hasattr(o, "item"):
         return o.item()

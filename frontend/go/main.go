@@ -205,6 +205,10 @@ func run(argv []string) int {
 	// ----------------------------------------------------- measurement
 	case "aatest":
 		return aatest(in)
+	case "scale":
+		return scaleCommand(in)
+	case "measure":
+		return measureCommand(in)
 	case "analyse", "analysis":
 		if len(in.args) == 0 {
 			return fail("usage: deskcam analyse scale|linearity|burst-noise|aatest ...")
@@ -472,6 +476,38 @@ func aatest(in *invocation) int {
 		shots = append(shots, name)
 	}
 	return runAnalysis([]string{"aatest", shots[0], shots[1], "--write", dir})
+}
+
+// scaleCommand measures px/mm from a reference in a capture and records it beside the
+// captures, so the ones taken after it carry the number in their sidecars.
+//
+// The record goes in the directory the capture is in, not the shots directory, because
+// that is where its siblings are and a scale only ever describes its own neighbourhood.
+func scaleCommand(in *invocation) int {
+	image := in.arg(0)
+	if image == "" {
+		return fail("usage: deskcam scale FILE [--pitch-mm N] [--region cx,cy,w,h]\n" +
+			"  --pitch-mm is the real pitch of the reference: 1.0 for a rule, 5.0 for " +
+			"graph paper")
+	}
+	dir := filepath.Dir(image)
+	if abs, err := filepath.Abs(image); err == nil {
+		dir = filepath.Dir(abs)
+	}
+	return runAnalysis(append(append([]string{"scale"}, in.args...), "--write", dir))
+}
+
+// measureCommand is the distance between two points of a capture, in millimetres.
+//
+// It measures nothing itself. The scale came from a reference in the frame, the sidecar
+// says whether that scale still describes this capture, and this is the arithmetic in
+// between. Card 23.
+func measureCommand(in *invocation) int {
+	if len(in.args) < 3 {
+		return fail("usage: deskcam measure FILE X1,Y1 X2,Y2\n" +
+			"  the points are pixels of that capture, from its top left corner")
+	}
+	return runAnalysis(append([]string{"distance"}, in.args...))
 }
 
 // -------------------------------------------------------------------- output

@@ -405,14 +405,30 @@ Exit codes are 0 for a measurement, 2 for a refusal, 1 for a tool that could not
 
 ### Scale is not a property of this camera
 
-`deskcam analyse scale` measures pixels per millimetre from a regular reference in the
-frame, a steel rule or graph paper. **It changes every time the stand moves**, so it is
-never stored and never quoted as a camera specification. Measure it in the picture you
-care about:
+`deskcam scale` measures pixels per millimetre from a regular reference in the frame, a
+steel rule or graph paper. **It changes every time the stand moves**, so it is never quoted
+as a camera specification. Measure it in the picture you care about:
 
 ```sh
-deskcam analyse scale shot.jpg --pitch-mm 1.0 --region 0.365,0.41,0.66,0.05
+deskcam scale shot.jpg --pitch-mm 1.0 --region 0.365,0.41,0.66,0.05
+deskcam measure shot.jpg 412,308 1190,306      # 47.4 mm (95% 47.3 to 47.5)
 ```
+
+`deskcam scale` writes `deskcam-scale.json` beside the captures, and every capture taken
+after it carries the number in its own sidecar for as long as the framing holds. Change the
+zoom, the pan, the rotation or the camera, and the sidecar says which one changed and that
+the scale no longer describes it, rather than going quiet:
+
+```json
+"scale": {"applies": false, "measured_from": "deskcam-20260910-124151.jpg",
+          "why": "the scale was measured at zoom 2 and this capture is at zoom 4"}
+```
+
+A still and a preview frame of the same view are the same field of view sampled into a
+different number of pixels, so the scale converts between them by the width ratio and says
+so. What none of it can check is the distance: nothing in this system can see the stand
+move, and a sidecar that carries a scale is making a claim about the settings and never
+about the bench. `deskcam analyse scale` is the same measurement without recording it.
 
 On one setup on 2026-09-10 the rule gave 16.42 px/mm (95% 16.38 to 16.46, 40 strips) and
 the graph paper in the same frame gave 16.54 px/mm (95% 16.52 to 16.57, 37 strips). Note
