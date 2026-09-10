@@ -37,6 +37,7 @@ public final class Tests {
         sizeParsing();
         rotationParsing();
         tarWritesAReadableArchive(tmp);
+        theAccessKeyRule();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -262,6 +263,42 @@ public final class Tests {
     // ------------------------------------------------------------- plumbing
 
     private interface Body { void run(); }
+
+    // -------------------------------------------------------- the access key
+
+    /**
+     * The rule that decides whether a request may proceed.
+     *
+     * It is here because of card 17: the key used to be copied into the server when the
+     * server was built, and pairing a key into an already running service left the copy
+     * behind. The console reported a key was set and the camera answered anyone on the
+     * network. The rule is now a pure function of the key in force at this instant, and
+     * this is where its edges are written down.
+     */
+    private static void theAccessKeyRule() {
+        yes("no key set means an open camera", Access.allowed(null, null, null));
+        yes("an empty key means an open camera", Access.allowed("", null, null));
+        yes("an open camera ignores a token nobody asked for",
+                Access.allowed("", "anything", null));
+
+        yes("the right token in the query", Access.allowed("k3y", "k3y", null));
+        no("no token at all", Access.allowed("k3y", null, null));
+        no("the wrong token", Access.allowed("k3y", "not-it", null));
+        no("an empty token against a key", Access.allowed("k3y", "", null));
+
+        yes("a bearer header", Access.allowed("k3y", null, "Bearer k3y"));
+        yes("a bearer header with room around it", Access.allowed("k3y", null, "Bearer  k3y "));
+        no("the wrong bearer", Access.allowed("k3y", null, "Bearer nope"));
+        no("a bearer of another kind", Access.allowed("k3y", null, "Basic k3y"));
+        no("the key as a bare header", Access.allowed("k3y", null, "k3y"));
+
+        // The key changes while the service runs. That is the whole point of card 17's
+        // buttons, and the case the old code got wrong.
+        String was = "old-key", now = "new-key";
+        no("the old key stops working", Access.allowed(now, was, null));
+        yes("the new key works at once", Access.allowed(now, now, null));
+        yes("removing the key opens the camera again", Access.allowed("", was, null));
+    }
 
     private static void eq(String what, long expected, long actual) {
         checks++;

@@ -278,7 +278,12 @@ public class MainActivity extends Activity {
     private void handlePairing(android.net.Uri uri) {
         final String cb = uri.getQueryParameter("cb");
         final String tok = uri.getQueryParameter("token");
+        // An absent token leaves the key alone. An empty one is the console saying to
+        // remove it, which is a different instruction and has to stay distinguishable.
         if (tok != null) token.setText(tok);
+        final String keyNote = tok == null ? ""
+                : tok.isEmpty() ? ", access key removed, the camera is open"
+                : ", access key set";
         if (cb == null) {
             say("pairing link had no callback address");
             return;
@@ -303,7 +308,8 @@ public class MainActivity extends Activity {
                 c.getInputStream().close();
                 int code = c.getResponseCode();
                 result = (code >= 200 && code < 300)
-                        ? "paired with " + hostOf(cb) : "pairing refused, code " + code;
+                        ? "paired with " + hostOf(cb) + keyNote
+                        : "pairing refused, code " + code;
             } catch (Exception e) {
                 result = "pairing failed: " + e;
                 android.util.Log.w(CameraEngine.TAG, "pairing callback", e);

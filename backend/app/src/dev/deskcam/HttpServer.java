@@ -47,7 +47,7 @@ public class HttpServer implements Runnable {
 
     private final CameraEngine engine;
     private final int port;
-    private final String token;
+    private final Key key;
 
     private ServerSocket serverSocket;
     /** Connections being served right now, for the display on the phone. */
@@ -59,10 +59,26 @@ public class HttpServer implements Runnable {
     /** Status and size of the response this thread sent, for the request log. */
     private static final ThreadLocal<int[]> SENT = ThreadLocal.withInitial(() -> new int[]{200, 0});
 
-    public HttpServer(CameraEngine engine, int port, String token) {
+    /**
+     * Where the access key comes from, asked at every request rather than kept.
+     *
+     * It used to be a final String taken when the server was built. CamService returns
+     * early from onStartCommand when it is already running, so pairing a key into a
+     * running service wrote the key to the preferences and left this server enforcing
+     * the one it started with. The console then said a key was set while the camera
+     * still answered anyone on the network, which is the worst possible direction for
+     * that mistake to run. The workstation console had the same fault for the same
+     * reason, and card 29 fixed it the same way: one identity, read where it is used.
+     */
+    public interface Key {
+        /** The key right now. Empty or null means the camera is open. */
+        String current();
+    }
+
+    public HttpServer(CameraEngine engine, int port, Key key) {
         this.engine = engine;
         this.port = port;
-        this.token = (token == null || token.isEmpty()) ? null : token;
+        this.key = key;
     }
 
     /** A request that is wrong in a way the caller can fix. Always an HTTP 400. */
@@ -204,7 +220,7 @@ public class HttpServer implements Runnable {
 
         if ("OPTIONS".equals(method)) { sendText(out, 204, "text/plain", ""); return; }
 
-        if (token != null && !authorised(params, headers)) {
+        if (!Access.allowed(key.current(), params.get("token"), headers.get("authorization"))) {
             sendJson(out, 401, err("unauthorised: supply ?token=... or an Authorization: Bearer header"));
             return;
         }
@@ -234,12 +250,6 @@ public class HttpServer implements Runnable {
     private static String peerAddress(Socket s) {
         java.net.InetAddress a = s.getInetAddress();
         return a == null ? "127.0.0.1" : a.getHostAddress();
-    }
-
-    private boolean authorised(Map<String, String> params, Map<String, String> headers) {
-        if (token.equals(params.get("token"))) return true;
-        String a = headers.get("authorization");
-        return a != null && a.startsWith("Bearer ") && token.equals(a.substring(7).trim());
     }
 
     private void route(String path, Map<String, String> params, BufferedOutputStream out,

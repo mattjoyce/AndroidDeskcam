@@ -534,6 +534,12 @@ next pairing tells the phone to forget it too. The console has the same two as b
 key is never typed on the phone's on-screen keyboard, which was the reason nobody turned it
 on.
 
+A pairing changes the key on a phone that is already serving, with no restart. The service
+reads it from its preferences at every request, because the alternative was worse than it
+sounds: the key used to be copied into the server when the server started, so pairing a key
+into a running service left the copy behind, the console reported a key was set, and the
+camera went on answering anyone on the network.
+
 `deskcam serve` binds to every interface, because the phone has to reach it to pair, and
 then offers the network exactly one route, `/p/`, the pairing callback. The page, the roll
 and the QR image answer the browser on the machine the console runs on and nobody else,

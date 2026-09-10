@@ -61,11 +61,13 @@ public class CamService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        // Already up. The access key needs no restart to take effect, because the server
+        // reads it from these preferences at every request; see HttpServer.Key. The port
+        // does, because it is a bound socket.
         if (running) return START_STICKY;
 
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         int port = p.getInt(PREF_PORT, 8080);
-        String token = p.getString(PREF_TOKEN, "");
 
         createChannel();
         try {
@@ -108,7 +110,7 @@ public class CamService extends Service {
             // refused connection and no reason, while the same camera lost one second
             // later was recovered by the running engine within fifteen. The engine now
             // reports its own state on /api/status and keeps trying.
-            http = new HttpServer(engine, port, token);
+            http = new HttpServer(engine, port, () -> p.getString(PREF_TOKEN, ""));
             http.start();
             engine.start();
 
