@@ -212,6 +212,7 @@ except `/api/stream`.
 | `iso`, `sensitivity` | The sensitivity. This sets `ae=off`. |
 | `ev`, `aelock` | The compensation and the lock, when `ae=on` |
 | `awb`, `awblock` | The white balance mode and the lock |
+| `awbgains` | `R,GE,GO,B`, or `neutral` for 1,1,1,1, or `auto`. Implies `awb=off` |
 | `torch` | `0` to `torch_max_level`, or `off`, `on`, or `max` |
 | `measure` | `on` stops all non-linear processing. Use it for measurement. |
 | `shadingmap` | `on` asks the HAL to report its lens shading map |
@@ -382,6 +383,31 @@ illuminants. `dcraw`, `rawpy`, and `darktable` all read it.
 
 Keep the ISO at 56 and change only the exposure time. Above ISO 444 the sensor gain is
 digital. It is better to apply digital gain to the RAW data on the workstation.
+
+### The white balance a session can repeat
+
+`measure=1` locks the white balance, which holds the gains at whatever the camera happened
+to choose. Two sessions lock different gains, so two sets of captures of one subject differ
+in colour for a reason nothing chose. Every capture has recorded the achieved gains as
+`measured.awb_gains` since card 42; now they can be set as well.
+
+```sh
+deskcam set awbgains=neutral            # 1,1,1,1: no white balance, the sensor's own ratios
+deskcam set awbgains=1.99,1.0,1.0,2.07  # the gains a previous session used
+deskcam set awb=auto                    # give it back to the camera
+```
+
+Four numbers and not three, because a Bayer cell has two green photosites and Camera2 gives
+them separate gains. Setting them puts the colour correction on the identity matrix as well,
+since a chosen gain under an unchosen matrix is still a colour nobody wrote down. Verified
+on the phone: `awbgains=neutral` reports back `[1, 1, 1, 1]` with the transform at identity,
+against `[2.055, 1, 1, 2.002]` and a real matrix on automatic.
+
+The measurement tools enforce the other half. `deskcam analyse aatest` refuses two captures
+taken through gains more than half a percent apart, because that is a difference in colour
+and not in the instrument, and it names `awbgains` as the fix. It tolerates the last digit,
+because an automatic white balance wanders between adjacent frames. `linearity` warns when
+the gains move during a series.
 
 ## Measurement mode
 

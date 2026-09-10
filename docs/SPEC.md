@@ -229,7 +229,7 @@ The groups are decision D9:
 
 | Group | Parameters | Life |
 |---|---|---|
-| Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
+| Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `awbgains`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
 | Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
 | Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `from`, `to`, `steps`, `base`, `stops`, `t` | one request |
 

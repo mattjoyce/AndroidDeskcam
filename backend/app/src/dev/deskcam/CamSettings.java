@@ -4,6 +4,7 @@ import android.graphics.Rect;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -26,6 +27,8 @@ import java.util.Map;
 public class CamSettings implements Cloneable {
 
     public static final int AF_OFF = CaptureRequest.CONTROL_AF_MODE_OFF;
+    public static final int AWB_OFF = CaptureRequest.CONTROL_AWB_MODE_OFF;
+    public static final int AWB_AUTO = CaptureRequest.CONTROL_AWB_MODE_AUTO;
 
     public String cameraId = "0";
 
@@ -47,6 +50,18 @@ public class CamSettings implements Cloneable {
 
     public int awbMode = CaptureRequest.CONTROL_AWB_MODE_AUTO;
     public boolean awbLock = false;
+
+    /**
+     * The white balance gains to apply, as red, green-even, green-odd, blue. Null leaves
+     * them to the camera.
+     *
+     * A lock holds the gains at whatever they happened to be when it was taken, which is
+     * different in every session, so two sets of captures of one subject differ in colour
+     * for a reason nothing chose. Setting them is what makes a session repeatable, and
+     * 1,1,1,1 is the only value that is the same everywhere: no white balance at all, so
+     * the channel ratios are the sensor's own. Card 42.
+     */
+    public float[] awbGains = null;
 
     /** 0 = torch off, otherwise 1..flashMaxLevel. */
     public int torch = 0;
@@ -208,6 +223,13 @@ public class CamSettings implements Cloneable {
         o.put("ae_lock", aeLock);
         o.put("awb", awbName(awbMode));
         o.put("awb_lock", awbLock);
+        if (awbGains == null) {
+            o.put("awb_gains_set", JSONObject.NULL);
+        } else {
+            JSONArray g = new JSONArray();
+            for (float v : awbGains) g.put(round3(v));
+            o.put("awb_gains_set", g);
+        }
         o.put("torch", torch);
         o.put("measure", measure);
         o.put("shading_map", shadingMap);

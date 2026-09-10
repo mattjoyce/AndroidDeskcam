@@ -58,6 +58,39 @@ def measured_of(image: Path) -> dict[str, Any]:
     return load_sidecar(image).get("measured", {})
 
 
+def gains_of(image: Path) -> tuple[float, ...] | None:
+    """
+    The white balance gains the camera actually applied to a capture.
+
+    They live in `measured` and not in `settings`, and that is the point of card 42. A
+    lock holds the gains at whatever they happened to be, so two sets of captures can
+    agree on every setting, including `awb: auto, awb_lock: true`, and still have been
+    taken through different colour. Only the achieved values say which.
+    """
+    raw = measured_of(image).get("awb_gains")
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return None
+    try:
+        return tuple(float(v) for v in raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def gains_differ(
+    a: tuple[float, ...] | None, b: tuple[float, ...] | None, tolerance: float
+) -> bool:
+    """
+    Whether two sets of gains are far enough apart to matter.
+
+    A tolerance and not equality. The camera reports these to three decimals and an
+    automatic white balance wanders a little between adjacent frames; what breaks a
+    comparison is a difference large against the thing being measured, not the last digit.
+    """
+    if a is None or b is None:
+        return False
+    return any(abs(x - y) > tolerance * max(1.0, abs(x)) for x, y in zip(a, b, strict=True))
+
+
 def captures_in(directory: Path) -> list[Path]:
     """Every capture in a directory, oldest first, thumbnails excluded."""
     return sorted(

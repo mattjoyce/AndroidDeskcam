@@ -136,7 +136,25 @@ public final class Params {
 
         camera("auto | off | incandescent | fluorescent | warmfluorescent | daylight | "
                         + "cloudy | twilight | shade",
-                (s, v, c) -> s.awbMode = CamSettings.parseAwb(v), "awb");
+                (s, v, c) -> {
+                    s.awbMode = CamSettings.parseAwb(v);
+                    // Choosing a mode gives the white balance back to the camera, so a
+                    // gain set earlier has to go. Leaving it would make awb=auto a
+                    // parameter that appears to work and does nothing.
+                    s.awbGains = null;
+                }, "awb");
+        camera("R,GE,GO,B gains to apply, or 'neutral' for 1,1,1,1, or 'auto' to hand the "
+                        + "white balance back to the camera. Implies awb=off. A lock holds "
+                        + "whatever the gains happened to be, which differs every session; "
+                        + "setting them is what makes two sessions comparable.",
+                (s, v, c) -> {
+                    s.awbGains = Parse.gains(v);
+                    // The reported state has to be the state. A request that overrode the
+                    // mode while the settings still said "auto" is rule R4 in reverse:
+                    // the camera doing one thing and the record saying another.
+                    s.awbMode = s.awbGains == null ? CamSettings.AWB_AUTO : CamSettings.AWB_OFF;
+                    if (s.awbGains != null) s.awbLock = false;
+                }, "awbgains");
         camera("on | off. Freeze auto white balance, which stops colour drifting between shots.",
                 (s, v, c) -> s.awbLock = Parse.bool(v), "awblock");
 

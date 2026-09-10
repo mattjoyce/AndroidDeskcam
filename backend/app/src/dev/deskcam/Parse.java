@@ -82,6 +82,35 @@ public final class Parse {
         return Integer.parseInt(s);
     }
 
+    /**
+     * Reads R,GE,GO,B gains, or the two words that stand for a whole vector.
+     *
+     * Four numbers and not three, because a Bayer sensor has two green photosites per
+     * cell and Camera2 gives them separate gains. They are usually equal and are not
+     * always: the two greens sit under different neighbours and can be trimmed apart.
+     */
+    public static float[] gains(String v) {
+        String t = v.trim().toLowerCase(Locale.US);
+        if (t.equals("auto") || t.isEmpty()) return null;
+        if (t.equals("neutral") || t.equals("unity") || t.equals("1")) {
+            return new float[]{1f, 1f, 1f, 1f};
+        }
+        String[] parts = t.split("[,: ]+");
+        if (parts.length != 4) {
+            throw new NumberFormatException("white balance gains are R,GE,GO,B, "
+                    + "or 'neutral', or 'auto'; got '" + v + "'");
+        }
+        float[] out = new float[4];
+        for (int i = 0; i < 4; i++) {
+            out[i] = number(parts[i]);
+            if (out[i] < 0.1f || out[i] > 16f) {
+                throw new NumberFormatException("a white balance gain of " + out[i]
+                        + " is outside 0.1 to 16");
+            }
+        }
+        return out;
+    }
+
     /** Rounds a rotation onto a quarter turn in 0, 90, 180, 270. */
     public static int rotation(String v) {
         int deg = Integer.parseInt(v.trim());

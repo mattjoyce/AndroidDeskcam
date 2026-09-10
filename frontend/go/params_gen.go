@@ -12,6 +12,7 @@ var Params = map[string]Kind{
 	"aelock":      Camera,
 	"af":          Camera,
 	"awb":         Camera,
+	"awbgains":    Camera,
 	"awblock":     Camera,
 	"base":        Router,
 	"cam":         Camera,

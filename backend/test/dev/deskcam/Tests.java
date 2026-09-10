@@ -39,6 +39,7 @@ public final class Tests {
         tarWritesAReadableArchive(tmp);
         theAccessKeyRule();
         aSweepIsEvenInDiopters();
+        whiteBalanceGainsParsing();
         sharpnessRisesWithDetail();
         sharpnessPeaksAtFocus();
         sharpnessOnAnImpossibleRegion();
@@ -268,6 +269,36 @@ public final class Tests {
     // ------------------------------------------------------------- plumbing
 
     private interface Body { void run(); }
+
+    // ------------------------------------------------ white balance gains
+
+    /**
+     * Card 42. A lock holds whatever the gains happened to be, which differs every
+     * session; setting them is what makes two sessions comparable, and that starts with
+     * reading the value somebody typed.
+     */
+    private static void whiteBalanceGainsParsing() {
+        yes("auto means no gains of our own", Parse.gains("auto") == null);
+        yes("an empty value means the same", Parse.gains("") == null);
+
+        float[] neutral = Parse.gains("neutral");
+        eq("neutral is four ones", 4, neutral.length);
+        for (float g : neutral) eq("neutral gain", 1f, g);
+
+        float[] four = Parse.gains("1.99,1.0,1.0,2.07");
+        eq("red", 1.99f, four[0]);
+        eq("green even", 1f, four[1]);
+        eq("green odd", 1f, four[2]);
+        eq("blue", 2.07f, four[3]);
+        // The separators a person actually types.
+        eq("spaces work too", 2.07f, Parse.gains("1.99 1.0 1.0 2.07")[3]);
+
+        threw("three gains, because a Bayer cell has two greens",
+                () -> Parse.gains("1.99,1.0,2.07"));
+        threw("a gain of zero", () -> Parse.gains("0,1,1,1"));
+        threw("a gain of a hundred", () -> Parse.gains("100,1,1,1"));
+        threw("words", () -> Parse.gains("warm,1,1,1"));
+    }
 
     // ------------------------------------------------------- the focus sweep
 

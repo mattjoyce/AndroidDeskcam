@@ -742,6 +742,13 @@ public class CameraEngine {
         }
     }
 
+    /** No cross-channel mixing, for when the gains are chosen rather than found. */
+    private static final android.hardware.camera2.params.ColorSpaceTransform IDENTITY_TRANSFORM =
+            new android.hardware.camera2.params.ColorSpaceTransform(
+                    new int[]{1, 1, 0, 1, 0, 1,
+                              0, 1, 1, 1, 0, 1,
+                              0, 1, 0, 1, 1, 1});
+
     private void applyTo(CaptureRequest.Builder b, CamSettings s, boolean forStill) {
         b.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
 
@@ -768,8 +775,23 @@ public class CameraEngine {
             b.set(CaptureRequest.SENSOR_FRAME_DURATION, Math.max(exp, 33_333_333L));
         }
 
-        b.set(CaptureRequest.CONTROL_AWB_MODE, s.awbMode);
-        b.set(CaptureRequest.CONTROL_AWB_LOCK, s.awbLock);
+        if (s.awbGains != null) {
+            // Manual gains need the automatic white balance out of the way and the colour
+            // correction told to use the matrix, or the values are accepted and ignored.
+            // The transform goes to identity with them: a chosen gain under an unchosen
+            // matrix is still a colour nobody wrote down.
+            b.set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF);
+            b.set(CaptureRequest.CONTROL_AWB_LOCK, false);
+            trySet(b, CaptureRequest.COLOR_CORRECTION_MODE,
+                    CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+            trySet(b, CaptureRequest.COLOR_CORRECTION_GAINS,
+                    new android.hardware.camera2.params.RggbChannelVector(
+                            s.awbGains[0], s.awbGains[1], s.awbGains[2], s.awbGains[3]));
+            trySet(b, CaptureRequest.COLOR_CORRECTION_TRANSFORM, IDENTITY_TRANSFORM);
+        } else {
+            b.set(CaptureRequest.CONTROL_AWB_MODE, s.awbMode);
+            b.set(CaptureRequest.CONTROL_AWB_LOCK, s.awbLock);
+        }
 
         // Torch. Level control needs API 35+; below that it is simply on or off.
         if (s.torch > 0) {

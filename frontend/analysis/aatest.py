@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .images import level_health, load_gray, load_sidecar, region_of
+from .images import gains_differ, gains_of, level_health, load_gray, load_sidecar, region_of
 from .result import Measurement, NoiseFloor
 
 METHOD = "aa-test"
@@ -32,6 +32,14 @@ CLEAN_JUSTIFICATION = (
     "camera."
 )
 MIN_PIXELS = 1000
+
+# How far apart two sets of white balance gains may be and still describe one colour.
+#
+# Half a percent. The camera reports gains to three decimals and an automatic white
+# balance wanders a little between adjacent frames, so equality would refuse almost every
+# honest pair. Half a percent is far below any difference that would move a noise floor
+# and far above the last digit.
+GAIN_TOLERANCE = 0.005
 CENTRE = (0.5, 0.5, 0.30, 0.30)
 
 # The settings that must match for the comparison to mean anything. Presentation
@@ -92,6 +100,34 @@ def measure(
             notes=notes,
             inputs=[str(first), str(second)],
         )
+
+    # The gains are in `measured`, not in `settings`, which is why MUST_MATCH above cannot
+    # catch this. Two captures can agree on awb and awb_lock and still have been taken
+    # through different colour, because a lock holds whatever the gains happened to be.
+    # Card 42.
+    a_gains, b_gains = gains_of(first), gains_of(second)
+    if gains_differ(a_gains, b_gains, GAIN_TOLERANCE):
+        return Measurement.refuse(
+            METHOD,
+            "DN",
+            f"these two captures were taken through different white balance gains, "
+            f"{a_gains} against {b_gains}. That is a difference in colour, not in the "
+            f"instrument. Set them with awbgains=neutral, or awbgains=R,GE,GO,B, so a "
+            f"later session can be compared with this one.",
+            n=0,
+            n_min=MIN_PIXELS,
+            limit=CLEAN_LIMIT,
+            limit_justification=CLEAN_JUSTIFICATION,
+            notes=notes,
+            inputs=[str(first), str(second)],
+        )
+    if a_gains is not None:
+        notes.append(f"white balance gains {a_gains}")
+        if a_settings.get("awb_gains_set") is None:
+            notes.append(
+                "these gains were found by the camera and not chosen, so another session "
+                "will lock different ones. awbgains=neutral makes this repeatable."
+            )
 
     if a_settings.get("ae") == "auto":
         notes.append(

@@ -21,7 +21,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .images import captures_in, level_health, load_gray, measured_of, region_of, settings_of
+from .images import (
+    captures_in,
+    gains_of,
+    level_health,
+    load_gray,
+    measured_of,
+    region_of,
+    settings_of,
+)
 from .result import Measurement, NoiseFloor, t95
 
 METHOD = "linearity"
@@ -73,6 +81,15 @@ def measure(
     if len(isos) > 1:
         listed = ", ".join(str(i) for i in sorted(isos, key=str))
         notes.append(f"WARNING: the ISO is not constant across these captures: {listed}")
+    # Card 42. Two captures can agree on every setting and still have been taken through
+    # different colour, because a lock holds whatever the gains happened to be.
+    gains = {g for g in (gains_of(i) for i in images) if g is not None}
+    if len(gains) > 1:
+        notes.append(
+            "WARNING: the white balance gains are not constant across these captures: "
+            + "; ".join(str(g) for g in sorted(gains))
+            + ". Set them with awbgains= so a series is one colour throughout."
+        )
     measure_modes = {bool(settings_of(i).get("measure")) for i in images}
     if len(measure_modes) > 1:
         notes.append("WARNING: some captures are in measurement mode and some are not")

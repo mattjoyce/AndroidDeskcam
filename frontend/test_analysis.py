@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from analysis import aatest, burstnoise, distance, linearity, scale
+from analysis import aatest, burstnoise, distance, images, linearity, scale
 from analysis.result import Measurement, NoiseFloor, Scale, mean_interval, t95
 from PIL import Image
 
@@ -39,7 +39,11 @@ SETTINGS = {
 
 
 def write_capture(
-    path: Path, pixels: np.ndarray, exposure_ns: int | None = None, **overrides: object
+    path: Path,
+    pixels: np.ndarray,
+    exposure_ns: int | None = None,
+    awb_gains: list[float] | None = None,
+    **overrides: object,
 ) -> Path:
     """A capture as the phone writes it: the image plus its sidecar."""
     # Rounded, not truncated. astype() truncates toward zero, which subtracts half a digit
@@ -55,7 +59,11 @@ def write_capture(
         "tool": "DeskCam",
         "capture_path": "camera_jpeg",
         "settings": settings,
-        "measured": {"exposure_ns": exposure_ns, "iso": settings.get("iso")},
+        "measured": {
+            "exposure_ns": exposure_ns,
+            "iso": settings.get("iso"),
+            "awb_gains": awb_gains if awb_gains is not None else [2.0, 1.0, 1.0, 2.0],
+        },
     }
     path.with_suffix(".json").write_text(json.dumps(sidecar))
     return path
@@ -463,3 +471,78 @@ def test_the_scale_survives_a_round_trip(tmp_path: Path) -> None:
 
 def test_no_recorded_scale_is_not_an_error(tmp_path: Path) -> None:
     assert Scale.load(tmp_path) is None
+
+
+# ------------------------------------------------------ white balance gains
+
+
+def test_aatest_refuses_two_captures_taken_through_different_colour(tmp_path: Path) -> None:
+    """
+    Card 42. The gains live in `measured`, so two captures can agree on every setting,
+    including awb and awb_lock, and still have been taken through different colour.
+    """
+    rng = np.random.default_rng(3)
+    scene = np.full((300, 400), 120.0)
+    a = write_capture(
+        tmp_path / "a.jpg", scene + rng.normal(0, 2, scene.shape), awb_gains=[2.0, 1.0, 1.0, 2.0]
+    )
+    b = write_capture(
+        tmp_path / "b.jpg", scene + rng.normal(0, 2, scene.shape), awb_gains=[2.4, 1.0, 1.0, 1.8]
+    )
+    m = aatest.measure(a, b)
+    assert not m.ok
+    assert m.value is None
+    assert "white balance gains" in str(m.reason)
+    assert "awbgains" in str(m.reason), "the refusal has to name the fix"
+
+
+def test_aatest_allows_the_last_digit_to_wander(tmp_path: Path) -> None:
+    """An automatic white balance moves a little between frames. That is not a defect."""
+    rng = np.random.default_rng(4)
+    scene = np.full((300, 400), 120.0)
+    a = write_capture(
+        tmp_path / "a.jpg",
+        scene + rng.normal(0, 2, scene.shape),
+        awb_gains=[2.000, 1.0, 1.0, 2.000],
+    )
+    b = write_capture(
+        tmp_path / "b.jpg",
+        scene + rng.normal(0, 2, scene.shape),
+        awb_gains=[2.004, 1.0, 1.0, 1.997],
+    )
+    m = aatest.measure(a, b)
+    assert m.ok, m.reason
+
+
+def test_aatest_says_when_the_gains_were_found_and_not_chosen(tmp_path: Path) -> None:
+    rng = np.random.default_rng(5)
+    scene = np.full((300, 400), 120.0)
+    a = write_capture(tmp_path / "a.jpg", scene + rng.normal(0, 2, scene.shape))
+    b = write_capture(tmp_path / "b.jpg", scene + rng.normal(0, 2, scene.shape))
+    m = aatest.measure(a, b)
+    assert m.ok, m.reason
+    assert any("another session will lock different ones" in n for n in m.notes)
+
+
+def test_gains_of_reads_what_the_camera_applied(tmp_path: Path) -> None:
+    path = write_capture(
+        tmp_path / "a.jpg", np.full((10, 10), 120.0), awb_gains=[1.99, 1.0, 1.0, 2.07]
+    )
+    assert images.gains_of(path) == (1.99, 1.0, 1.0, 2.07)
+
+    lonely = tmp_path / "lonely.jpg"
+    Image.fromarray(np.full((10, 10), 120, dtype=np.uint8)).save(lonely)
+    assert images.gains_of(lonely) is None
+
+
+def test_linearity_warns_when_the_colour_changed_mid_series(tmp_path: Path) -> None:
+    for i, ns in enumerate([4_000_000, 8_000_000, 16_000_000, 32_000_000]):
+        level = 20.0 * (ns / 4_000_000)
+        write_capture(
+            tmp_path / f"shot{i}.jpg",
+            np.full((200, 300), level),
+            exposure_ns=ns,
+            awb_gains=[2.0 + 0.3 * i, 1.0, 1.0, 2.0],
+        )
+    m = linearity.measure(tmp_path)
+    assert any("white balance gains are not constant" in n for n in m.notes)
