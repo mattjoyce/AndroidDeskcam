@@ -27,6 +27,12 @@ func usage() {
                                        jpegq, and refuses anything that would change
                                        the camera. Use deskcam set for those.
 
+  deskcam script run FILE [-o DIR]     run a tape of verbs as one operation. Holds the
+                                       camera for its duration, so nothing can change it
+                                       between two steps. One line per step, each capture
+                                       written as it arrives. Non-zero if it did not
+                                       finish; deskcam api lists the verbs
+
   deskcam status                       full JSON state
   deskcam show                         one-line summary
   deskcam show sharpness=1             the same, with a fresh sharpness reading. Move the

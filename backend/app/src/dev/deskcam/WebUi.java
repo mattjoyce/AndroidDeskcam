@@ -76,11 +76,39 @@ public class WebUi {
         ep.put("GET /api/stream", "MJPEG stream (multipart/x-mixed-replace). Takes presentation "
                 + "parameters only: fps, n, w, h, jpegq. A parameter that would change the camera "
                 + "is refused, so one viewer cannot alter what another client captures.");
+        ep.put("POST /api/script", "Runs a tape of verbs, one per line, as one operation. "
+                + "The body is the tape as plain text; the answer is a multipart/mixed "
+                + "stream of one JSON event per step, each capture's pixels following its "
+                + "own event as the next part. The phone stores nothing. A script holds the "
+                + "camera for its duration: a second script, or any request that would "
+                + "change the camera, is refused with 409 while one runs. A step that fails "
+                + "ends the script, the camera goes back to where the tape found it, and "
+                + "the last event says what failed and what it was put back to. The verbs "
+                + "are in 'script' below.");
         ep.put("GET /api/orientation", "Gravity, tilt and ambient light from the phone sensors.");
         ep.put("GET /api/shadingmap", "The lens shading map of a frame taken with the map on.");
         ep.put("GET /api/nettest", "Diagnostic. Opens a TCP connection back to the address the "
                 + "request came from, to prove the app has outbound network access.");
         o.put("endpoints", ep);
+
+        // Printed from the same table the parser reads, for the same reason the parameters
+        // are: a list written twice is a list that disagrees with itself.
+        JSONObject script = new JSONObject();
+        script.put("verbs", new JSONArray(Tape.verbs()));
+        script.put("syntax", "One verb per line, then name=value words using the same "
+                + "parameter names every endpoint takes. A line starting with '#' is a "
+                + "comment. WAIT takes one bare number of milliseconds and is the only verb "
+                + "that is not an endpoint; every capture verb has settle= for its own "
+                + "waiting, so WAIT is for waiting on something that is not a capture.");
+        script.put("not_a_language", "There is no branching, no variable, no label and no "
+                + "arithmetic, and there will not be. The caller is the intelligence and "
+                + "the tape is the execution record. A tape with no ranges and no step "
+                + "rules cannot make a wrong step as easy to write as a right one: "
+                + "BRACKET base=1/240 stops=4 leaves that knowledge in /api/bracket.");
+        script.put("max_steps", Tape.MAX_STEPS);
+        script.put("example", "# inspect the connector area\nSET zoom=4 cx=0.3 cy=0.7 "
+                + "torch=30\nWAIT 500\nAF\nSNAP\nSET torch=0\nSNAP");
+        o.put("script", script);
 
         // One list, three groups, printed from the same declarations the parser uses.
         JSONObject camera = new JSONObject();

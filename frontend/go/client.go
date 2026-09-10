@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -174,6 +175,34 @@ func (c *Client) GetStream(path, query string, consume func(io.Reader) error) (*
 		return reply, &HTTPError{Status: resp.StatusCode, Message: errorIn(body), Path: path}
 	}
 	if err := consume(resp.Body); err != nil {
+		return reply, err
+	}
+	reply.Elapsed = time.Since(started)
+	return reply, nil
+}
+
+// PostStream sends a body and hands the answer to a reader function.
+//
+// The one endpoint that takes a body is /api/script, whose answer is a stream of events
+// and pictures that arrives while the tape runs. Buffering it would turn live progress
+// into a wait followed by everything at once.
+func (c *Client) PostStream(path, query, contentType string, body []byte,
+	consume func(*http.Response) error) (*Reply, error) {
+	started := time.Now()
+	resp, err := c.http.Post(c.url(path, query), contentType, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	reply := &Reply{Status: resp.StatusCode, Header: resp.Header}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		read, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		reply.Body = read
+		reply.Elapsed = time.Since(started)
+		return reply, &HTTPError{Status: resp.StatusCode, Message: errorIn(read), Path: path}
+	}
+	if err := consume(resp); err != nil {
 		return reply, err
 	}
 	reply.Elapsed = time.Since(started)

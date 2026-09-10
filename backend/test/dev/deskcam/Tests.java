@@ -49,6 +49,10 @@ public final class Tests {
         aHuntRefusesAFlatCurve();
         aHuntRefusesAPeakOnTheEdge();
         aHuntWithNoReadings();
+        aTapeReadsItsVerbs();
+        aTapeRefusesBeforeItRuns();
+        aTapeIgnoresCommentsAndBlankLines();
+        waitIsTheOneVerbThatIsNotAnEndpoint();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -501,6 +505,79 @@ public final class Tests {
         Hunt.Verdict v = Hunt.judge(new java.util.ArrayList<>(), 0f, 10.2f, 10.2f);
         no("no readings is not an answer", v.chose());
         eq("an empty curve is a flat one", 1, Hunt.FLAT.equals(v.refusal) ? 1 : 0);
+    }
+
+    // ------------------------------------------------------------- the tape
+
+    /**
+     * The parameter names these tapes are allowed to use.
+     *
+     * The real one is Params, which a workstation cannot load because it reaches the
+     * camera settings. That is exactly why the parser takes this as an argument.
+     */
+    private static final Tape.Names KNOWN = name -> java.util.Arrays.asList(
+            "zoom", "cx", "cy", "torch", "settle", "timeout", "from", "to", "steps")
+            .contains(name);
+
+    private static java.util.List<Tape.Step> tape(String text) {
+        return Tape.parse(text, KNOWN);
+    }
+
+    private static void aTapeReadsItsVerbs() {
+        java.util.List<Tape.Step> steps = tape("SET zoom=4 cx=0.3\nAF\nSNAP settle=200\nset torch=0\n");
+        eq("four lines are four steps", 4, steps.size());
+        eq("the first verb", 1, "SET".equals(steps.get(0).verb) ? 1 : 0);
+        eq("and the endpoint it is", 1, "/api/still".equals(steps.get(2).path) ? 1 : 0);
+        eq("its parameters survive", 1, "0.3".equals(steps.get(0).params.get("cx")) ? 1 : 0);
+        eq("the step number", 2, steps.get(2).index);
+        eq("and the line it came from", 3, steps.get(2).line);
+        // A tape written in lower case is the same tape.
+        eq("a verb is not case sensitive", 1, "SET".equals(steps.get(3).verb) ? 1 : 0);
+    }
+
+    /**
+     * The whole point of parsing first: a bad line costs nothing, because nothing ran.
+     *
+     * Each of these would otherwise be found out about after the camera had already moved
+     * four times.
+     */
+    private static void aTapeRefusesBeforeItRuns() {
+        threw("a verb nobody knows", () -> tape("SNAP\nSNPA\n"));
+        threw("a parameter nobody parses", () -> tape("SNAP zomo=4\n"));
+        threw("a word that is not name=value", () -> tape("SNAP zoom\n"));
+        threw("the same parameter twice on a line", () -> tape("SET zoom=2 zoom=4\n"));
+        threw("an empty tape", () -> tape("# nothing but a comment\n"));
+        threw("WAIT with no number", () -> tape("WAIT\n"));
+        threw("WAIT with a word", () -> tape("WAIT soon\n"));
+        threw("WAIT longer than the limit", () -> tape("WAIT " + (Tape.MAX_WAIT_MS + 1) + "\n"));
+
+        StringBuilder tooLong = new StringBuilder();
+        for (int i = 0; i <= Tape.MAX_STEPS; i++) tooLong.append("SNAP\n");
+        threw("a tape longer than the limit", () -> tape(tooLong.toString()));
+
+        // The message has to name the line, or a hundred step tape is a guessing game.
+        try {
+            tape("SNAP\n# a comment\nSNPA\n");
+            fail("a bad verb should not parse");
+        } catch (IllegalArgumentException e) {
+            yes("the refusal names the line", String.valueOf(e.getMessage()).contains("line 3"));
+            yes("and lists the verbs", String.valueOf(e.getMessage()).contains("FOCUSSWEEP"));
+        }
+    }
+
+    private static void aTapeIgnoresCommentsAndBlankLines() {
+        java.util.List<Tape.Step> steps =
+                tape("# inspect the connector\n\n   \nSET torch=30\n\n# and again\nSNAP\n");
+        eq("a comment is not a step", 2, steps.size());
+        eq("the line number is of the file, not of the steps", 7, steps.get(1).line);
+    }
+
+    private static void waitIsTheOneVerbThatIsNotAnEndpoint() {
+        java.util.List<Tape.Step> steps = tape("WAIT 500\nSNAP\n");
+        eq("a wait has no endpoint", 1, steps.get(0).path == null ? 1 : 0);
+        eq("and carries its milliseconds", 500, steps.get(0).waitMs);
+        eq("a capture does have one", 1, steps.get(1).path != null ? 1 : 0);
+        eq("and no wait", 0, steps.get(1).waitMs);
     }
 
     // -------------------------------------------------------- the access key

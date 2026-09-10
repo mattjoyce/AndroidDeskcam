@@ -1718,6 +1718,35 @@ public class CameraEngine {
     }
 
     /**
+     * The thread of the script that holds the camera, or null.
+     *
+     * One camera, one tape at a time. This is not about the engine's own thread safety,
+     * which the session lock already covers. It is about a sequence: nothing stops the
+     * console, which polls the state every two seconds and can post new settings, or a
+     * second agent, from changing the camera between a SET and a SNAP. Every multi-step
+     * sequence driven from outside is racy for that reason, and holding the camera for the
+     * length of a tape is what a script adds over running the same steps by hand. Card 57.
+     */
+    private final java.util.concurrent.atomic.AtomicReference<Thread> scriptThread =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
+    /** Takes the camera for this thread, or answers false because someone else has it. */
+    public boolean holdForScript() {
+        return scriptThread.compareAndSet(null, Thread.currentThread());
+    }
+
+    /** Gives it back. Safe to call when this thread never held it. */
+    public void releaseScript() {
+        scriptThread.compareAndSet(Thread.currentThread(), null);
+    }
+
+    /** Whether a script other than this thread's own holds the camera. */
+    public boolean scriptHoldsCamera() {
+        Thread t = scriptThread.get();
+        return t != null && t != Thread.currentThread();
+    }
+
+    /**
      * Counts the clients watching a stream.
      *
      * It was a read then a write on a plain field, so two streams starting at once could

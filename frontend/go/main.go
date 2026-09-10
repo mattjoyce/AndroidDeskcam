@@ -138,6 +138,8 @@ func run(argv []string) int {
 		return walkCommand(in, "/api/walk", "walk-"+varyName(in.query))
 	case "stream":
 		return stream(in)
+	case "script":
+		return scriptCommand(in)
 
 	// ---------------------------------------------------------------- state
 	case "status":

@@ -190,6 +190,7 @@ this table ever disagrees with `/api/help`, `/api/help` is right and this is sta
 | `/api/set` | Apply the parameters. Give the result. |
 | `/api/af` | Do one autofocus sweep |
 | `/api/focussweep` | `steps` stills as the lens walks from `from` to `to` in dioptres, as one tar |
+| `/api/script` | **POST.** A tape of verbs, one per line, run as one operation, answered as one stream of events and pictures. Holds the camera while it runs. |
 | `/api/focushunt` | Walks the lens on the phone, reads the sharpness of each frame, and stops at the peak. Gives the chosen position and the curve. No frame crosses the network. |
 | `/api/bracket` | `stops` stills at doubling exposures from `base`, as one tar |
 | `/api/walk` | One still at each of `values`, walking the camera parameter named by `vary` |
@@ -477,6 +478,100 @@ behaves that way.
 to be held still for the duration. With `ae=auto` the exposure moves between readings and
 the metric moves with it, and the hunt climbs the auto-exposure loop rather than the lens.
 It warns when it sees `ae=auto`, but the fix is `exposure=` and `iso=`.
+
+### Running a sequence as one operation
+
+`POST /api/script` takes a tape of verbs, one per line, and runs the whole thing as one
+request.
+
+```sh
+cat inspect.dcl
+```
+
+```
+# inspect the part, lit and unlit
+SET zoom=2 cx=0.5 cy=0.5 exposure=1/33 iso=200 awbgains=neutral
+FOCUSHUNT
+SET torch=25
+WAIT 500
+SNAP
+SET torch=0
+SNAP
+```
+
+```sh
+deskcam script run inspect.dcl
+```
+
+```
+7 steps: SET FOCUSHUNT SET WAIT SNAP SET SNAP
+   0 SET        zoom 2x  at 0.5,0.5  af continuous  ae manual  30.02ms (1/33)  iso 163
+   1 FOCUSHUNT  chose 4.464 d, sharpness 1107.46, contrast 0.992, 14 readings
+   2 SET        zoom 2x  at 0.5,0.5  af off  focus 0.224m  ae manual  30.27ms  torch 25
+   3 WAIT       500 ms
+   4 SNAP       004-still.jpg
+   5 SET        zoom 2x  at 0.5,0.5  af off  focus 0.224m  ae manual  30.27ms (1/33)
+   6 SNAP       006-still.jpg
+done: 7 of 7 steps in 7.2 s
+```
+
+The verbs are `SNAP`, `FRAME`, `RAW`, `BURST`, `BRACKET`, `FOCUSSWEEP`, `WALK`,
+`FOCUSHUNT`, `SET`, `RESET`, `AF`, `STATUS` and `WAIT`. Each one is an endpoint that
+already exists and takes the same `k=v` words that endpoint takes, so a line of a tape and
+a URL cannot come to mean different things. `#` starts a comment line. `WAIT` is the only
+verb that is not an endpoint, and it is for waiting on something that is not a capture,
+such as an LED reaching a steady temperature: every capture verb has `settle` for its own
+waiting.
+
+**The reason for this is atomicity, not speed.** A round trip on this LAN is about 100 ms
+against a settle and a capture of several hundred, so a seven step sweep run from the shell
+loses well under a second to the network. What it does lose is the guarantee that nothing
+moved. The browser panel polls the state every two seconds and can change the camera, and
+so can a second agent, so **every multi-step sequence driven from the shell is racy between
+one step and the next.** While a tape runs it holds the camera, and a second script or any
+request that would change the camera is refused:
+
+```
+$ deskcam set zoom=3
+deskcam: HTTP 409
+  a script is running and holds the camera. It will finish or fail on its own; this
+  request would have changed the camera underneath it. Read /api/status while you wait.
+```
+
+Reading is still allowed, because watching a tape run does not interfere with it.
+
+**The pixels come back inside the same request.** The answer is one `multipart/mixed`
+stream: a JSON event per step, and each capture's file as the part after its own event.
+The phone stores nothing, which is what the specification says of it, and an events-only
+stream would have needed a working directory on the phone, a cleanup policy, a listing
+endpoint and a download endpoint before the first script ran. `deskcam script run` writes
+each part as it arrives, with that step's own record beside it, exactly as `deskcam walk`
+unpacks an archive.
+
+**A tape is not a language and will not become one.** No branching, no variables, no
+labels, no arithmetic. You are the intelligence; the tape is the execution record. That is
+what keeps it from being the thing worth refusing: a language with ranges and steps would
+make a wrong step rule as easy to write as a right one, and `BRACKET base=1/240 stops=4`
+leaves that knowledge in `/api/bracket`, where the reasoning about PWM periods lives.
+
+**A whole tape is read before any of it runs**, so a typo costs nothing:
+
+```
+$ deskcam script run inspect.dcl
+deskcam: HTTP 400
+  line 2: 'SNPA' is not a verb. The verbs are SNAP, FRAME, RAW, BURST, BRACKET,
+  FOCUSSWEEP, WALK, FOCUSHUNT, SET, RESET, AF, STATUS, WAIT.
+```
+
+**A step that fails ends the tape and the camera goes back.** `SET torch=45`, a capture
+that fails, and the `SET torch=0` that never runs would otherwise leave the LED on until
+somebody noticed. The last event says what failed and what the camera was put back to, and
+`deskcam script run` exits non-zero. A tape that finishes is left where it put the camera,
+because a `SET` in a finished tape is a change you asked for.
+
+A verb whose own answer says `ok: false` is a failed step. Today that is only `FOCUSHUNT`
+finding no peak, and it matters: carrying on to the next `SNAP` would take it out of focus
+and report it as a success.
 
 ### Errors
 

@@ -124,7 +124,8 @@ def test_api_help_names_every_endpoint() -> None:
     the same check for the other half of the surface.
     """
     routes = set(re.findall(r'case "(/api/[a-z]+)"', SERVER.read_text()))
-    advertised = set(re.findall(r'ep\.put\("GET (/api/[a-z]+)"', HELP.read_text()))
+    # The method is part of the advertisement, and /api/script is the one POST.
+    advertised = set(re.findall(r'ep\.put\("(?:GET|POST) (/api/[a-z]+)"', HELP.read_text()))
     missing = sorted(routes - advertised)
     assert not missing, f"/api/help does not mention {missing}"
     invented = sorted(advertised - routes)

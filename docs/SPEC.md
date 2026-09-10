@@ -127,6 +127,8 @@ reading it happened to see.
 | `Sensors.java` | Gravity and ambient light, giving the angle between the optical axis and gravity, averaged over 32 samples |
 | `Sharp.java` | The variance of the Laplacian over a region, which is the sharpness of a frame as one number |
 | `Hunt.java` | What a focus curve says: the peak, the contrast, and the two shapes that are a refusal |
+| `Tape.java` | Reads a script: the verbs, their parameters, and the refusals that cost nothing |
+| `Answer.java` | What an endpoint produced, before anything decides whether it is an HTTP response or a part of a script's stream |
 | `Tar.java` | A small USTAR writer, for a burst in one response |
 | `CamService.java` | The foreground service, the life cycle, the notice, and the address |
 | `MainActivity.java` | The permissions, start and stop, and the headless start |
@@ -223,6 +225,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/walk` | `application/x-tar` | One still at each of `values`, walking the camera parameter named by `vary`. Only camera state can be walked. No step rule is implied: the caller gives the values. |
 | `/api/bracket` | `application/x-tar` | `stops` stills at doubling exposures from `base`, so every frame is one stop apart and a whole multiple of the base period. The archive holds `walk.json`, which records the exposure asked for and reached at every frame. |
 | `/api/focussweep` | `application/x-tar` | `steps` stills as the lens walks from `from` to `to`, spread equally in dioptres. The archive holds `walk.json`, which records the lens position asked for and reached at every frame. |
+| `POST /api/script` | `multipart/mixed` | A tape of verbs, one per line, run as one operation. One JSON event per step, each capture's pixels following its own event as the next part. The phone stores nothing. A script holds the camera: a second script, or any request that would change the camera, is refused with 409 while one runs. Refer to decision D14. |
 | `/api/focushunt` | JSON | Walks the lens between `from` and `to`, measures the sharpness of a frame at each position, and stops at the peak. A coarse pass of `coarse` readings over the range, then a fine pass of `fine` around the best of it. No frame crosses the network. It answers the chosen position, the peak, and the whole curve. It refuses, with `ok: false`, when the curve is flat or its peak is at an end of the range, and then puts the focus back. Refer to section 4.1. |
 | `/api/cameras` | JSON | List the cameras and the capabilities. |
 | `/api/help` | JSON | The self description. Refer to R6. |
@@ -412,6 +415,10 @@ It gives direct control of the MJPEG parts.
 primary consumer writes URLs in a shell. A change of state as a GET is easy to script and
 easy to repeat.
 
+`/api/script` is the one POST, and it is the exception that keeps the rule: a tape of verbs
+is a document and not a set of parameters, and there is no query string that expresses one.
+Every step inside it is written exactly as the GET it corresponds to.
+
 **D4. Each status response gives the measured values.** Refer to R4. `/api/status`
 reports the values of the **preview**, and says so in `measured_from`, because the
 repeating preview request is the only thing it can describe. A capture describes itself.
@@ -508,6 +515,37 @@ captures and their sidecars, with no database to keep in step.
 
 The cost of the split is one boundary, and it is drawn where the work changes kind rather
 than where the languages happen to differ. Card 53.
+
+**D14. A script holds the camera, and answers in one stream.** `/api/script` takes a tape
+of verbs as plain text and runs it as one operation. The argument for it is not speed. A
+round trip on this LAN is about 100 ms against a settle and a capture of several hundred,
+so a seven step sweep run from the shell loses well under a second to the network. The
+argument is that every multi-step sequence driven from outside is **racy**: nothing stops
+the console, which polls the state every two seconds and can post new settings, or a
+second agent, from changing the camera between a `SET` and a `SNAP`. The walk endpoints
+avoid that by doing a whole sequence inside one request. A script generalises it, so while
+a tape runs, a second script and any request that would change the camera are refused with
+**409**. Reads are not: watching a tape run does not interfere with it.
+
+The answer is `multipart/mixed`, not server-sent events, and that follows from section 4.1.
+An events-only stream would have to name a file on the phone for each capture, which means
+storage, a cleanup policy, disk-full behaviour, a listing endpoint and a download endpoint.
+Instead the JSON events and the pixels travel in one ordered stream on the machinery the
+MJPEG stream already uses, and the phone still stores nothing.
+
+**A tape is not a language, and will not become one.** No branching, no variables, no
+labels, no arithmetic. The caller is the intelligence; the tape is the execution record.
+That is what keeps the objection to a scripting DSL answered rather than ignored: the step
+rule is the knowledge, and a tape with no ranges and no steps cannot make a wrong rule as
+easy to write as a right one. `BRACKET base=1/240 stops=4` leaves that knowledge in
+`/api/bracket`, where the reasoning about PWM periods lives.
+
+A step that fails ends the tape, the camera goes back to where the tape found it, and the
+last event says what failed and what it was put back to. A tape that finishes is left
+where it put the camera, because the `SET` lines of a finished tape are changes the caller
+asked for. A verb whose own answer says `ok: false`, which today is only a focus hunt that
+found no peak, is a failed step: carrying on would take the next capture out of focus and
+report it as a success.
 
 ## 7. Non-goals
 

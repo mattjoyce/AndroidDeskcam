@@ -1,8 +1,10 @@
 # DeskCam DSL — Action Script Design
 
-Status: proposal, reviewed 2026-09-10. This document captures the idea, the
-lineage, and the design we arrived at. It is not yet built. Section 9 records
-what the review found; read it before building section 4.
+Status: **built, 2026-09-10**, as `/api/script` and `deskcam script run`. This
+document captures the idea, the lineage, and the design we arrived at. Section 9
+is the review that was done against the code before building; section 10 records
+what the building changed. Where the two disagree, section 10 is what exists, and
+`/api/help` is what is true.
 
 ## 1. Where this comes from
 
@@ -331,3 +333,54 @@ Every capture verb already takes `settle`, and `/api/af` takes `wait`. If WAIT
 survives it should be justified by what `settle` cannot express: waiting on
 something that is not a capture, such as an LED reaching thermal steady state
 after `torch=45`. Otherwise it is a second way to spell a parameter that exists.
+
+## 10. What the building changed, 2026-09-10
+
+Section 9's five findings all held, and all five are in the code. Beyond them, five
+things came out differently from section 3 and section 4.
+
+### 10.1 Thirteen verbs, not eleven
+
+`WALK` and `FOCUSHUNT` were added, because cards 55 and 56 landed between this
+document being written and being built. `WALK vary=torch values=0,20,45` on one
+line of a tape is the composition the card narrative predicted, and neither piece
+had to become a language for it.
+
+### 10.2 A verb whose answer says `ok: false` is a failed step
+
+Not in the design, because when it was written no endpoint could answer 200 with
+`ok: false`. `/api/focushunt` can: it walked the lens and found no peak to choose.
+Treating that as a successful step would let the next `SNAP` be taken out of focus
+and reported as a success, which is the class of failure this whole card is about.
+
+### 10.3 The refactor of 9.3 was the bulk of the work, and it is provable
+
+The handlers wrote to the socket. They now return an `Answer` and the caller
+renders it: as an HTTP response for a URL, as an event and its parts for a tape.
+The claim that every existing endpoint still answers exactly as it did was checked
+rather than asserted: twenty endpoints were probed against the running phone before
+the refactor and again after it, comparing status lines, header names and the shape
+of every JSON body. The only difference was `/api/help` gaining `POST /api/script`
+and the `script` block. Three fields differed on the first attempt and matched once
+the camera was in the same state for both runs, which is what they describe.
+
+### 10.4 The closing delimiter belongs in the `finally`
+
+A tape that stops at a failed step leaves the runner by a `return`. The multipart
+terminator was written after the `try`, so on exactly the path that carries the
+most important message the stream ended without it, and the reader on the other
+side reported "unexpected EOF" and discarded the final event, which was the one
+saying what had failed and what the camera had been put back to. Found by running
+a tape that refuses, not by reading it.
+
+### 10.5 Open questions from section 7, answered
+
+- **WAIT units:** milliseconds only, 0 to 60000, as a bare number. `WAIT 500`.
+- **STATUS as a verb:** yes. Sampling the state mid-tape without breaking the hold
+  is worth a verb, and the hold is exactly what makes it necessary.
+- **A header for the script:** no. A comment line is enough.
+- **Concurrent scripts:** refused with 409, which is also what a conflicting
+  camera change gets. Reads are not refused.
+
+One limit, worth stating rather than discovering: a tape holds at most 200 steps,
+because its length is how long everything else is refused.

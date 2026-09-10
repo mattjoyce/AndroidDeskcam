@@ -14,7 +14,9 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
@@ -33,6 +35,9 @@ public class HttpServer implements Runnable {
 
     private static final String TAG = CameraEngine.TAG;
     private static final String BOUNDARY = "deskcamframe";
+
+    /** The part separator of a script's answer. A different stream, a different word. */
+    private static final String SCRIPT_BOUNDARY = "deskcamstep";
 
     /**
      * The most requests served at once.
@@ -87,6 +92,19 @@ public class HttpServer implements Runnable {
         private static final long serialVersionUID = 1L;
 
         BadRequest(String m) { super(m); }
+    }
+
+    /**
+     * A request that is fine, at a moment that is not. Always an HTTP 409.
+     *
+     * There is one camera, and a script holds it for its duration. A 400 would say the
+     * caller wrote something wrong, which is the opposite of true here: the same request
+     * a second later is correct. Card 57.
+     */
+    static class Busy extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        Busy(String m) { super(m); }
     }
 
     public void start() throws IOException {
@@ -188,20 +206,24 @@ public class HttpServer implements Runnable {
         int q = target.indexOf('?');
         if (q >= 0) { path = target.substring(0, q); query = target.substring(q + 1); }
 
+        String body = "";
         if ("POST".equals(method)) {
             int len = 0;
             try { len = Integer.parseInt(headers.getOrDefault("content-length", "0")); }
             catch (NumberFormatException e) { Log.d(TAG, "unreadable content-length"); }
             if (len > 0 && len < 1 << 20) {
-                byte[] body = new byte[len];
+                byte[] raw = new byte[len];
                 int read = 0;
                 while (read < len) {
-                    int r = in.read(body, read, len - read);
+                    int r = in.read(raw, read, len - read);
                     if (r < 0) break;
                     read += r;
                 }
-                String bodyStr = new String(body, 0, read, StandardCharsets.UTF_8).trim();
-                // Accept either a query string or a flat JSON object as the body.
+                body = new String(raw, 0, read, StandardCharsets.UTF_8).trim();
+                // A script is a plain-text tape of verbs, so its body is the request and
+                // not a bag of parameters: it goes to the handler as it was written. Every
+                // other POST accepts either a query string or a flat JSON object.
+                String bodyStr = "/api/script".equals(path) ? "" : body;
                 if (bodyStr.startsWith("{")) {
                     JSONObject j = new JSONObject(bodyStr);
                     StringBuilder sb = new StringBuilder(query);
@@ -230,9 +252,11 @@ public class HttpServer implements Runnable {
         long t0 = System.currentTimeMillis();
         SENT.set(new int[]{200, 0});
         try {
-            route(path, params, out, peerAddress(sock));
+            route(path, params, body, out, peerAddress(sock));
         } catch (BadRequest bad) {
             sendJson(out, 400, err(bad.getMessage()));
+        } catch (Busy busy) {
+            sendJson(out, 409, err(busy.getMessage()));
         } catch (IllegalArgumentException bad) {
             // The engine refuses a request it cannot serve: a camera id that does not
             // exist, a burst that will not fit, an output larger than the heap.
@@ -253,22 +277,55 @@ public class HttpServer implements Runnable {
         return a == null ? "127.0.0.1" : a.getHostAddress();
     }
 
-    private void route(String path, Map<String, String> params, BufferedOutputStream out,
-                       String peer) throws Exception {
+    /**
+     * The endpoints that are a connection rather than a value, and then everything else.
+     *
+     * A stream and a script own the socket for their duration: one writes frames until the
+     * viewer leaves, the other writes an event and a picture per step. Every other endpoint
+     * produces an Answer, and this decides how it is sent. That is what lets a script verb
+     * call the same handler /api/still calls, instead of a second copy of it. Card 57.
+     */
+    private void route(String path, Map<String, String> params, String body,
+                       BufferedOutputStream out, String peer) throws Exception {
         switch (path) {
             case "/":
             case "/index.html":
                 sendText(out, 200, "text/html; charset=utf-8", WebUi.page());
                 return;
 
-            case "/api/help":
-                sendJson(out, 200, WebUi.help());
+            case "/api/stream":
+                streamMjpeg(params, out);
                 return;
+
+            case "/api/script":
+                runScript(body, params, out);
+                return;
+
+            default:
+                Answer answer = answer(path, params, peer);
+                if (answer == null) {
+                    sendJson(out, 404, err("no such endpoint: " + path + " (try /api/help)"));
+                    return;
+                }
+                send(out, answer);
+        }
+    }
+
+    /**
+     * Every endpoint that produces a value.
+     *
+     * One switch, read by the router and by a script's verb dispatcher, so a tape and a
+     * URL cannot come to disagree about what SNAP means.
+     */
+    private Answer answer(String path, Map<String, String> params, String peer)
+            throws Exception {
+        switch (path) {
+            case "/api/help":
+                return Answer.json(WebUi.help());
 
             case "/api/cameras": {
                 apply(params);
-                sendJson(out, 200, new JSONObject().put("cameras", engine.listCameras()));
-                return;
+                return Answer.json(new JSONObject().put("cameras", engine.listCameras()));
             }
 
             case "/api/status": {
@@ -282,8 +339,7 @@ public class HttpServer implements Runnable {
                 }
                 JSONObject o = engine.status();
                 o.put("ok", true);
-                sendJson(out, 200, o);
-                return;
+                return Answer.json(o);
             }
 
             case "/api/set": {
@@ -299,8 +355,7 @@ public class HttpServer implements Runnable {
                             + "not to the camera. Send them to /api/still, /api/frame or "
                             + "/api/burst instead. See decision D9.");
                 }
-                sendJson(out, 200, o);
-                return;
+                return Answer.json(o);
             }
 
             case "/api/reset": {
@@ -308,8 +363,7 @@ public class HttpServer implements Runnable {
                 apply(params);
                 JSONObject o = engine.status();
                 o.put("ok", true);
-                sendJson(out, 200, o);
-                return;
+                return Answer.json(o);
             }
 
             case "/api/af": {
@@ -318,16 +372,15 @@ public class HttpServer implements Runnable {
                 Thread.sleep(longParam(params, "wait", 700, 0, 5000));
                 JSONObject o = engine.status();
                 o.put("ok", true);
-                sendJson(out, 200, o);
-                return;
+                return Answer.json(o);
             }
 
             case "/api/still": {
                 CamSettings req = apply(params);
                 settle(params, req);
                 CameraEngine.Shot shot = engine.captureStill(req, longParam(params, "timeout", 8000, 100, 60000));
-                sendBytes(out, 200, "image/jpeg", shot.bytes, provenanceHeader(shot));
-                return;
+                return Answer.file("still.jpg", "image/jpeg", shot.bytes, shot.provenance,
+                        provenanceHeader(shot));
             }
 
             case "/api/frame": {
@@ -338,8 +391,8 @@ public class HttpServer implements Runnable {
                 int skip = (int) longParam(params, "fresh", settled > 0 ? 2 : 0, 0, 30);
                 CameraEngine.Shot shot = engine.grabFrame(req,
                         longParam(params, "timeout", 8000, 100, 60000), skip);
-                sendBytes(out, 200, "image/jpeg", shot.bytes, provenanceHeader(shot));
-                return;
+                return Answer.file("frame.jpg", "image/jpeg", shot.bytes, shot.provenance,
+                        provenanceHeader(shot));
             }
 
             case "/api/raw": {
@@ -349,9 +402,9 @@ public class HttpServer implements Runnable {
                         longParam(params, "timeout", 12000, 100, 60000));
                 // The DNG holds the whole sensor array, so tell the client where the user
                 // was aimed rather than silently discarding the framing.
-                sendBytes(out, 200, "image/x-adobe-dng", shot.bytes,
-                        "X-DeskCam-ROI: " + engine.rawRoiHeader(req) + "\r\n" + provenanceHeader(shot));
-                return;
+                return Answer.file("raw.dng", "image/x-adobe-dng", shot.bytes, shot.provenance,
+                        "X-DeskCam-ROI: " + engine.rawRoiHeader(req) + "\r\n"
+                        + provenanceHeader(shot));
             }
 
             case "/api/burst": {
@@ -375,15 +428,12 @@ public class HttpServer implements Runnable {
                 // were asked for, so a client had to compare a header against its own
                 // request to notice. 206 says it in the status line.
                 int code = burst.complete() ? 200 : 206;
-                sendHead(out, code, "application/x-tar", length,
+                return Answer.archive(code, names, burst.frames, burst.provenance,
                         "X-DeskCam-Frames: " + burst.frames.size() + "\r\n"
                         + "X-DeskCam-Frames-Requested: " + burst.requested + "\r\n"
                         + "X-DeskCam-Millis: " + ms + "\r\n"
                         + String.format(Locale.US, "X-DeskCam-Fps: %.2f\r\n", fps)
                         + provenanceHeader(burst.provenance));
-                Tar.writeTo(out, names, burst.frames);
-                out.flush();
-                return;
             }
 
             case "/api/focussweep": {
@@ -409,9 +459,8 @@ public class HttpServer implements Runnable {
                     labels.add(String.format(Locale.US, "%.3fd", at));
                     asked.add(new JSONObject().put("focus_diopters_asked", CamSettings.round3(at)));
                 }
-                sendWalk(out, params, req, engine.focusSteps(req, from, to, steps),
+                return walkAnswer(params, req, engine.focusSteps(req, from, to, steps),
                         manifest, "focus", labels, asked);
-                return;
             }
 
             case "/api/focushunt": {
@@ -436,14 +485,12 @@ public class HttpServer implements Runnable {
                 // 300 ms on this device, and the frames discarded after it cost time too.
                 long settleMs = longParam(params, "settle", 150, 0, 5000);
                 int fresh = (int) longParam(params, "fresh", 3, 0, 30);
-                JSONObject o = engine.focusHunt(req, from, to, coarse, fine, settleMs, fresh,
-                        longParam(params, "timeout", 2000, 100, 60000));
                 // A hunt that refuses answers 200 with ok:false and the curve it walked.
                 // The request was good, the camera worked, and the curve is the useful
                 // part of the answer: none of that is a 4xx, and an agent that only reads
                 // the status line would throw away the reason it was refused.
-                sendJson(out, 200, o);
-                return;
+                return Answer.json(engine.focusHunt(req, from, to, coarse, fine, settleMs,
+                        fresh, longParam(params, "timeout", 2000, 100, 60000)));
             }
 
             case "/api/bracket": {
@@ -500,9 +547,8 @@ public class HttpServer implements Runnable {
                             .put("exposure_ns_asked", baseNs << i)
                             .put("base_periods_asked", 1L << i));
                 }
-                sendWalk(out, params, req, engine.exposureSteps(req, baseNs, stops),
+                return walkAnswer(params, req, engine.exposureSteps(req, baseNs, stops),
                         manifest, "exposure", labels, asked);
-                return;
             }
 
             case "/api/walk": {
@@ -559,15 +605,13 @@ public class HttpServer implements Runnable {
                     labels.add(Parse.fileSafe(v));
                     asked.add(new JSONObject().put("vary", vary).put("value_asked", v));
                 }
-                sendWalk(out, params, req, engine.valueSteps(req, vary, values),
+                return walkAnswer(params, req, engine.valueSteps(req, vary, values),
                         manifest, vary, labels, asked);
-                return;
             }
 
             case "/api/orientation": {
                 apply(params);
-                sendJson(out, 200, engine.orientation());
-                return;
+                return Answer.json(engine.orientation());
             }
 
             case "/api/shadingmap": {
@@ -580,8 +624,7 @@ public class HttpServer implements Runnable {
                 } catch (Exception e) {
                     Log.d(TAG, "shading map frame: " + e);
                 }
-                sendJson(out, 200, engine.shadingMap());
-                return;
+                return Answer.json(engine.shadingMap());
             }
 
             case "/api/nettest": {
@@ -605,16 +648,34 @@ public class HttpServer implements Runnable {
                     o.put("failed_after_ms", System.currentTimeMillis() - t0);
                     o.put("error", e.toString());
                 }
-                sendJson(out, 200, o);
-                return;
+                return Answer.json(o);
             }
 
-            case "/api/stream":
-                streamMjpeg(params, out);
-                return;
-
             default:
-                sendJson(out, 404, err("no such endpoint: " + path + " (try /api/help)"));
+                return null;
+        }
+    }
+
+    /**
+     * Sends an Answer as its HTTP response, in the shape its endpoint has always used.
+     *
+     * An archive goes to the socket a member at a time. Its length is arithmetic, so a
+     * burst is never held a second and a third time only to find out how long it is.
+     */
+    private static void send(BufferedOutputStream out, Answer a) throws IOException {
+        switch (a.shape) {
+            case JSON:
+                sendJson(out, a.status, a.record);
+                return;
+            case FILE:
+                sendBytes(out, a.status, a.contentType, a.files.get(0), a.headers);
+                return;
+            case ARCHIVE:
+            default:
+                sendHead(out, a.status, "application/x-tar", Tar.contentLength(a.files),
+                        a.headers);
+                Tar.writeTo(out, a.names, a.files);
+                out.flush();
         }
     }
 
@@ -641,6 +702,16 @@ public class HttpServer implements Runnable {
      * check (rules R3 and R5).
      */
     private CamSettings apply(Map<String, String> params) throws Exception {
+        // A script holds the camera. Reading is still allowed, because an agent watching
+        // the tape run is not interfering with it; changing the camera under a running
+        // tape is what makes every multi-step sequence racy, and is the whole reason
+        // /api/script exists. The script's own steps come through here on the script's
+        // thread and are not refused.
+        if (touchesCamera(params) && engine.scriptHoldsCamera()) {
+            throw new Busy("a script is running and holds the camera. It will finish or "
+                    + "fail on its own; this request would have changed the camera "
+                    + "underneath it. Read /api/status while you wait.");
+        }
         CamSettings s = "1".equals(params.get("reset")) ? new CamSettings() : engine.snapshot();
         StringBuilder problems = new StringBuilder();
         s.apply(params, engine.caps(), problems);
@@ -691,6 +762,227 @@ public class HttpServer implements Runnable {
         String json = provenance.toString().replaceAll("[\\r\\n]", " ");
         if (json.length() > 7000) return "";     // do not risk a header nobody can parse
         return "X-DeskCam-Provenance: " + json + "\r\n";
+    }
+
+    // -------------------------------------------------------------- script
+
+    /**
+     * Runs a tape and answers with one ordered stream of events and pictures.
+     *
+     * The case for this is atomicity and not speed. A round trip on this LAN is about
+     * 100 ms against a settle and a capture of several hundred, so a seven step sweep run
+     * from the shell loses well under a second to the network. What it does lose is the
+     * guarantee that nothing moved: the console polls the state every two seconds and can
+     * post new settings, and a second agent can do anything at all, so every multi-step
+     * sequence driven from outside is racy between one step and the next. A script holds
+     * the camera for its duration, which is what the walk endpoints already do for their
+     * own sequences and what this generalises.
+     *
+     * The answer is multipart/mixed rather than server-sent events, and that follows from
+     * a boundary the specification already draws: SPEC 4.1 says the backend does not store
+     * old captures, and it stores none. An events-only stream would have to name a file on
+     * the phone for each capture, which means storage, a cleanup policy, a listing and a
+     * download endpoint. Instead the JSON events and the pixels travel in the same ordered
+     * stream, on the same machinery the MJPEG stream already uses, and the phone still
+     * stores nothing. Card 57.
+     */
+    private void runScript(String body, Map<String, String> params, BufferedOutputStream out)
+            throws Exception {
+        // Nothing is submitted to a camera until the whole tape reads. A typo on the last
+        // line of a ten step script costs nothing, rather than nine steps of nothing.
+        List<Tape.Step> steps;
+        try {
+            steps = Tape.parse(body, name -> Params.get(name) != null);
+        } catch (IllegalArgumentException bad) {
+            throw new BadRequest(String.valueOf(bad.getMessage()));
+        }
+        for (String k : params.keySet()) {
+            if (!"t".equals(k) && !"_".equals(k)) {
+                throw new BadRequest("'" + k + "' was sent to /api/script in the query "
+                        + "string. A script takes its parameters on the lines of the tape, "
+                        + "where they say which step they belong to.");
+            }
+        }
+        if (!engine.holdForScript()) {
+            throw new Busy("a script is already running and holds the camera. One tape at "
+                    + "a time: two would interleave their steps and neither would be the "
+                    + "sequence it asked for.");
+        }
+
+        long started = System.currentTimeMillis();
+        // Where to put the camera back if a step fails. A tape that finishes leaves the
+        // camera where it put it, because a SET in a tape is a change the caller asked
+        // for. A tape that stops half way leaves it somewhere nobody asked for: `SET
+        // torch=45`, a failed SNAP, and the `SET torch=0` that never ran.
+        CamSettings restore = engine.snapshot();
+        long bytes = 0;
+
+        String head = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: multipart/mixed; boundary=" + SCRIPT_BOUNDARY + "\r\n"
+                + "Cache-Control: no-store\r\n"
+                + "Access-Control-Allow-Origin: *\r\n"
+                + "Connection: close\r\n"
+                + "\r\n";
+        out.write(head.getBytes(StandardCharsets.US_ASCII));
+        out.flush();
+        SENT.get()[0] = 200;
+
+        try {
+            JSONArray plan = new JSONArray();
+            for (Tape.Step step : steps) plan.put(step.verb);
+            bytes += writeEvent(out, new JSONObject()
+                    .put("started", true)
+                    .put("steps", steps.size())
+                    .put("verbs", plan));
+
+            for (Tape.Step step : steps) {
+                long t0 = System.currentTimeMillis();
+                JSONObject event = new JSONObject()
+                        .put("step", step.index)
+                        .put("line", step.line)
+                        .put("verb", step.verb);
+                try {
+                    Answer a = runStep(step);
+                    event.put("ok", true);
+                    event.put("millis", System.currentTimeMillis() - t0);
+                    JSONArray names = new JSONArray();
+                    for (String name : step.path == null ? Collections.<String>emptyList()
+                            : a.names) {
+                        names.put(partName(step, name));
+                    }
+                    if (names.length() > 0) event.put("files", names);
+                    if (step.path == null) {
+                        event.put("waited_ms", step.waitMs);
+                    } else {
+                        event.put("result", a.record);
+                    }
+                    bytes += writeEvent(out, event);
+                    // The pixels follow their own event, so a reader that has the event
+                    // already knows what is arriving and what to call it.
+                    for (int i = 0; a != null && i < a.files.size(); i++) {
+                        String name = partName(step, a.names.get(i));
+                        bytes += writePart(out, contentTypeFor(name), name, a.files.get(i));
+                    }
+                } catch (Exception failed) {
+                    String why = failed instanceof BadRequest || failed instanceof Busy
+                            || failed instanceof IllegalArgumentException
+                            ? String.valueOf(failed.getMessage()) : failed.toString();
+                    event.put("ok", false);
+                    event.put("millis", System.currentTimeMillis() - t0);
+                    event.put("error", why);
+                    bytes += writeEvent(out, event);
+                    bytes += writeEvent(out, finish(steps, step, why, restore, started));
+                    SENT.get()[1] = (int) Math.min(bytes, Integer.MAX_VALUE);
+                    Log.w(TAG, "script failed at step " + step.index + ": " + why);
+                    return;
+                }
+            }
+            bytes += writeEvent(out, finish(steps, null, null, null, started));
+        } catch (IOException gone) {
+            // The caller hung up. Nothing to report to, and the finally below still puts
+            // the camera back and releases it.
+            Log.d(TAG, "script client left: " + gone);
+        } finally {
+            SENT.get()[1] = (int) Math.min(bytes, Integer.MAX_VALUE);
+            engine.releaseScript();
+            // The closing delimiter belongs here and not after the try. A tape that
+            // stopped at a failed step leaves by a return, and a multipart stream that
+            // ends without it reads as a truncated connection: the reader on the other
+            // side reported "unexpected EOF" and threw away the final event that said
+            // what had failed and what the camera was put back to.
+            try {
+                out.write(("--" + SCRIPT_BOUNDARY + "--\r\n")
+                        .getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+            } catch (IOException gone) {
+                Log.d(TAG, "script client left before the end: " + gone);
+            }
+        }
+    }
+
+    /** One step: a wait, or the same handler the endpoint of that verb answers with. */
+    private Answer runStep(Tape.Step step) throws Exception {
+        if (step.path == null) {
+            if (step.waitMs > 0) Thread.sleep(step.waitMs);
+            return null;
+        }
+        Answer a = answer(step.path, new LinkedHashMap<>(step.params), null);
+        if (a == null) throw new BadRequest("no handler for " + step.verb);
+        // An answer that says ok:false is a failed step, not a step with a sad result.
+        // FOCUSHUNT is the one endpoint that can answer 200 that way: it walked the lens
+        // and found no peak to choose. Carrying on would take the next capture out of
+        // focus and call it a success, which is the failure this whole card is about.
+        if (!a.record.optBoolean("ok", true)) {
+            String why = a.record.optString("reason", a.record.optString("error", "it refused"));
+            throw new BadRequest(step.verb + " did not succeed: " + why);
+        }
+        return a;
+    }
+
+    /**
+     * The last event, which says how it ended.
+     *
+     * A tape that stopped part way gets the camera put back first, and the event says what
+     * it was put back to. Leaving the torch on because the line that turned it off never
+     * ran is the kind of failure a person discovers an hour later.
+     */
+    private JSONObject finish(List<Tape.Step> steps, Tape.Step failed, String why,
+                              CamSettings restore, long started) throws Exception {
+        JSONObject done = new JSONObject()
+                .put("done", true)
+                .put("ok", failed == null)
+                .put("steps", steps.size())
+                .put("completed", failed == null ? steps.size() : failed.index)
+                .put("millis", System.currentTimeMillis() - started);
+        if (failed != null) {
+            done.put("failed_at", failed.index);
+            done.put("line", failed.line);
+            done.put("verb", failed.verb);
+            done.put("error", why);
+            try {
+                engine.update(restore);
+                done.put("restored", engine.status().optJSONObject("settings"));
+            } catch (Exception e) {
+                Log.w(TAG, "could not put the camera back after a failed script", e);
+                done.put("restored", JSONObject.NULL);
+                done.put("restore_failed", e.toString());
+            }
+        }
+        return done;
+    }
+
+    /** What a file of a step is called in the stream: its step, then its own name. */
+    private static String partName(Tape.Step step, String name) {
+        return String.format(Locale.US, "%03d-%s", step.index, name);
+    }
+
+    private static String contentTypeFor(String name) {
+        if (name.endsWith(".jpg")) return "image/jpeg";
+        if (name.endsWith(".dng")) return "image/x-adobe-dng";
+        if (name.endsWith(".json")) return "application/json; charset=utf-8";
+        return "application/octet-stream";
+    }
+
+    private static long writeEvent(BufferedOutputStream out, JSONObject event) throws Exception {
+        return writePart(out, "application/json; charset=utf-8", null,
+                event.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** One part of the stream, flushed, so progress is live rather than at the end. */
+    private static long writePart(BufferedOutputStream out, String contentType, String name,
+                                  byte[] body) throws IOException {
+        StringBuilder part = new StringBuilder("--").append(SCRIPT_BOUNDARY).append("\r\n")
+                .append("Content-Type: ").append(contentType).append("\r\n");
+        if (name != null) {
+            part.append("Content-Disposition: attachment; filename=\"").append(name)
+                    .append("\"\r\n");
+        }
+        part.append("Content-Length: ").append(body.length).append("\r\n\r\n");
+        out.write(part.toString().getBytes(StandardCharsets.US_ASCII));
+        out.write(body);
+        out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
+        out.flush();
+        return body.length;
     }
 
     // -------------------------------------------------------------- stream
@@ -868,6 +1160,7 @@ public class HttpServer implements Runnable {
             case 204: return "No Content";
             case 206: return "Partial Content";
             case 400: return "Bad Request";
+            case 409: return "Conflict";
             case 401: return "Unauthorized";
             case 404: return "Not Found";
             case 500: return "Internal Server Error";
@@ -896,10 +1189,10 @@ public class HttpServer implements Runnable {
      * lose exactly the information the set exists to carry: each frame's own provenance
      * goes in, and the CLI splits them into a sidecar apiece.
      */
-    private void sendWalk(BufferedOutputStream out, Map<String, String> params, CamSettings req,
-                          java.util.List<CamSettings> steps, JSONObject manifest,
-                          String prefix, java.util.List<String> labels,
-                          java.util.List<JSONObject> asked) throws Exception {
+    private Answer walkAnswer(Map<String, String> params, CamSettings req,
+                              java.util.List<CamSettings> steps, JSONObject manifest,
+                              String prefix, java.util.List<String> labels,
+                              java.util.List<JSONObject> asked) throws Exception {
         // Longer than a burst by default. Each step moves the camera and waits for it, and
         // a frame taken before it arrives is a frame at the wrong setting wearing the
         // right label.
@@ -976,11 +1269,9 @@ public class HttpServer implements Runnable {
         names.add("walk.json");
         files.add(manifest.toString(2).getBytes(StandardCharsets.UTF_8));
 
-        sendHead(out, 200, "application/x-tar", Tar.contentLength(files),
+        return Answer.archive(200, names, files, manifest,
                 "X-DeskCam-Frames: " + frames.size() + "\r\n"
                 + "X-DeskCam-Millis: " + ms + "\r\n");
-        Tar.writeTo(out, names, files);
-        out.flush();
     }
 
     private static float floatParam(Map<String, String> p, String k, float dflt, float lo, float hi)

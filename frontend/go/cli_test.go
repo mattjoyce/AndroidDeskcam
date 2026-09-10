@@ -436,3 +436,182 @@ func captureStdout(t *testing.T, f func() int) (string, int) {
 	}
 	return string(out), code
 }
+
+// ---------------------------------------------------------------- the script
+
+// A script's answer is one ordered stream: an event, then the pixels it describes.
+//
+// The three shapes that matter are a tape that finished, a tape that stopped at a step,
+// and a stream that ended without saying either. Only the first is exit 0. Card 57.
+func TestAScriptStreamIsUnpackedAndItsEndingDecidesTheExitCode(t *testing.T) {
+	provenance := `{"tool":"DeskCam","settings":{"zoom":2},"measured":{"iso":200}}`
+	cases := []struct {
+		name    string
+		parts   []scriptPart
+		closed  bool
+		want    int
+		expects []string
+	}{
+		{
+			name: "finished",
+			parts: []scriptPart{
+				{json: `{"started":true,"steps":3,"verbs":["SET","WAIT","SNAP"]}`},
+				{json: `{"step":0,"verb":"SET","ok":true,"result":{"settings":{"zoom":2,` +
+					`"cx":0.5,"cy":0.5,"af":"off","ae":"manual"}}}`},
+				{json: `{"step":1,"verb":"WAIT","ok":true,"waited_ms":400}`},
+				{json: `{"step":2,"verb":"SNAP","ok":true,"files":["002-still.jpg"],` +
+					`"result":` + provenance + `}`},
+				{name: "002-still.jpg", body: "pretend pixels"},
+				{json: `{"done":true,"ok":true,"steps":3,"completed":3,"millis":1500}`},
+			},
+			closed:  true,
+			want:    0,
+			expects: []string{"3 steps: SET WAIT SNAP", "400 ms", "002-still.jpg", "done: 3 of 3"},
+		},
+		{
+			name: "stopped at a step",
+			parts: []scriptPart{
+				{json: `{"started":true,"steps":3,"verbs":["SET","SNAP","SET"]}`},
+				{json: `{"step":0,"verb":"SET","ok":true,"result":{"settings":{"torch":45}}}`},
+				{json: `{"step":1,"verb":"SNAP","ok":false,"error":"the capture timed out"}`},
+				{json: `{"done":true,"ok":false,"steps":3,"completed":1,"failed_at":1,` +
+					`"line":3,"verb":"SNAP","error":"the capture timed out",` +
+					`"restored":{"torch":0,"zoom":1,"cx":0.5,"cy":0.5}}`},
+			},
+			closed:  true,
+			want:    1,
+			expects: []string{"FAILED"},
+		},
+		{
+			// The connection died part way. Nothing said the tape finished, so it did not.
+			name: "truncated",
+			parts: []scriptPart{
+				{json: `{"started":true,"steps":2,"verbs":["SET","SNAP"]}`},
+				{json: `{"step":0,"verb":"SET","ok":true,"result":{"settings":{"zoom":1}}}`},
+			},
+			closed: true,
+			want:   1,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/script" {
+					t.Errorf("a script should POST to /api/script, got %s %s", r.Method, r.URL.Path)
+				}
+				tape, _ := io.ReadAll(r.Body)
+				if !strings.Contains(string(tape), "SET zoom=2") {
+					t.Errorf("the tape should reach the phone as it was written, got %q", tape)
+				}
+				w.Header().Set("Content-Type", "multipart/mixed; boundary=deskcamstep")
+				for _, p := range c.parts {
+					_, _ = w.Write([]byte(p.encode()))
+				}
+				if c.closed {
+					_, _ = w.Write([]byte("--deskcamstep--\r\n"))
+				}
+			}))
+			defer server.Close()
+
+			tape := filepath.Join(t.TempDir(), "tape.dcl")
+			if err := os.WriteFile(tape, []byte("# a tape\nSET zoom=2\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(t.TempDir(), "out")
+			cfg := Config{URL: server.URL, Shots: t.TempDir(), Timeout: defaultTestTimeout}
+			in := &invocation{command: "script", args: []string{"run", tape}, out: dir,
+				cfg: cfg, client: NewClient(cfg)}
+			printed, code := captureStdout(t, func() int { return scriptCommand(in) })
+			if code != c.want {
+				t.Errorf("exit code %d, wanted %d; printed:\n%s", code, c.want, printed)
+			}
+			for _, want := range c.expects {
+				if !strings.Contains(printed, want) {
+					t.Errorf("a script run should print %q, got:\n%s", want, printed)
+				}
+			}
+		})
+	}
+}
+
+// The pixels land on disk with the event that describes them beside them, and a part
+// name is untrusted input however well the phone behaves.
+func TestAScriptWritesEachCaptureAndItsRecord(t *testing.T) {
+	parts := []scriptPart{
+		{json: `{"started":true,"steps":1,"verbs":["WALK"]}`},
+		{json: `{"step":0,"verb":"WALK","ok":true,"files":["000-torch-00-0.jpg","000-walk.json"],` +
+			`"result":{"walk":"torch","warnings":["the white balance was left to the camera"],` +
+			`"frames":[{"file":"torch-00-0.jpg","step":0,"vary":"torch","value_asked":"0"}]}}`},
+		{name: "000-torch-00-0.jpg", body: "frame"},
+		{name: "000-walk.json", body: `{"walk":"torch"}`},
+		{name: "../../escaped.jpg", body: "nope"},
+		{json: `{"done":true,"ok":true,"steps":1,"completed":1,"millis":900}`},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "multipart/mixed; boundary=deskcamstep")
+		for _, p := range parts {
+			_, _ = w.Write([]byte(p.encode()))
+		}
+		_, _ = w.Write([]byte("--deskcamstep--\r\n"))
+	}))
+	defer server.Close()
+
+	tape := filepath.Join(t.TempDir(), "tape.dcl")
+	if err := os.WriteFile(tape, []byte("SET zoom=2\nWALK vary=torch values=0,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "out")
+	cfg := Config{URL: server.URL, Shots: root, Timeout: defaultTestTimeout}
+	in := &invocation{command: "script", args: []string{"run", tape}, out: dir, cfg: cfg,
+		client: NewClient(cfg)}
+	if _, code := captureStdout(t, func() int { return scriptCommand(in) }); code != 0 {
+		t.Fatalf("the script should have finished, got %d", code)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "..", "escaped.jpg")); err == nil {
+		t.Fatal("a part name is a path, and a stream is untrusted input")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "escaped.jpg")); err != nil {
+		t.Fatal("the part should have landed inside the script's own directory")
+	}
+	// A frame of a walk gets its own entry from the manifest, not the manifest.
+	raw, err := os.ReadFile(filepath.Join(dir, "000-torch-00-0.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["value_asked"] != "0" || record["vary"] != "torch" {
+		t.Fatalf("the sidecar should be this frame's own record, got %v", record)
+	}
+	// The manifest is already a record, so nothing overwrites it with an event.
+	manifest, err := os.ReadFile(filepath.Join(dir, "000-walk.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifest) != `{"walk":"torch"}` {
+		t.Fatalf("walk.json should arrive untouched, got %s", manifest)
+	}
+}
+
+// scriptPart is one member of the stream a fake phone writes.
+type scriptPart struct {
+	json string // a JSON event, when this is not a file
+	name string // the filename, when it is
+	body string
+}
+
+func (p scriptPart) encode() string {
+	head := "--deskcamstep\r\nContent-Type: application/json; charset=utf-8\r\n"
+	body := p.json
+	if p.name != "" {
+		head = "--deskcamstep\r\nContent-Type: image/jpeg\r\n" +
+			"Content-Disposition: attachment; filename=\"" + p.name + "\"\r\n"
+		body = p.body
+	}
+	return head + fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body)) + body + "\r\n"
+}

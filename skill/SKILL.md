@@ -152,6 +152,44 @@ must demosaic before it crops. The framing is reported in the `X-DeskCam-ROI` he
 For a burst, set the exposure a little dark. Highlights that clip cannot be recovered, and
 the average brings the shadows back.
 
+## A sequence goes as one tape
+
+When you want several steps, submit them together rather than one command at a time:
+
+```sh
+cat > /tmp/inspect.dcl <<'TAPE'
+# inspect the part, lit and unlit
+SET zoom=2 cx=0.5 cy=0.5 exposure=1/33 iso=200 awbgains=neutral
+FOCUSHUNT
+SET torch=25
+WAIT 500
+SNAP
+SET torch=0
+SNAP
+TAPE
+deskcam script run /tmp/inspect.dcl
+```
+
+The verbs are `SNAP`, `FRAME`, `RAW`, `BURST`, `BRACKET`, `FOCUSSWEEP`, `WALK`,
+`FOCUSHUNT`, `SET`, `RESET`, `AF`, `STATUS` and `WAIT`, each taking the same `k=v` words
+its command takes. `#` is a comment. `WAIT` is for waiting on something that is not a
+capture, such as the LED settling after `torch=45`; a capture verb has `settle` of its own.
+
+**Do this whenever two steps have to describe the same moment**, because the reason is not
+speed. Nothing stops the browser panel, or another agent, from changing the camera between
+your `SET` and your `SNAP`. A tape holds the camera for its whole duration and refuses
+anything that would change it, so the sequence you asked for is the sequence that ran.
+
+The whole tape is read before any of it runs, so a typo is a 400 and the camera is
+untouched. A step that fails ends the tape, puts the camera back where the tape found it,
+and exits non-zero, so `deskcam script run x.dcl && deskcam analyse ...` is safe to write.
+A `FOCUSHUNT` that finds no peak is a failed step for that reason: the `SNAP` after it
+would have been out of focus.
+
+Each capture is written to the directory the run prints, with its own record beside it.
+You are the intelligence; a tape has no branching, no variables and no arithmetic on
+purpose. When you need to decide something, read the result and send another tape.
+
 ## Everything is one parameter set
 
 Any parameter works on any command, and is applied before the picture is taken. So one
