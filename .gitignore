@@ -10,3 +10,22 @@ frontend/go/deskcam
 # The luminary panel write-ups. Kept on disk, because several kanban cards cite them as
 # the record of why a decision was made, and out of the repository on purpose.
 reviews/
+
+# Bench captures, sidecars, and local analysis outputs
+deskcam-bracket-*
+deskcam-sweep-*
+deskcam-walk-*
+deskcam-noisefloor.json
+deskcam-scale.json
+lin/
+burst/
+*.jpg
+*.jpeg
+*.dng
+*.thumb.jpg
+
+# OS and editor files
+.DS_Store
+*.swp
+*~
+

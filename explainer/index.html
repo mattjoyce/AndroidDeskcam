@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeskCam — Autonomous Bench Instrument & AI Vision Documentation</title>
+  <meta name="description" content="Technical documentation and interactive explainer for DeskCam: turn a spare Android phone into a high-precision, programmable 12MP bench camera for AI agents and hardware labs.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Ambient Cosmic & Matrix Glows -->
+  <div class="ambient-glow"></div>
+  <div class="bg-grid-overlay"></div>
+
+  <!-- Top Header -->
+  <header class="top-header">
+    <a href="#hero" class="brand">
+      <div class="brand-icon">✦</div>
+      <span>ANTIGRAVITY // DESKCAM</span>
+      <span class="brand-badge">API 37</span>
+    </a>
+    <div class="header-actions">
+      <button id="themeToggle" class="theme-toggle" title="Toggle Theme" aria-label="Toggle Theme">
+        <span>◐</span>
+        <span id="themeLabel">THEME: DARK</span>
+      </button>
+      <button id="mobileNavToggle" class="mobile-nav-toggle" title="Toggle Menu" aria-label="Toggle Navigation">
+        <span>☰</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="nav-group">
+        <div class="nav-heading">1. Introduction</div>
+        <a href="#hero" class="nav-link active">Overview <span class="nav-badge">01</span></a>
+        <a href="#why-deskcam" class="nav-link">Why DeskCam? <span class="nav-badge">02</span></a>
+        <a href="#agent-vision" class="nav-link">AI Agent Access <span class="nav-badge">03</span></a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-heading">2. Quick Start</div>
+        <a href="#getting-started" class="nav-link">5-Minute Setup <span class="nav-badge">04</span></a>
+        <a href="#workbench-recipes" class="nav-link">Bench Recipes <span class="nav-badge">05</span></a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-heading">3. Architecture</div>
+        <a href="#technical-components" class="nav-link">Software Stack <span class="nav-badge">06</span></a>
+        <a href="#sensor-physics" class="nav-link">Sensor & Software ROI <span class="nav-badge">★</span></a>
+        <a href="#macro-optics" class="nav-link">Focus & Dioptres <span class="nav-badge">★</span></a>
+        <a href="#display-pwm" class="nav-link">PWM Anti-Banding <span class="nav-badge">★</span></a>
+        <a href="#action-tapes" class="nav-link">Action Tape DSL <span class="nav-badge">07</span></a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-heading">4. Reference</div>
+        <a href="#command-playground" class="nav-link">Command Builder <span class="nav-badge">★</span></a>
+        <a href="#http-contract" class="nav-link">HTTP API Contract <span class="nav-badge">08</span></a>
+        <a href="#metrology-refusal" class="nav-link">Metrology & Refusal <span class="nav-badge">09</span></a>
+        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D16) <span class="nav-badge">10</span></a>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="content">
+      
+      <!-- HERO SECTION -->
+      <section id="hero" class="hero">
+        <div class="hero-tag">✦ ANTIGRAVITY AGENTIC VISION SUBSYSTEM</div>
+        <h1 class="hero-title">High-Precision Vision for AI Agents & Hardware Labs</h1>
+        <p class="hero-subtitle">
+          DeskCam repurposes a spare Android smartphone into a programmable 12-megapixel optical bench instrument.
+          Engineered for autonomous coding agents like Claude Code and hardware engineers debugging circuits,
+          it provides lossless 1:1 sensor crops, true linear radiometric data, and token-efficient shell tools with zero external dependencies.
+        </p>
+
+        <div class="callout callout-axiom">
+          <div class="callout-title">
+            <span style="color:var(--accent-cyan);">⚖</span> The Governing Axiom
+          </div>
+          <p>
+            <strong>"The camera is first an instrument. It is second a camera. If the two aims disagree, the instrument aim wins."</strong>
+            Every software component optimizes for repeatable, un-beautified physical measurement over aesthetic consumer photography.
+          </p>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat-card">
+            <div class="stat-label">Sensor Array</div>
+            <div class="stat-val">12.2 <small>MP</small></div>
+            <div style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">4032 × 3024 1:1 Bayer</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Exposure Range</div>
+            <div class="stat-val">53.7 <small>µs</small> – 10.2 <small>s</small></div>
+            <div style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">>190,000:1 Dynamic Range</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Minimum Focus</div>
+            <div class="stat-val">98 <small>mm</small></div>
+            <div style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">10.204 dioptres (Macro)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Clean Build Time</div>
+            <div class="stat-val">~2.1 <small>sec</small></div>
+            <div style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">Zero Gradle / Zero AndroidX</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 1: WHY DESKCAM (GENERAL UTILITY) -->
+      <section id="why-deskcam">
+        <h2>Why DeskCam? General Utility & Hardware Economics</h2>
+        <p>
+          Almost every engineer has an old smartphone sitting unused in a drawer.
+          At the same time, standard USB webcams used on workbenches suffer from severe optical deficiencies:
+        </p>
+        <ul>
+          <li><strong>Webcams are physically inadequate:</strong> Cheap USB webcams have tiny, noisy 1/4" sensors, fixed plastic lenses, severe chromatic aberration, and hunting autofocus routines that fail on circuit boards.</li>
+          <li><strong>Webcam drivers are bloated:</strong> Most webcams require heavy drivers, lack manual exposure locking, and silently apply non-linear tone curves that destroy optical truth.</li>
+          <li><strong>A smartphone is an optical supercomputer:</strong> A modern phone contains a large Sony IMX sensor with high quantum efficiency, 10-bit linear RAW output, voice-coil motor autofocus, a 45-level LED torch, multi-core CPU/GPU, battery backup, and high-speed Wi-Fi/USB.</li>
+        </ul>
+
+        <h3>Core Workbench Applications</h3>
+        <div class="card-grid">
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Electronics</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">SMD & PCB</span>
+            </div>
+            <div class="card-title">Circuit Debug & PCB Inspection</div>
+            <div class="card-desc">
+              Inspect 0402 passives, QFN solder bridges, trace routing, and read silkscreen part numbers at 30 µm/pixel resolution with macro focus and controlled illumination.
+            </div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Autonomous</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">AI Eyes</span>
+            </div>
+            <div class="card-title">AI Coding Agent Vision</div>
+            <div class="card-desc">
+              Give Claude Code, local LLMs, and autonomous agents direct shell access to capture photos of hardware, evaluate physical test equipment, and verify real-world state.
+            </div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Optics</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">Metrology</span>
+            </div>
+            <div class="card-title">OLED & Display Engineering</div>
+            <div class="card-desc">
+              Capture displays without rolling shutter PWM banding by synchronizing exposure with panel duty cycles, with linear gamma and zero beautification.
+            </div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Fabrication</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">Additive</span>
+            </div>
+            <div class="card-title">3D Printing & Tool Monitoring</div>
+            <div class="card-desc">
+              Automate first-layer verification, bed adhesion inspection, and high-resolution time-lapses with programmatic pan/zoom and orientation sensors.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 2: AI AGENT ACCESS -->
+      <section id="agent-vision">
+        <h2>AI Agent Access & Image Capture</h2>
+        <p>
+          Traditional camera software is designed for human eyeballs clicking glass buttons.
+          When an AI agent (such as Claude Code or an autonomous coding assistant) interacts with a camera,
+          traditional video streams or GUI-based controls fail completely.
+        </p>
+
+        <h3>The 8 Agentic Design Rules (R1–R8)</h3>
+        <p>
+          DeskCam's architecture adheres strictly to eight rules designed specifically for language model agents:
+        </p>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Design Principle</th>
+                <th>Why It Matters for AI Agents</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>R1</strong></td>
+                <td>Exit codes over prose</td>
+                <td>Every command exits <code>0</code> for success, <code>2</code> for a valid refusal (e.g. noise floor failure), and <code>1</code> for tool error. Agents branch on numeric exit codes, not ambiguous text parsing.</td>
+              </tr>
+              <tr>
+                <td><strong>R2</strong></td>
+                <td>Print paths, never pixels</td>
+                <td>A capture command outputs exactly one file path to stdout (<code>/tmp/deskcam-01.jpg</code>). The agent reads the file with dedicated vision tools, keeping the LLM prompt context clean.</td>
+              </tr>
+              <tr>
+                <td><strong>R3</strong></td>
+                <td>Full <code>k=v</code> on every endpoint</td>
+                <td>Any endpoint accepts the full control set. The agent does not need to query state or manage sessions before acting: <code>deskcam snap zoom=4 cx=0.3 exposure=1/120</code> is an atomic unit of intent.</td>
+              </tr>
+              <tr>
+                <td><strong>R4</strong></td>
+                <td>Report measured truth</td>
+                <td>Responses return the actual achieved hardware settings from the sensor's <code>TotalCaptureResult</code>, not just requested values. The agent verifies reality in the same request.</td>
+              </tr>
+              <tr>
+                <td><strong>R5</strong></td>
+                <td>Unknown parameter is HTTP 400</td>
+                <td>A spelling mistake fails immediately with HTTP 400. It never silently defaults or falls back, preventing the agent from trusting an incorrectly framed or exposed capture.</td>
+              </tr>
+              <tr>
+                <td><strong>R6</strong></td>
+                <td>The API describes itself</td>
+                <td><code>GET /api/help</code> returns the machine-readable schema generated directly from <code>Params.java</code>. The agent queries the live endpoint to learn valid ranges without stale docs.</td>
+              </tr>
+              <tr>
+                <td><strong>R7</strong></td>
+                <td>Native datasheet units</td>
+                <td>Parameters accept datasheet units directly: <code>1/120</code>, <code>8ms</code>, <code>250us</code>, <code>0.12m</code>, or dioptres. The agent executes zero unit conversions.</td>
+              </tr>
+              <tr>
+                <td><strong>R8</strong></td>
+                <td>Pure idempotence</td>
+                <td>Re-running any command with identical parameters safely produces the same hardware state. Duplicate agent retries never cause state drift.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Agent Tool Integration Pattern</h3>
+        <p>
+          In Claude Code or any agent environment, DeskCam integrates seamlessly through standard shell execution.
+          The agent executes a one-line command and directly receives the image file path:
+        </p>
+
+        <pre><code># Inside an agent shell tool execution:
+img=$(deskcam snap zoom=4 cx=0.32 cy=0.68 torch=25 focusm=0.12)
+echo "Captured inspection image at: $img"
+# The agent now invokes its multimodal view_file / inspect tool on $img</code></pre>
+
+        <h3>Closed-Loop Autonomous Focus Hunting</h3>
+        <p>
+          Closing an autofocus loop across a Wi-Fi network requires 14 round trips:
+          <em>set focus &rarr; wait settle &rarr; request frame &rarr; compute sharpness metric</em>.
+          Over the network, this takes over 15 seconds.
+        </p>
+        <p>
+          DeskCam solves this with <strong><code>/api/focushunt</code></strong>.
+          The phone runs the search loop in-camera on the live NV21 preview stream:
+          it conducts a 9-step coarse search followed by a 5-step fine search, computing the Laplacian variance of each frame in ~9 ms.
+          The entire search finishes in <strong>4.0 seconds</strong>, transferring zero intermediate frames over the network.
+        </p>
+      </section>
+
+      <!-- SECTION 3: GETTING STARTED (5-MINUTE SETUP) -->
+      <section id="getting-started">
+        <h2>5-Minute Setup & Quick Start Guide</h2>
+        <p>
+          Getting DeskCam running on your bench requires only a few commands.
+          The Android app has zero external dependencies and builds in approximately 2 seconds.
+        </p>
+
+        <h3>Prerequisites</h3>
+        <ul>
+          <li>Any Android device supporting Camera2 API (Android 10+; optimized for Pixel 6a on GrapheneOS / Android 17).</li>
+          <li>Workstation running Linux or macOS with Go and Android SDK build-tools installed.</li>
+          <li>USB-C cable (for adb) or shared Wi-Fi subnet.</li>
+        </ul>
+
+        <h3>Step 1: Build & Install the Phone App</h3>
+        <pre><code># Clone the repository
+git clone https://github.com/mattjoyce/AndroidDeskcam.git
+cd AndroidDeskcam
+
+# Compile the zero-dependency APK directly using Android SDK tools (~2.1s clean build)
+./backend/build.sh
+
+# Install onto your phone via USB with runtime permissions auto-granted (-g is essential!)
+adb install -r -g backend/build/deskcam.apk
+
+# Launch the camera foreground service headlessly
+adb shell am start -n dev.deskcam/.MainActivity -a dev.deskcam.START --ez finish true</code></pre>
+
+        <div class="callout callout-warning">
+          <div class="callout-title">⚠️ The Android 17 Local Network Gotcha</div>
+          <p>
+            In Android 17 (API 37), local network access is completely separated from the <code>INTERNET</code> permission.
+            An app can reach the public internet while the OS silently drops all incoming and outgoing LAN packets.
+            The <code>-g</code> flag in <code>adb install -r -g</code> ensures the critical <code>android.permission.ACCESS_LOCAL_NETWORK</code> is granted immediately.
+          </p>
+        </div>
+
+        <h3>Step 2: Build the Static Go CLI</h3>
+        <p>
+          Compile the workstation CLI. It produces a single, self-contained binary with no runtime dependencies:
+        </p>
+        <pre><code>cd frontend/go
+go build -o deskcam .
+cd ../..
+
+# Symlink to your PATH for instant access
+ln -s "$PWD/frontend/go/deskcam" ~/.local/bin/deskcam</code></pre>
+
+        <h3>Step 3: Connect to the Phone</h3>
+        <pre><code># Option A: Zero-configuration USB loopback (bypasses all Wi-Fi & permissions)
+deskcam usb          # executes 'adb forward' to 127.0.0.1:8080
+
+# Option B: Wi-Fi on local subnet
+deskcam wifi         # discovers phone IP on your local subnet
+
+# Verify connection:
+deskcam show         # prints one-line status summary</code></pre>
+      </section>
+
+      <!-- SECTION 4: WORKBENCH RECIPES -->
+      <section id="workbench-recipes">
+        <h2>Workbench Recipes</h2>
+        <div class="card-grid">
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Recipe 1</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">SMD Circuit</span>
+            </div>
+            <div class="card-title">Microcontroller Pin 1 Debug</div>
+            <div class="card-desc">
+              Zoom in 6&times; on a specific board coordinate with 12 cm macro focus and LED torch:
+            </div>
+            <pre><code>deskcam snap zoom=6 cx=0.32 cy=0.68 torch=25 focusm=0.12</code></pre>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Recipe 2</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">Display</span>
+            </div>
+            <div class="card-title">Flicker-Free Display Capture</div>
+            <div class="card-desc">
+              Synchronize shutter with the 60 Hz or 240 Hz panel refresh period and lock white balance:
+            </div>
+            <pre><code>deskcam set exposure=1/60 iso=200 awb=daylight awblock=on
+deskcam snap -o panel.jpg</code></pre>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Recipe 3</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">Deep Focus</span>
+            </div>
+            <div class="card-title">Dioptre Focus Sweep & Stack</div>
+            <div class="card-desc">
+              Capture 7 dioptre-spaced slices through PCB depth and merge into one crisp 16-bit frame:
+            </div>
+            <pre><code>deskcam focussweep from=3 to=6 steps=7 -o sweep/
+deskcam analyse stack sweep/</code></pre>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-rule">Recipe 4</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">Radiometric</span>
+            </div>
+            <div class="card-title">10-Bit Linear RAW DNG</div>
+            <div class="card-desc">
+              Bypass all tone curves, noise reduction, and ISP processing for optical measurements:
+            </div>
+            <pre><code>deskcam raw -o measurement.dng exposure=1/120 iso=56</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 5: TECHNICAL COMPONENTS -->
+      <section id="technical-components">
+        <h2>Technical Architecture & Software Components</h2>
+        <p>
+          DeskCam strictly enforces a three-tier separation of concerns (<strong>Decision D13</strong>).
+          Each language is selected for technical necessity rather than convenience:
+        </p>
+
+        <div class="arch-diagram-wrap">
+          <svg class="arch-svg" viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="antigravityBoxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#131926"/>
+                <stop offset="100%" stop-color="#0a0e17"/>
+              </linearGradient>
+            </defs>
+
+            <!-- Phone Backend Box -->
+            <rect x="20" y="20" width="340" height="320" rx="10" fill="url(#antigravityBoxGrad)" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="40" y="50" fill="#38bdf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">PHONE RUNTIME (backend/)</text>
+            <text x="40" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Android 17 • Zero External Libraries • Java 17</text>
+
+            <rect x="40" y="85" width="300" height="42" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="55" y="110" fill="#f8fafc" font-family="var(--font-mono)" font-size="12">HttpServer.java (Daemon :8080)</text>
+
+            <rect x="40" y="135" width="300" height="42" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="55" y="160" fill="#f8fafc" font-family="var(--font-mono)" font-size="12">CameraEngine.java (Camera2 HAL)</text>
+
+            <rect x="40" y="185" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="50" y="208" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Sharp.java (Laplacian)</text>
+
+            <rect x="195" y="185" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="205" y="208" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Hunt.java (In-Cam AF)</text>
+
+            <rect x="40" y="230" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="50" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Health.java (Thermals)</text>
+
+            <rect x="195" y="230" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="205" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Tape.java (Lock 409)</text>
+
+            <rect x="40" y="278" width="300" height="44" rx="6" fill="#0b0f19" stroke="rgba(255,255,255,0.05)"/>
+            <text x="55" y="298" fill="#10b981" font-family="var(--font-mono)" font-size="11">Physical Silicon: Sony IMX363 Bayer Sensor</text>
+            <text x="55" y="313" fill="#64748b" font-family="var(--font-sans)" font-size="10">4032x3024 • 10-bit RAW • VCM AF Lens • LED Ring</text>
+
+            <!-- Network Conduit -->
+            <path d="M 360 106 L 530 106" stroke="#818cf8" stroke-width="2.5" stroke-dasharray="6 4"/>
+            <rect x="395" y="88" width="100" height="36" rx="6" fill="#131926" stroke="#818cf8"/>
+            <text x="415" y="104" fill="#38bdf8" font-family="var(--font-mono)" font-size="10" font-weight="bold">HTTP/1.1</text>
+            <text x="405" y="117" fill="#94a3b8" font-family="var(--font-mono)" font-size="9">Wi-Fi / ADB :8080</text>
+
+            <!-- Workstation Box -->
+            <rect x="540" y="20" width="340" height="320" rx="10" fill="url(#antigravityBoxGrad)" stroke="#818cf8" stroke-width="1.5"/>
+            <text x="560" y="50" fill="#818cf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">WORKSTATION (frontend/)</text>
+            <text x="560" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Linux / macOS • Go Static CLI + Python Metrology</text>
+
+            <!-- Go CLI -->
+            <rect x="560" y="85" width="300" height="75" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="575" y="108" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">deskcam (Go Static Binary)</text>
+            <text x="575" y="128" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">CLI Command Dispatcher • ADB loopback bridge</text>
+            <text x="575" y="145" fill="#64748b" font-family="var(--font-sans)" font-size="10">Local Web Console (:8081) • Film Roll Viewfinder</text>
+
+            <!-- Python Analysis -->
+            <rect x="560" y="170" width="300" height="75" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="575" y="193" fill="#c084fc" font-family="var(--font-mono)" font-size="12" font-weight="bold">frontend/analysis/ (Python / NumPy)</text>
+            <text x="575" y="213" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">aatest (noise floor) • linearity fit • scale (autocorr)</text>
+            <text x="575" y="230" fill="#64748b" font-family="var(--font-sans)" font-size="10">burst-noise (Monte Carlo) • 16-bit stack • hdr merge</text>
+
+            <!-- Agent Box -->
+            <rect x="560" y="255" width="300" height="65" rx="6" fill="#182238" stroke="#38bdf8"/>
+            <text x="575" y="278" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">Claude Code & AI Coding Agents</text>
+            <text x="575" y="298" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">Dispatches shell captures, receives file paths,</text>
+            <text x="575" y="312" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">executes atomic action tapes, evaluates exit codes.</text>
+          </svg>
+        </div>
+
+        <h3>Deep Dive: The Backend Java Daemon</h3>
+        <p>
+          The phone runtime is built from scratch without standard Android app bloat:
+        </p>
+        <ul>
+          <li><code>HttpServer.java</code> (~400 lines): A lean, multithreaded HTTP/1.1 server running on a raw <code>ServerSocket</code>. It handles keep-alive connections, serves MJPEG multipart streams, and dynamically formats USTAR tar archives in memory.</li>
+          <li><code>CameraEngine.java</code>: Controls the Camera2 hardware capture session. It coordinates two pipelines: a repeating preview stream (YUV_420_888 &rarr; NV21) and on-demand full-resolution still captures.</li>
+          <li><code>TotalCaptureResult</code> Correlation (Decision D8): Every frame request is paired with its hardware capture result using the sensor's hardware timestamp clock, guaranteeing that EXIF metadata and sidecars reflect the true physical capture.</li>
+        </ul>
+
+        <h3>Deep Dive: The Static Go Binary (frontend/go/)</h3>
+        <p>
+          Taking a photograph or checking camera status requires zero runtime dependencies.
+          The Go CLI is compiled into a single static binary:
+        </p>
+        <ul>
+          <li><strong>Zero-Config URL Discovery:</strong> Automatically resolves the camera target in priority order: <code>--url</code> flag &rarr; <code>$DESKCAM_URL</code> environment variable &rarr; <code>~/.config/deskcam/url</code> &rarr; localhost:8080.</li>
+          <li><strong>Automated USB Forwarding:</strong> <code>deskcam usb</code> executes <code>adb forward tcp:8080 tcp:8080</code>, making camera control 100% reliable even in air-gapped or restricted Wi-Fi environments.</li>
+          <li><strong>Integrated Web Console:</strong> <code>deskcam serve</code> runs a local web viewfinder with live MJPEG streaming, touch-to-center pan/zoom, and thumbnail rolls.</li>
+        </ul>
+      </section>
+
+      <!-- SECTION 6: SENSOR PHYSICS & SOFTWARE ROI -->
+      <section id="sensor-physics">
+        <h2>Sensor Physics: Software ROI Pan vs HAL Center Zoom</h2>
+        <p>
+          The Pixel 6a sensor reports <code>android.scaler.croppingType = CENTER_ONLY</code>.
+          When the camera HAL receives a crop rectangle with an offset, it strips the offset and zooms strictly around the optical center.
+          <strong>Hardware pan is physically impossible on the device.</strong>
+        </p>
+        <p>
+          <strong>The Solution (Decision D1):</strong> DeskCam always requests the full, uncropped 4032 &times; 3024 12MP array from the sensor.
+          Cropping to the target Region of Interest (ROI) is executed entirely in software.
+          Every pixel in a zoomed image remains a true, un-interpolated sensor pixel.
+          Autofocus and auto-exposure metering regions dynamically follow the software ROI.
+        </p>
+
+        <!-- Interactive Simulator: Sensor Crop -->
+        <div class="interactive-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>🔬 Interactive Sensor ROI Simulator</span>
+            </div>
+            <span class="panel-tag">Software ROI vs HAL Center Zoom</span>
+          </div>
+
+          <div class="crop-sim-container">
+            <div class="sensor-canvas-wrapper">
+              <canvas id="sensorCanvas"></canvas>
+            </div>
+
+            <div class="crop-controls">
+              <div class="control-item">
+                <div class="control-label-row">
+                  <span>Software Zoom</span>
+                  <span id="simZoomVal">1.0x</span>
+                </div>
+                <input type="range" id="simZoom" class="control-slider" min="1.0" max="8.0" step="0.2" value="2.0">
+              </div>
+
+              <div class="control-item">
+                <div class="control-label-row">
+                  <span>Center X (cx)</span>
+                  <span id="simCxVal">0.50</span>
+                </div>
+                <input type="range" id="simCx" class="control-slider" min="0.0" max="1.0" step="0.02" value="0.35">
+              </div>
+
+              <div class="control-item">
+                <div class="control-label-row">
+                  <span>Center Y (cy)</span>
+                  <span id="simCyVal">0.50</span>
+                </div>
+                <input type="range" id="simCy" class="control-slider" min="0.0" max="1.0" step="0.02" value="0.40">
+              </div>
+
+              <div class="control-item">
+                <div class="control-label-row">
+                  <span>Camera Rotation</span>
+                </div>
+                <select id="simRotate" style="background:var(--bg-tertiary); border:1px solid var(--border-strong); color:var(--text-primary); padding:0.4rem; border-radius:6px; font-family:var(--font-mono); font-size:0.82rem;">
+                  <option value="0">0° (Normal Stand Mount)</option>
+                  <option value="90">90°</option>
+                  <option value="180">180° (Inverted Boom Arm)</option>
+                  <option value="270">270°</option>
+                </select>
+              </div>
+
+              <div class="sim-readout">
+                <div>Raw Sensor Array: <strong>4032 × 3024 px</strong></div>
+                <div>ROI Output Size: <strong id="readoutRes">2016 × 1512 px</strong></div>
+                <div>Capture Pipeline: <span id="readoutPath">decoded_and_reencoded</span></div>
+                <div>Active Crop Bounds: <span id="readoutBounds">L:0, T:0, W:2016, H:1512</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 7: MACRO OPTICS & DIOPTRES -->
+      <section id="macro-optics">
+        <h2>Macro Optics: Dioptres vs Millimetres</h2>
+        <p>
+          When sweeping or stacking focus across close subjects (such as SMD IC leads),
+          stepping the lens in millimetres causes non-linear blur discs.
+          Depth of field (DOF) is nearly constant per <strong>dioptre</strong> ($D = 1/f$ in metres),
+          whereas in millimetres it changes quadratically:
+        </p>
+        <ul>
+          <li>At the 98 mm minimum macro focus, <strong>1 mm corresponds to ~0.10 dioptres</strong>.</li>
+          <li>At 500 mm distance, <strong>1 mm corresponds to ~0.004 dioptres</strong> (a 25&times; difference!).</li>
+        </ul>
+        <p>
+          A focus sweep evenly spaced in millimetres would step completely over a close-up subject while crawling uselessly at distance.
+          DeskCam sweeps (<code>deskcam focussweep</code>) are spaced evenly in dioptres.
+        </p>
+
+        <div class="interactive-panel">
+          <div class="panel-header">
+            <div class="panel-title">📐 Interactive Dioptre & Depth-of-Field Visualizer</div>
+            <span class="panel-tag">Physical Optical Geometry</span>
+          </div>
+
+          <div class="focus-calc-grid">
+            <div class="focus-canvas-wrap">
+              <canvas id="focusCurveCanvas"></canvas>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:1rem;">
+              <div class="control-item">
+                <div class="control-label-row">
+                  <span>Subject Distance</span>
+                  <span id="focusDistVal">98 mm</span>
+                </div>
+                <input type="range" id="focusDistSlider" class="control-slider" min="98" max="1000" step="2" value="250">
+              </div>
+
+              <div class="sim-readout">
+                <div>Lens Dioptres: <strong id="focusDioptreReadout" class="highlight">4.00 d</strong></div>
+                <div>Estimated Depth of Field: <strong id="focusDofReadout">±6.2 mm</strong></div>
+                <div style="margin-top:0.5rem; font-size:0.75rem; color:var(--text-muted);">
+                  Formula: Dioptres $D = 1 / d_{\text{metres}}$. Stepping in dioptres ensures uniform optical focus slices.
+                </div>
+              </div>
+
+              <pre><code># Command for a 7-step focus stack
+deskcam focussweep from=3 to=6 steps=7</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 8: DISPLAY PWM ANTI-BANDING -->
+      <section id="display-pwm">
+        <h2>Display Engineering: PWM Rolling Shutter Anti-Banding</h2>
+        <p>
+          OLED displays and LED work lights are driven with Pulse Width Modulation (PWM), typically at 240 Hz, 360 Hz, or 480 Hz.
+          Because CMOS sensors expose row-by-row via a rolling shutter,
+          an arbitrary exposure time (such as 1/100 s = 2.4 periods at 240 Hz) causes each row to integrate a different duty-cycle phase,
+          creating bright and dark horizontal bands.
+        </p>
+        <p>
+          <strong>The Power-of-Two Bracketing Rule:</strong> To capture multi-exposure HDR brackets of an illuminated display without banding,
+          DeskCam anchors the base exposure to exactly one PWM period (e.g. $1/240	ext{ s} pprox 4.17	ext{ ms}$)
+          and steps strictly in powers of two ($1/240$, $1/120$, $1/60$, $1/30$).
+          Every exposure remains an integer multiple of the PWM cycle, completely neutralizing phase banding.
+        </p>
+
+        <div class="interactive-panel">
+          <div class="panel-header">
+            <div class="panel-title">〰️ Interactive PWM Rolling Shutter Wave Visualizer</div>
+            <span class="panel-tag">240Hz Display Evaluation</span>
+          </div>
+
+          <div class="pwm-sim-wrap">
+            <canvas id="pwmCanvas"></canvas>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem; align-items:center;">
+            <div class="control-item">
+              <div class="control-label-row">
+                <span>Shutter Speed Selection</span>
+              </div>
+              <select id="pwmExposureSelect" style="background:var(--bg-tertiary); border:1px solid var(--border-strong); color:var(--text-primary); padding:0.5rem; border-radius:6px; font-family:var(--font-mono); font-size:0.88rem;">
+                <option value="1/240">1/240 s (4.17 ms) — 1.00 Period [POWER OF 2]</option>
+                <option value="1/120">1/120 s (8.33 ms) — 2.00 Periods [POWER OF 2]</option>
+                <option value="1/60">1/60 s (16.67 ms) — 4.00 Periods [POWER OF 2]</option>
+                <option value="1/30">1/30 s (33.33 ms) — 8.00 Periods [POWER OF 2]</option>
+                <option value="1/100">1/100 s (10.00 ms) — 2.40 Periods [ARBITRARY / TRAP]</option>
+                <option value="1/160">1/160 s (6.25 ms) — 1.50 Periods [ARBITRARY / TRAP]</option>
+              </select>
+            </div>
+            <div class="sim-readout">
+              <div>Integrated PWM Cycles: <strong id="pwmRatioReadout" class="highlight">1.00 periods</strong></div>
+              <div>Banding Analysis: <span id="pwmReadout">Clean</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 9: ACTION TAPE DSL -->
+      <section id="action-tapes">
+        <h2>Action Tape DSL: Atomic Hardware Execution</h2>
+        <p>
+          Multi-step sequences driven via ad-hoc shell loops are fundamentally racy:
+          a secondary agent or an open web console tab polling <code>/api/status</code> can alter camera settings between a <code>SET</code> and a <code>SNAP</code>.
+        </p>
+        <p>
+          DeskCam solves this with <strong><code>POST /api/script</code></strong>.
+          An execution tape runs atomically on the phone:
+        </p>
+        <ul>
+          <li><strong>Atomic Camera Lock:</strong> While a tape executes, any concurrent request attempting to alter camera state is rejected with <strong>HTTP 409 Conflict</strong>. (Read requests remain permitted).</li>
+          <li><strong>Zero On-Device Storage:</strong> The response is a single <code>multipart/mixed</code> HTTP stream. Step completion events (JSON) and captured image parts (JPEG/TAR) stream back down the same TCP socket. The phone stores nothing.</li>
+          <li><strong>Execution Tape, Not a Language:</strong> Tapes contain no variables, branching, or loops. The agent provides the intelligence; the tape provides the execution record.</li>
+        </ul>
+
+        <div class="interactive-panel">
+          <div class="panel-header">
+            <div class="panel-title">▶️ Action Tape Simulator & Concurrency Lock</div>
+            <span id="cameraLockIndicator" class="panel-tag">CAMERA IDLE</span>
+          </div>
+
+          <div class="tape-sim-grid">
+            <div class="tape-editor">
+              <label style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted);">Inspection Tape (inspect.dcl)</label>
+              <textarea id="tapeText" class="tape-textarea"># inspect microcontroller lit and unlit
+SET zoom=4 cx=0.35 cy=0.62 exposure=1/60 iso=100 awbgains=neutral
+FOCUSHUNT
+SET torch=20
+WAIT 500
+SNAP
+SET torch=0
+SNAP</textarea>
+              <div class="tape-btn-bar">
+                <button id="runTapeBtn" class="btn-primary">RUN TAPE (POST /api/script)</button>
+                <button id="concurrentReqBtn" class="btn-secondary">SIMULATE CONCURRENT AGENT</button>
+              </div>
+            </div>
+
+            <div>
+              <label style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted);">Multipart/Mixed Stream Output</label>
+              <div id="tapeLog" class="tape-output">
+                <div style="color:var(--text-muted);">Ready. Click RUN TAPE to simulate execution.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 10: INTERACTIVE COMMAND PLAYGROUND -->
+      <section id="command-playground">
+        <h2>Interactive Command & API Playground</h2>
+        <p>
+          Configure camera parameters below to generate both the <code>deskcam</code> CLI invocation and the raw HTTP URL:
+        </p>
+
+        <div class="interactive-panel">
+          <div class="cmd-builder-grid">
+            <div class="param-select-box">
+              <label>Verb / Action</label>
+              <select id="cmdVerb">
+                <option value="snap">snap (Full Still)</option>
+                <option value="frame">frame (Quick Preview)</option>
+                <option value="raw">raw (10-bit DNG)</option>
+                <option value="burst">burst (TAR Archive)</option>
+                <option value="focushunt">focushunt (In-Cam Peak)</option>
+                <option value="status">status (Query JSON)</option>
+                <option value="set">set (Apply persistent)</option>
+                <option value="reset">reset (Factory Defaults)</option>
+              </select>
+            </div>
+
+            <div class="param-select-box">
+              <label>Zoom Factor (1.0 - 8.0)</label>
+              <input type="number" id="cmdZoom" min="1.0" max="8.0" step="0.5" value="4.0">
+            </div>
+
+            <div class="param-select-box">
+              <label>Center X (cx: 0.0 - 1.0)</label>
+              <input type="number" id="cmdCx" min="0.0" max="1.0" step="0.05" value="0.32">
+            </div>
+
+            <div class="param-select-box">
+              <label>Center Y (cy: 0.0 - 1.0)</label>
+              <input type="number" id="cmdCy" min="0.0" max="1.0" step="0.05" value="0.68">
+            </div>
+
+            <div class="param-select-box">
+              <label>LED Torch (0 - 45)</label>
+              <input type="number" id="cmdTorch" min="0" max="45" value="25">
+            </div>
+
+            <div class="param-select-box">
+              <label>Exposure Time</label>
+              <input type="text" id="cmdExp" value="1/120">
+            </div>
+
+            <div class="param-select-box">
+              <label>ISO Sensitivity</label>
+              <input type="number" id="cmdIso" min="56" max="7111" value="100">
+            </div>
+
+            <div class="param-select-box">
+              <label>Measurement Mode</label>
+              <select id="cmdMeasure">
+                <option value="0">Off (Standard)</option>
+                <option value="1" selected>1 (Linear / Unprocessed)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="cmd-output-box">
+            <div class="cmd-row">
+              <div>
+                <span style="color:var(--text-muted); font-size:0.75rem;">CLI COMMAND:</span><br>
+                <span id="cliOutput" class="cmd-string">deskcam snap zoom=4 cx=0.32 cy=0.68 torch=25 exposure=1/120 iso=100 measure=1</span>
+              </div>
+              <button id="copyCliBtn" class="btn-copy">COPY CLI</button>
+            </div>
+
+            <div class="cmd-row">
+              <div>
+                <span style="color:var(--text-muted); font-size:0.75rem;">RAW HTTP ENDPOINT:</span><br>
+                <span id="httpOutput" class="cmd-string">http://192.168.1.100:8080/api/still?zoom=4&cx=0.32&cy=0.68&torch=25&exposure=1/120&iso=100&measure=1</span>
+              </div>
+              <button id="copyHttpBtn" class="btn-copy">COPY URL</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION 11: HTTP API CONTRACT -->
+      <section id="http-contract">
+        <h2>The Complete HTTP API Contract</h2>
+        <p>
+          The HTTP contract is the sole interface between the workstation and the phone.
+          With the exception of <code>POST /api/script</code>, all operations are simple HTTP GETs,
+          allowing direct execution via <code>curl</code>, shell scripts, or agent HTTP clients.
+        </p>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Method & Endpoint</th>
+                <th>Response MIME</th>
+                <th>Description & Invariants</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>GET /api/status</code></td>
+                <td><code>application/json</code></td>
+                <td>Returns full camera state, sensor limits, thermal throttling levels, and preview exposure metrics. <code>sharpness=1</code> triggers fresh Laplacian evaluation.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/still</code></td>
+                <td><code>image/jpeg</code></td>
+                <td>Full 12MP resolution crop to ROI. If <code>zoom &le; 1.0001</code> and no rotation, returns untouched camera JPEG; otherwise tiled decode/encode.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/raw</code></td>
+                <td><code>image/x-adobe-dng</code></td>
+                <td>10-bit linear Bayer RAW DNG containing full uncropped 4032&times;3024 array. Header <code>X-DeskCam-ROI</code> carries active framing.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/burst</code></td>
+                <td><code>application/x-tar</code></td>
+                <td>Burst of <code>n</code> frames submitted back-to-back in a single HAL request. Returns <strong>HTTP 206 Partial Content</strong> if fewer frames delivered.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/focushunt</code></td>
+                <td><code>application/json</code></td>
+                <td>Coarse (9 steps) + Fine (5 steps) search on phone. Returns chosen dioptres and full sharpness curve. Returns <code>ok: false</code> on flat/edge curve.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/focussweep</code></td>
+                <td><code>application/x-tar</code></td>
+                <td>Steps lens equally in dioptres from <code>from</code> to <code>to</code>. Archive contains all JPEGs plus <code>walk.json</code> manifest.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/bracket</code></td>
+                <td><code>application/x-tar</code></td>
+                <td>Multi-exposure bracket stepping in powers of two from <code>base</code> period. Sidecars record actual delivered exposure vs requested to 0.01 periods.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/stream</code></td>
+                <td><code>multipart/x-mixed-replace</code></td>
+                <td>Live MJPEG viewfinder stream. Accepts only <code>fps</code>, <code>n</code>, <code>w</code>, <code>h</code>. Sheds rate automatically when phone is hot.</td>
+              </tr>
+              <tr>
+                <td><code>POST /api/script</code></td>
+                <td><code>multipart/mixed</code></td>
+                <td>Executes plain-text tape of verbs atomically. Rejects concurrent camera writers with <strong>HTTP 409 Conflict</strong>.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/orientation</code></td>
+                <td><code>application/json</code></td>
+                <td>Average angle between optical axis and gravity vector over 32 samples, plus ambient lux.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/help</code></td>
+                <td><code>application/json</code></td>
+                <td>Machine-readable schema and documentation generated directly from <code>Params.java</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SECTION 12: METROLOGY & REFUSAL -->
+      <section id="metrology-refusal">
+        <h2>Metrology & The Philosophy of Refusal</h2>
+        <p>
+          The analysis tools in <code>frontend/analysis/</code> operate 100% offline, consuming saved images and sidecar JSON metadata from disk.
+          They enforce a strict empirical discipline:
+        </p>
+
+        <div class="callout callout-danger">
+          <div class="callout-title">🚫 The Rule of Scientific Refusal</div>
+          <p>
+            <strong>A measurement refuses rather than guesses.</strong>
+            Printing a number with an unread caveat fails, because caveats are discarded downstream.
+            Every tool computes its value, sample count, confidence interval (e.g. 95%), and metric bound.
+            If the data fails the threshold, the tool <strong>refuses to output a value</strong> and exits with code <code>2</code>.
+          </p>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Tool</th>
+                <th>Target Metric</th>
+                <th>Confidence Parameter</th>
+                <th>Rejection Gate</th>
+                <th>Scientific Rationale</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>aatest</code></td>
+                <td>Instrument Noise Floor</td>
+                <td>Fraction of unpinned pixels</td>
+                <td>&lt; 0.99 non-pinned</td>
+                <td>Clamped pixels (0 or 255) show zero difference, artificially flattering the noise floor calculation.</td>
+              </tr>
+              <tr>
+                <td><code>linearity</code></td>
+                <td>Sensor Gamma & Pedestal</td>
+                <td>Power-law fit R²</td>
+                <td>R² &lt; 0.980</td>
+                <td>Both linear response and sRGB curves fit above 0.99; ensures sensor gamma is truly 1.0 with ~2 DN black offset.</td>
+              </tr>
+              <tr>
+                <td><code>scale</code></td>
+                <td>Spatial Resolution (px/mm)</td>
+                <td>Autocorrelation peak height</td>
+                <td>Peak &lt; 0.60</td>
+                <td>Real ruler tick marks produce peaks from 0.76 to 0.96; harmonic false matches land around 0.33.</td>
+              </tr>
+              <tr>
+                <td><code>burst-noise</code></td>
+                <td>1/√N SNR Scaling</td>
+                <td>Interval tightness</td>
+                <td>Tightness &lt; 0.85</td>
+                <td>Distinguishes true photon noise reduction from JPEG compression artifacts or fixed-pattern noise.</td>
+              </tr>
+              <tr>
+                <td><code>hdr</code></td>
+                <td>Absolute Radiance (DN/s)</td>
+                <td>Inter-frame consistency</td>
+                <td>Residual &gt; 3%</td>
+                <td>Adjacent exposure brackets must report equal radiance; rejects frames corrupted by PWM phase beating.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D16) -->
+      <section id="architectural-decisions">
+        <h2>Architectural Decisions (D1–D16)</h2>
+        <div class="card-grid">
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D1</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Optics</span>
+            </div>
+            <div class="card-title">Software ROI Cropping</div>
+            <div class="card-desc">Because the HAL only zooms from center (<code>CENTER_ONLY</code>), software always pulls the full 12MP array and crops in memory, enabling panning with 1:1 true pixels.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D3</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Protocol</span>
+            </div>
+            <div class="card-title">All Operations are GET</div>
+            <div class="card-desc">Optimizes for the primary consumer: shell scripts and agent tools. Any action is callable via a single curl or URL without JSON wrapping.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D8</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Metrology</span>
+            </div>
+            <div class="card-title">Captures Describe Themselves</div>
+            <div class="card-desc">Every capture carries its own <code>CaptureCallback</code> and correlates result by sensor timestamp. Provenance travels inside image EXIF and HTTP headers.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D9</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Lifecycle</span>
+            </div>
+            <div class="card-title">Tri-Partite Parameters</div>
+            <div class="card-desc">Divides parameters into: <strong>Camera State</strong> (persists: zoom, focus, exposure, rotate), <strong>Presentation</strong> (one request: w, h, jpegq), and <strong>Router</strong> (settle, fresh, timeout).</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D13</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Toolchain</span>
+            </div>
+            <div class="card-title">The Three-Language Seam</div>
+            <div class="card-desc">Java on phone for framework classes; Go for a single zero-runtime workstation CLI binary; Python exclusively for NumPy metrology array math.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D14</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Concurrency</span>
+            </div>
+            <div class="card-title">Script Holds Camera Lock (409)</div>
+            <div class="card-desc">Execution tapes hold exclusive write access to prevent web console or secondary agent race conditions. Streams multipart events and byte parts back down TCP socket.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D15</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Thermal</span>
+            </div>
+            <div class="card-title">Stream Sheds, Capture Never Does</div>
+            <div class="card-desc">When phone hits severe thermal status, MJPEG frame rate is dropped to 1/4. Captures are never altered or slowed, preserving scientific exposure timing.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D16</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Power</span>
+            </div>
+            <div class="card-title">Idle Sensor Shutdown</div>
+            <div class="card-desc">Halts repeating preview request after 20 seconds of inactivity. Wakes on demand, guaranteeing 4 discarded frames for 3A convergence before taking a picture.</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div style="max-width: 900px; margin:0 auto;">
+      <p style="margin-bottom:0.5rem;">
+        <strong>DeskCam</strong> — Autonomous Optical Bench Instrument for AI Agents & Hardware Labs.
+      </p>
+      <p style="font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
+        Powered by Antigravity Agentic Architecture • Zero External Dependencies • ASD-STE100 English
+      </p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
