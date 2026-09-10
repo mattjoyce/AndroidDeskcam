@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,6 +65,7 @@ type HTTPError struct {
 	Status  int
 	Message string
 	Path    string
+	Err     error // the transport failure underneath, when there was one
 }
 
 func (e *HTTPError) Error() string {
@@ -71,6 +73,39 @@ func (e *HTTPError) Error() string {
 		return fmt.Sprintf("HTTP %d from %s", e.Status, e.Path)
 	}
 	return fmt.Sprintf("HTTP %d\n  %s", e.Status, e.Message)
+}
+
+// Unwrap keeps anything underneath reachable through errors.Is.
+func (e *HTTPError) Unwrap() error { return e.Err }
+
+// advice turns a status code into the thing the operator should actually do next.
+//
+// The status is the only machine-readable fact the phone reports about a failure, and
+// until now every one of them arrived as the same undifferentiated string, leaving a
+// person to read English to tell "the key is wrong" from "the camera is not running".
+// That is precisely what this project tells its own measurement tools not to do.
+func advice(err error) string {
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		// Not an answer from the phone at all, so it never arrived.
+		return "the phone did not answer. Check deskcam which, and deskcam start if the " +
+			"service is not running."
+	}
+	switch httpErr.Status {
+	case http.StatusUnauthorized:
+		return "the phone expects a different access key. Pair again so it learns this " +
+			"one, or clear it with deskcam token clear."
+	case http.StatusServiceUnavailable:
+		return "the phone is busy with as many requests as it will take at once. Try again."
+	case http.StatusNotFound:
+		return "this build asked for an endpoint the phone does not have. It may be " +
+			"running an older APK."
+	}
+	if httpErr.Status >= 500 {
+		return "the phone failed to serve this. Its own message is above; /api/status " +
+			"will say whether the camera is running."
+	}
+	return "" // 4xx: the phone's own message already names the fix
 }
 
 func (c *Client) url(path, query string) string {
@@ -91,12 +126,18 @@ func (c *Client) url(path, query string) string {
 // carrying the phone's own explanation, never a bare status code.
 func (c *Client) Get(path, query string) (*Reply, error) {
 	var buf []byte
+	read := false
 	reply, err := c.GetStream(path, query, func(r io.Reader) error {
 		var readErr error
 		buf, readErr = io.ReadAll(r)
+		read = true
 		return readErr
 	})
-	if reply != nil {
+	// Only when consume actually ran. On the error path GetStream has already put the
+	// phone's explanation in reply.Body, and this used to overwrite it with a nil buffer
+	// that consume never filled, so the Reply documented above as "kept whole" arrived
+	// empty exactly when its contents mattered most.
+	if reply != nil && read {
 		reply.Body = buf
 	}
 	return reply, err
@@ -113,7 +154,7 @@ func (c *Client) GetStream(path, query string, consume func(io.Reader) error) (*
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	reply := &Reply{Status: resp.StatusCode, Header: resp.Header}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -155,7 +196,9 @@ func (c *Client) GetFile(path, query, out string) (*Reply, error) {
 	})
 	closeErr := f.Close()
 	if err != nil {
-		os.Remove(out) // a failed capture must not leave a truncated file looking like one
+		// A failed capture must not leave a truncated file looking like one. If even
+		// the removal fails there is nothing further to try.
+		_ = os.Remove(out)
 		return reply, err
 	}
 	if closeErr != nil {

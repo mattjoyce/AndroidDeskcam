@@ -184,6 +184,34 @@ def test_a_new_code_is_not_returned_in_the_reply(
     assert state.nonce not in text
 
 
+def test_only_pairing_is_offered_to_the_network(
+    server: tuple[str, int], state: console.State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    The QR carries the access key and the live pairing nonce.
+
+    A QR code is not an encryption. The property that matters is who is allowed to ask
+    for the picture, and this server binds every interface because the phone must reach
+    the pairing callback.
+    """
+    monkeypatch.setattr(console.Handler, "from_this_machine", lambda self: False)
+    for path in ["/", "/qr.svg", "/api/state", "/api/roll", "/api/newcode", "/img/x.jpg"]:
+        code, _ = get(server, path)
+        assert code == 403, f"{path} answered the network with {code}"
+    # The one route the phone needs. A stale code is a 410, which proves it was handled
+    # rather than refused for coming from off the machine.
+    code, _ = get(server, f"/p/{state.nonce}")
+    assert code != 403
+
+
+def test_the_operators_own_browser_still_gets_everything(
+    server: tuple[str, int], state: console.State
+) -> None:
+    for path in ["/", "/api/state", "/api/roll"]:
+        code, _ = get(server, path)
+        assert code == 200, f"{path} refused the local browser with {code}"
+
+
 # ------------------------------------------------------------- serving files
 
 

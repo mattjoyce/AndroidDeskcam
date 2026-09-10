@@ -30,16 +30,18 @@ type consoleState struct {
 	nonce     string
 	nonceBorn time.Time
 	phone     string
-	token     string
 	// True once the operator has deliberately cleared the key, so the pairing code says
 	// token= with an empty value. An absent parameter leaves the phone's old key alone,
 	// which is right at first pairing and wrong when the point is to remove it.
+	//
+	// This is the one piece of key state held in memory. The key itself is not: see
+	// currentToken.
 	tokenDeclared bool
 	lastPair      map[string]any
 	lastError     string
 }
 
-func newConsoleState(cfg Config, port int) *consoleState {
+func newConsoleState(cfg Config, port int) (*consoleState, error) {
 	s := &consoleState{port: port, shots: cfg.Shots}
 	if saved := readTrimmed(urlFile()); saved != "" {
 		if phoneURLOK(saved) {
@@ -52,20 +54,36 @@ func newConsoleState(cfg Config, port int) *consoleState {
 				"which is not an http address of an IP\n", saved)
 		}
 	}
-	s.token = readTrimmed(tokenFile())
-	s.newNonce()
-	return s
+	if err := s.newNonce(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
-func (s *consoleState) newNonce() string {
+// currentToken reads the key from the file every time it is needed.
+//
+// It used to be read once at startup and kept. `deskcam token new` writes the same file,
+// so a console that had been running since before that command kept serving a QR carrying
+// the old key, kept sending the old key to the phone, and kept reporting that a key was
+// set. One identity, two places, and no way for the second to learn about the first.
+func (s *consoleState) currentToken() string { return readTrimmed(tokenFile()) }
+
+// newNonce replaces the pairing code. The caller must hold s.mu.
+//
+// It used to panic when the system had no randomness. net/http recovers a handler panic
+// per connection, so the process survived with s.mu still locked and the next request
+// touching state blocked for ever: a hang rather than a crash, which is worse and much
+// harder to diagnose. Mechanism returns the error, and the caller decides the policy.
+// At startup that policy is to refuse to run at all, because a predictable pairing code
+// is worse than no console.
+func (s *consoleState) newNonce() error {
 	raw := make([]byte, 9)
 	if _, err := rand.Read(raw); err != nil {
-		// Without a random code, pairing is not safe to offer at all.
-		panic("no randomness available for a pairing code: " + err.Error())
+		return fmt.Errorf("no randomness available for a pairing code: %w", err)
 	}
 	s.nonce = base64.RawURLEncoding.EncodeToString(raw)
 	s.nonceBorn = time.Now()
-	return s.nonce
+	return nil
 }
 
 // spendNonce checks a code and burns it in one step, so it works exactly once and two
@@ -74,8 +92,10 @@ func (s *consoleState) spendNonce(candidate string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ok := candidate != "" && candidate == s.nonce && time.Since(s.nonceBorn) < nonceTTL
-	if ok {
-		s.newNonce()
+	if ok && s.newNonce() != nil {
+		// Fail closed. An empty code matches nothing, so pairing stops until the console
+		// is restarted, rather than continuing with a code that has already been spent.
+		s.nonce = ""
 	}
 	return ok
 }
@@ -89,7 +109,7 @@ func (s *consoleState) nonceAge() int {
 func (s *consoleState) snapshot() (phone, token, nonce string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.phone, s.token, s.nonce
+	return s.phone, s.currentToken(), s.nonce
 }
 
 // pairText is what the QR code holds.
@@ -103,7 +123,7 @@ func (s *consoleState) snapshot() (phone, token, nonce string) {
 func (s *consoleState) pairText() string {
 	q := url.Values{"cb": {s.pairURL()}}
 	s.mu.Lock()
-	token, declared := s.token, s.tokenDeclared
+	token, declared := s.currentToken(), s.tokenDeclared
 	s.mu.Unlock()
 	if token != "" {
 		q.Set("token", token)
@@ -128,7 +148,7 @@ func lanAddress() string {
 	if err != nil {
 		return "127.0.0.1"
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	host, _, err := net.SplitHostPort(conn.LocalAddr().String())
 	if err != nil {
 		return "127.0.0.1"
@@ -167,7 +187,7 @@ func probePhone(ip string, port int, token string, timeout time.Duration) map[st
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil
 	}
@@ -185,13 +205,17 @@ func probePhone(ip string, port int, token string, timeout time.Duration) map[st
 // ------------------------------------------------------------------ handlers
 
 func serve(cfg Config, port int) int {
-	state := newConsoleState(cfg, port)
+	state, err := newConsoleState(cfg, port)
+	if err != nil {
+		// A console that cannot make an unpredictable pairing code is worse than none.
+		return fail("%v", err)
+	}
 	mux := http.NewServeMux()
 	state.routes(mux)
 
-	// Bound to every interface on purpose: the phone has to reach this to pair, and it is
-	// not on the loopback. Nothing here answers with a secret, and the only files it
-	// serves are the captures in the shots directory.
+	// Bound to every interface on purpose: the phone has to reach /p/ to pair, and it is
+	// not on the loopback. Every other route is refused from anywhere but this machine,
+	// because the QR carries the access key and the roll serves files. See routes.
 	server := &http.Server{
 		Addr:              fmt.Sprintf("0.0.0.0:%d", port),
 		Handler:           mux,
@@ -200,28 +224,90 @@ func serve(cfg Config, port int) int {
 	fmt.Printf("DeskCam console on http://%s:%d\n", lanAddress(), port)
 	fmt.Printf("  local:  http://127.0.0.1:%d\n", port)
 	fmt.Printf("  shots:  %s\n", state.shots)
+	fmt.Printf("  the page, the roll and the pairing code are served to this machine only;\n")
+	fmt.Printf("  the phone is offered /p/ and nothing else\n")
 	if phone, _, _ := state.snapshot(); phone != "" {
 		fmt.Printf("  phone:  %s\n", phone)
 	}
-	if err := server.ListenAndServe(); err != nil {
+	if err = server.ListenAndServe(); err != nil {
 		return fail("%v", err)
 	}
 	return 0
 }
 
+// routes wires the console.
+//
+// Exactly one route is offered to the network: /p/, the callback the phone makes to
+// finish pairing. Everything else is the operator's own browser and is refused from
+// anywhere but the loopback interface.
+//
+// This is not belt and braces. /qr.svg renders the pairing code, which carries the access
+// key and the live nonce, and this server binds every interface because the phone has to
+// reach /p/. Before this, any machine on the network could fetch that image, decode it,
+// and have both. A comment two lines from the route claimed the console answered with no
+// secret; it was describing an intention rather than the code.
 func (s *consoleState) routes(mux *http.ServeMux) {
-	mux.HandleFunc("/", s.handlePage)
-	mux.HandleFunc("/qr.svg", s.handleQR)
-	mux.HandleFunc("/p/", s.handlePair)
-	mux.HandleFunc("/api/state", s.handleState)
-	mux.HandleFunc("/api/roll", s.handleRoll)
-	mux.HandleFunc("/api/cam", s.handleCam)
-	mux.HandleFunc("/api/newcode", s.handleNewCode)
-	mux.HandleFunc("/api/token", s.handleToken)
-	mux.HandleFunc("/img/", s.handleFile)
-	mux.HandleFunc("/thumb/", s.handleFile)
-	mux.HandleFunc("/sidecar/", s.handleFile)
+	mux.HandleFunc("/p/", s.handlePair) // the phone, from the network
+
+	local := func(h http.HandlerFunc) http.HandlerFunc { return s.loopbackOnly(h) }
+	// Reading routes: the operator's browser, loopback only.
+	mux.HandleFunc("/", local(s.handlePage))
+	mux.HandleFunc("/qr.svg", local(s.handleQR))
+	mux.HandleFunc("/api/state", local(s.handleState))
+	mux.HandleFunc("/api/roll", local(s.handleRoll))
+	mux.HandleFunc("/img/", local(s.handleFile))
+	mux.HandleFunc("/thumb/", local(s.handleFile))
+	mux.HandleFunc("/sidecar/", local(s.handleFile))
+	// Routes that change something: loopback, and a POST the page has to mean.
+	mux.HandleFunc("/api/cam", local(s.mutating(s.handleCam)))
+	mux.HandleFunc("/api/newcode", local(s.mutating(s.handleNewCode)))
+	mux.HandleFunc("/api/token", local(s.mutating(s.handleToken)))
 }
+
+// loopbackOnly refuses a request that did not come from this machine.
+func (s *consoleState) loopbackOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			http.Error(w, "this console answers the browser on the machine it runs on; "+
+				"only pairing is offered to the network", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// mutating guards a route that changes state against a request the operator did not make.
+//
+// Loopback alone is not enough here. A page in the operator's own browser is on loopback,
+// so any website they visit could fire <img src="http://127.0.0.1:9000/api/token?do=clear">
+// and make the next pairing tell the phone to forget its key. A POST carrying a header
+// cannot be forged that way: a form or an image cannot set it, and a cross-origin fetch
+// that tries needs a preflight this server never answers.
+func (s *consoleState) mutating(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "this changes something, so it needs a POST",
+				http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Header.Get(consoleHeader) != "1" {
+			http.Error(w, "missing "+consoleHeader+"; this request did not come from the "+
+				"console page", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// The header the console page sets on anything that changes state. Its only job is to be
+// impossible for a cross-origin form or image to send.
+const consoleHeader = "X-DeskCam-Console"
 
 func writeJSON(w http.ResponseWriter, code int, body any) {
 	out, err := json.MarshalIndent(body, "", "  ")
@@ -232,7 +318,9 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	w.Write(append(out, '\n'))
+	// A client that has gone away cannot be told anything, so there is nothing to do with
+	// this error but say that ignoring it is deliberate. Same at every write below.
+	_, _ = w.Write(append(out, '\n'))
 }
 
 func (s *consoleState) handlePage(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +330,7 @@ func (s *consoleState) handlePage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	io.WriteString(w, consolePage)
+	_, _ = io.WriteString(w, consolePage)
 }
 
 func (s *consoleState) handleQR(w http.ResponseWriter, r *http.Request) {
@@ -255,17 +343,17 @@ func (s *consoleState) handleQR(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	const scale, border = 6, 2
 	side := (code.Size + border*2) * scale
-	fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" `+
+	_, _ = fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" `+
 		`viewBox="0 0 %d %d" shape-rendering="crispEdges">`, side, side, side, side)
 	for y := 0; y < code.Size; y++ {
 		for x := 0; x < code.Size; x++ {
 			if code.Black(x, y) {
-				fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#e6edf3"/>`,
+				_, _ = fmt.Fprintf(w, `<rect x="%d" y="%d" width="%d" height="%d" fill="#e6edf3"/>`,
 					(x+border)*scale, (y+border)*scale, scale, scale)
 			}
 		}
 	}
-	io.WriteString(w, "</svg>")
+	_, _ = io.WriteString(w, "</svg>")
 }
 
 // handleState carries no secret. It used to return the pairing text, which holds the
@@ -327,8 +415,13 @@ func (s *consoleState) handleRoll(w http.ResponseWriter, r *http.Request) {
 // has no password either, and the pairing text carries both the nonce and the key.
 func (s *consoleState) handleNewCode(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	s.newNonce()
+	err := s.newNonce()
 	s.mu.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError,
+			map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "code_age_seconds": 0})
 }
 
@@ -378,7 +471,7 @@ func (s *consoleState) handleFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	w.Write(body)
+	_, _ = w.Write(body)
 }
 
 // handleCam forwards a control request to the phone, so the page only ever talks to the
@@ -407,10 +500,10 @@ func (s *consoleState) handleCam(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	_, _ = w.Write(body)
 }

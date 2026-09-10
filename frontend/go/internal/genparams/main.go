@@ -88,7 +88,7 @@ func main() {
 		kind := map[string]string{
 			"camera": "Camera", "presentation": "Presentation", "router": "Router",
 		}[e.kind]
-		out.WriteString(fmt.Sprintf("\t%-*s %s,\n", width+1, `"`+e.name+`":`, kind))
+		fmt.Fprintf(&out, "\t%-*s %s,\n", width+1, `"`+e.name+`":`, kind)
 	}
 	out.WriteString("}\n")
 

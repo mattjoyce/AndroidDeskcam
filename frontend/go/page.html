@@ -185,7 +185,13 @@ document.addEventListener('toggle', e=>{
   if(el.classList && el.classList.contains('grp')) OPEN[el.dataset.g]=el.open;
 }, true);
 
-async function cam(q){ try{ await fetch('/api/cam?'+q); }catch(e){} refresh(); }
+/* Anything that changes something goes as a POST carrying a header, which a cross-origin
+   form or <img> cannot set. The console is on loopback, and a page in this same browser is
+   on loopback too, so being local is not on its own a reason to trust a request. */
+function change(path){
+  return fetch(path, {method:'POST', headers:{'X-DeskCam-Console':'1'}});
+}
+async function cam(q){ try{ await change('/api/cam?'+q); }catch(e){} refresh(); }
 /* The stream carries no camera parameter. A reconnect must not change what an agent
    is about to capture, and this URL is rebuilt on every reconnect. */
 function restream(){
@@ -329,7 +335,7 @@ live.addEventListener('wheel', e=>{
 },{passive:false});
 
 async function newcode(){
-  await fetch('/api/newcode');
+  await change('/api/newcode');
   document.getElementById('qr').src='/qr.svg?t='+Date.now();
   refresh();
 }
@@ -339,7 +345,7 @@ async function key(what){
   const el=document.getElementById('keymsg');
   el.textContent='working...';
   try{
-    const r=await (await fetch('/api/token?do='+what)).json();
+    const r=await (await change('/api/token?do='+what)).json();
     el.textContent=r.message||r.error||'';
     document.getElementById('qr').src='/qr.svg?t='+Date.now();
   }catch(e){ el.textContent='could not reach the console'; }

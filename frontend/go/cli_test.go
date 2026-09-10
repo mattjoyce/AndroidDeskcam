@@ -194,7 +194,7 @@ func TestTheReasonFromThePhoneReachesTheCaller(t *testing.T) {
 	// writing never reached a person.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `{"ok":false,"error":"unknown parameter 'zomo'"}`)
+		_, _ = fmt.Fprint(w, `{"ok":false,"error":"unknown parameter 'zomo'"}`)
 	}))
 	defer server.Close()
 
@@ -212,7 +212,7 @@ func TestTheTokenIsSentAndNeverDoubled(t *testing.T) {
 	var seen string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.URL.RawQuery
-		fmt.Fprint(w, "{}")
+		_, _ = fmt.Fprint(w, "{}")
 	}))
 	defer server.Close()
 	client := NewClient(Config{URL: server.URL, Token: "abc123", Timeout: defaultTestTimeout})
@@ -227,7 +227,7 @@ func TestTheTokenIsSentAndNeverDoubled(t *testing.T) {
 func TestAFailedCaptureLeavesNoTruncatedFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"error":"camera not running"}`)
+		_, _ = fmt.Fprint(w, `{"error":"camera not running"}`)
 	}))
 	defer server.Close()
 	out := filepath.Join(t.TempDir(), "shot.jpg")
@@ -253,9 +253,9 @@ func TestABurstIsUnpackedAndAShortOneIsReported(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		writer.Write(body)
+		_, _ = writer.Write(body)
 	}
-	writer.Close()
+	_ = writer.Close()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/burst") {
@@ -263,10 +263,10 @@ func TestABurstIsUnpackedAndAShortOneIsReported(t *testing.T) {
 			w.Header().Set("X-DeskCam-Frames-Requested", "8")
 			w.Header().Set("X-DeskCam-Provenance", `{"tool":"DeskCam","settings":{"zoom":1}}`)
 			w.WriteHeader(http.StatusPartialContent)
-			w.Write(archive.Bytes())
+			_, _ = w.Write(archive.Bytes())
 			return
 		}
-		fmt.Fprint(w, "{}")
+		_, _ = fmt.Fprint(w, "{}")
 	}))
 	defer server.Close()
 
@@ -301,19 +301,19 @@ func TestABurstArchiveCannotWriteOutsideItsDirectory(t *testing.T) {
 	var archive bytes.Buffer
 	writer := tar.NewWriter(&archive)
 	body := []byte("nope")
-	writer.WriteHeader(&tar.Header{
+	_ = writer.WriteHeader(&tar.Header{
 		Name: "../../escaped.jpg", Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg,
 	})
-	writer.Write(body)
-	writer.Close()
+	_, _ = writer.Write(body)
+	_ = writer.Close()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/status" {
-			fmt.Fprint(w, `{"settings":{},"measured":{}}`)
+			_, _ = fmt.Fprint(w, `{"settings":{},"measured":{}}`)
 			return
 		}
 		w.Header().Set("X-DeskCam-Frames", "1")
-		w.Write(archive.Bytes())
+		_, _ = w.Write(archive.Bytes())
 	}))
 	defer server.Close()
 

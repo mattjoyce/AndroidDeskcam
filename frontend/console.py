@@ -213,10 +213,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # --------------------------------------------------------------- routing
 
+    def from_this_machine(self) -> bool:
+        """True when the request came from the machine the console runs on."""
+        host = self.client_address[0]
+        if host.startswith("::ffff:"):
+            host = host[7:]
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
+
     # The capitals are BaseHTTPRequestHandler's naming, not a choice made here.
     def do_GET(self) -> None:
         st = self.state
         path = self.path.split("?", 1)[0]
+
+        # Exactly one route is offered to the network: /p/, the callback the phone makes
+        # to finish pairing. Everything else belongs to the operator's own browser.
+        #
+        # This server binds every interface because the phone has to reach /p/, and
+        # /qr.svg renders the pairing code, which carries the access key and the live
+        # nonce. Any machine on the network could fetch that image and decode both. Card
+        # 29 moved the key out of the JSON and left it in the picture, same server,
+        # different encoding, and a test asserting the key was not in the SVG as literal
+        # text read as clearance.
+        if not path.startswith("/p/") and not self.from_this_machine():
+            self.send(
+                403,
+                "text/plain",
+                "this console answers the browser on the machine it runs on; "
+                "only pairing is offered to the network",
+            )
+            return
 
         if path == "/":
             self.send(200, "text/html; charset=utf-8", page(st))

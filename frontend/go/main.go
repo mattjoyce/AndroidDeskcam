@@ -25,6 +25,16 @@ func fail(format string, a ...any) int {
 	return 1
 }
 
+// failWith reports an error and, when the phone's status code says what to do about it,
+// says that too.
+func failWith(err error) int {
+	fmt.Fprintf(os.Stderr, "deskcam: %v\n", err)
+	if next := advice(err); next != "" {
+		fmt.Fprintf(os.Stderr, "  %s\n", next)
+	}
+	return 1
+}
+
 type invocation struct {
 	command string
 	args    []string // bare positional words
@@ -80,7 +90,12 @@ func run(argv []string) int {
 		case a == "-h" || a == "--help":
 			usage()
 			return 0
-		case strings.Contains(a, "="):
+		// A camera parameter is name=value where the name is lowercase letters. Anything
+		// beginning with a dash is a flag meant for something else, usually the Python
+		// measurement tools, and routing it into the query dropped it silently and then
+		// warned that it was not a camera parameter. `analyse scale f.jpg --pitch-mm=5`
+		// lost the pitch; the space-separated form worked, which is why testing missed it.
+		case strings.Contains(a, "=") && !strings.HasPrefix(a, "-"):
 			if in.query != "" {
 				in.query += "&"
 			}
@@ -283,7 +298,7 @@ func capture(in *invocation, path, ext string) int {
 	}
 	reply, err := in.client.GetFile(path, in.query, out)
 	if err != nil {
-		return fail("%v", err)
+		return failWith(err)
 	}
 	if err := writeSidecar(out, reply, in.client, in.cfg.URL); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
@@ -365,7 +380,8 @@ func burst(in *invocation) int {
 			}
 		})
 	if err != nil {
-		return fail("burst failed: %v", err)
+		fmt.Fprintln(os.Stderr, "deskcam: burst failed")
+		return failWith(err)
 	}
 
 	// A burst that ran out of time answers 206 with fewer frames than were asked for.
@@ -459,9 +475,9 @@ func aatest(in *invocation) int {
 func printJSON(in *invocation, path, query string) int {
 	reply, err := in.client.Get(path, query)
 	if err != nil {
-		return fail("%v", err)
+		return failWith(err)
 	}
-	os.Stdout.Write(reply.Body)
+	_, _ = os.Stdout.Write(reply.Body)
 	if len(reply.Body) > 0 && reply.Body[len(reply.Body)-1] != '\n' {
 		fmt.Println()
 	}
@@ -471,7 +487,7 @@ func printJSON(in *invocation, path, query string) int {
 func printSummary(in *invocation, path, query string) int {
 	status, err := in.client.GetJSON(path, query)
 	if err != nil {
-		return fail("%v", err)
+		return failWith(err)
 	}
 	fmt.Println(summarise(status))
 	if note := str(status, "note"); note != "" {

@@ -23,8 +23,10 @@ func testConsole(t *testing.T) (*consoleState, *httptest.Server, string) {
 	}
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 
-	state := &consoleState{port: 9999, shots: shots}
-	state.newNonce()
+	state, err := newConsoleState(Config{Shots: shots}, 9999)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
 	state.routes(mux)
 	server := httptest.NewServer(mux)
@@ -51,6 +53,34 @@ func writeCapture(t *testing.T, shots, name string, settings map[string]any) {
 	}
 }
 
+// setToken writes the key where the console reads it. Nothing caches it any more, so the
+// file is the only way to set one.
+func setToken(t *testing.T, value string) {
+	t.Helper()
+	if err := saveToken(value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// post is how the page reaches anything that changes state: a POST carrying the header a
+// cross-origin form or image cannot set.
+func post(t *testing.T, server *httptest.Server, path string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, server.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set(consoleHeader, "1")
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body := make([]byte, 1<<16)
+	n, _ := resp.Body.Read(body)
+	return resp.StatusCode, string(body[:n])
+}
+
 func get(t *testing.T, server *httptest.Server, path string) (int, string) {
 	t.Helper()
 	// The raw path, not a cleaned one. A client that wants to escape the shots directory
@@ -63,7 +93,7 @@ func get(t *testing.T, server *httptest.Server, path string) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := make([]byte, 1<<16)
 	n, _ := resp.Body.Read(body)
 	return resp.StatusCode, string(body[:n])
@@ -137,12 +167,12 @@ func TestPairingIgnoresTheAddressTheCallerClaims(t *testing.T) {
 
 func TestTheStateEndpointGivesAwayNoSecret(t *testing.T) {
 	state, server, _ := testConsole(t)
-	state.token = "s3cret-token-value"
+	setToken(t, "s3cret-token-value")
 	code, body := get(t, server, "/api/state")
 	if code != http.StatusOK {
 		t.Fatalf("want 200, got %d", code)
 	}
-	for _, forbidden := range []string{state.token, state.nonce, "pair_qr", "pair_url"} {
+	for _, forbidden := range []string{"s3cret-token-value", state.nonce, "pair_qr", "pair_url"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("/api/state leaked %q", forbidden)
 		}
@@ -159,7 +189,7 @@ func TestTheStateEndpointGivesAwayNoSecret(t *testing.T) {
 func TestANewCodeIsNotReturnedInTheReply(t *testing.T) {
 	state, server, _ := testConsole(t)
 	before := state.nonce
-	_, body := get(t, server, "/api/newcode")
+	_, body := post(t, server, "/api/newcode")
 	if state.nonce == before {
 		t.Fatal("the code should have changed")
 	}
@@ -168,17 +198,88 @@ func TestANewCodeIsNotReturnedInTheReply(t *testing.T) {
 	}
 }
 
-func TestTheQRIsAnImageAndCarriesTheKey(t *testing.T) {
+// The previous version of this test was called TestTheQRIsAnImageAndCarriesTheKey and
+// asserted only that the token did not appear as literal text in the SVG. It passed, and
+// passing it read as clearance, while the image it approved encoded the key and the live
+// pairing nonce for anyone on the network who fetched the URL. A QR code is not an
+// encryption. The property that matters is who can ask for the picture.
+func TestTheQRIsServedToThisMachineAndNowhereElse(t *testing.T) {
 	state, server, _ := testConsole(t)
-	state.token = "s3cret-token-value"
+	setToken(t, "s3cret-token-value")
+
 	code, body := get(t, server, "/qr.svg")
 	if code != http.StatusOK || !strings.HasPrefix(body, "<svg") {
-		t.Fatalf("want an svg, got %d %.40q", code, body)
+		t.Fatalf("the operator's own browser should get the code, got %d %.40q", code, body)
 	}
-	// The picture may hold the key, because it is on the operator's own screen. What it
-	// must not do is hold it as readable text.
-	if strings.Contains(body, state.token) {
-		t.Fatal("the svg should be modules, not the text of the key")
+	if !strings.Contains(state.pairText(), "s3cret-token-value") {
+		t.Fatal("the pairing code is supposed to carry the key; that is how the phone learns it")
+	}
+
+	// The same request from anywhere else.
+	if got := statusFromLAN(t, state, "/qr.svg"); got != http.StatusForbidden {
+		t.Fatalf("the network must not be able to fetch the pairing code, got %d", got)
+	}
+}
+
+// statusFromLAN runs one request through the console's routing with a source address that
+// is not this machine.
+func statusFromLAN(t *testing.T, state *consoleState, path string) int {
+	t.Helper()
+	mux := http.NewServeMux()
+	state.routes(mux)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RemoteAddr = "192.168.86.99:54321"
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
+	state, _, shots := testConsole(t)
+	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
+	for _, path := range []string{
+		"/", "/qr.svg", "/api/state", "/api/roll",
+		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg",
+		"/api/cam?zoom=2", "/api/newcode", "/api/token?do=clear",
+	} {
+		if got := statusFromLAN(t, state, path); got != http.StatusForbidden {
+			t.Errorf("%s answered the network with %d, want 403", path, got)
+		}
+	}
+	// The one route the phone needs. It must still be reachable, and a stale code is a
+	// 410 rather than a 403, which proves it was not refused for being off-machine.
+	mux := http.NewServeMux()
+	state.routes(mux)
+	req := httptest.NewRequest(http.MethodGet, "/p/"+state.nonce, nil)
+	req.RemoteAddr = "192.168.86.99:54321"
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code == http.StatusForbidden {
+		t.Fatal("the phone must be able to reach the pairing callback")
+	}
+}
+
+// A page in the operator's browser is on loopback, so loopback alone does not stop a
+// website they happen to be visiting from firing a request at the console.
+func TestAWebsiteCannotChangeAnythingThroughTheBrowser(t *testing.T) {
+	_, server, _ := testConsole(t)
+	for _, path := range []string{"/api/token?do=clear", "/api/newcode", "/api/cam?zoom=2"} {
+		// What an <img> or a cross-origin form can send: a GET, or a POST with no header.
+		if code, _ := get(t, server, path); code != http.StatusMethodNotAllowed {
+			t.Errorf("GET %s should not be allowed to change anything, got %d", path, code)
+		}
+		req, err := http.NewRequest(http.MethodPost, server.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("POST %s without the header should be refused, got %d", path, resp.StatusCode)
+		}
 	}
 }
 
@@ -299,8 +400,8 @@ func TestTheConsoleMakesAndRemovesTheKey(t *testing.T) {
 	state, server, _ := testConsole(t)
 	before := state.pairText()
 
-	if code, _ := get(t, server, "/api/token?do=new"); code != http.StatusOK {
-		t.Fatalf("making a key should work, got %d", code)
+	if code, body := post(t, server, "/api/token?do=new"); code != http.StatusOK {
+		t.Fatalf("making a key should work, got %d %.80q", code, body)
 	}
 	_, token, _ := state.snapshot()
 	if token == "" {
@@ -316,7 +417,7 @@ func TestTheConsoleMakesAndRemovesTheKey(t *testing.T) {
 		t.Fatal("the pairing code should have changed")
 	}
 
-	if code, _ := get(t, server, "/api/token?do=clear"); code != http.StatusOK {
+	if code, _ := post(t, server, "/api/token?do=clear"); code != http.StatusOK {
 		t.Fatalf("removing a key should work, got %d", code)
 	}
 	if _, token, _ = state.snapshot(); token != "" {
@@ -400,12 +501,13 @@ func TestProbingRefusesATargetThatIsNotAnAddress(t *testing.T) {
 
 func TestThePageCarriesNoSecretAndNoCameraParameterInItsStream(t *testing.T) {
 	state, server, _ := testConsole(t)
-	state.token = "s3cret-token-value"
+	setToken(t, "s3cret-token-value")
+	_ = state
 	code, body := get(t, server, "/")
 	if code != http.StatusOK {
 		t.Fatalf("want 200, got %d", code)
 	}
-	if strings.Contains(body, state.token) {
+	if strings.Contains(body, "s3cret-token-value") {
 		t.Fatal("the page must not carry the key")
 	}
 	// A reconnecting browser must not rewrite the camera an agent is about to use.

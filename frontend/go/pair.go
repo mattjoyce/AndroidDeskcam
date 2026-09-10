@@ -100,10 +100,17 @@ func (s *consoleState) handleToken(w http.ResponseWriter, r *http.Request) {
 				map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
+		// The file is the key's only home, so nothing here caches it. The old pairing
+		// code carries the old key and must stop working.
 		s.mu.Lock()
-		s.token, s.tokenDeclared = value, true
-		s.newNonce() // the old code carries the old key, so it must not still work
+		s.tokenDeclared = true
+		nonceErr := s.newNonce()
 		s.mu.Unlock()
+		if nonceErr != nil {
+			writeJSON(w, http.StatusInternalServerError,
+				map[string]any{"ok": false, "error": nonceErr.Error()})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok": true,
 			"message": "New key made. Scan the code again so the phone learns it. Until " +
@@ -117,9 +124,14 @@ func (s *consoleState) handleToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
-		s.token, s.tokenDeclared = "", true
-		s.newNonce()
+		s.tokenDeclared = true
+		nonceErr := s.newNonce()
 		s.mu.Unlock()
+		if nonceErr != nil {
+			writeJSON(w, http.StatusInternalServerError,
+				map[string]any{"ok": false, "error": nonceErr.Error()})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok": true,
 			"message": "Key removed here. Scan the code again to clear it on the phone " +
@@ -140,7 +152,7 @@ func phonePage(w http.ResponseWriter, code int, title, body string, good bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8">
+	_, _ = fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>DeskCam</title>
 <style>
  body{margin:0;font:16px/1.5 system-ui,sans-serif;background:#0d1117;color:#e6edf3;
