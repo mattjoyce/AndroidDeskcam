@@ -201,7 +201,7 @@ func TestASweepGivesEveryFrameItsOwnSidecar(t *testing.T) {
 	    {"file":"focus-01-4.500d.jpg","focus_diopters_asked":4.5,
 	     "measured":{"focus_diopters":4.51},"settings":{"zoom":1}}]}`
 
-	if err := splitSweep(dir, []byte(manifest)); err != nil {
+	if err := splitWalk(dir, []byte(manifest)); err != nil {
 		t.Fatal(err)
 	}
 	for i, name := range names {
@@ -226,7 +226,7 @@ func TestASweepGivesEveryFrameItsOwnSidecar(t *testing.T) {
 		}
 	}
 	// The set has properties no single frame has, so the manifest is kept as well.
-	if _, err := os.Stat(filepath.Join(dir, sweepManifest)); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, walkManifest)); err != nil {
 		t.Error("the sweep's own record should be kept beside the frames")
 	}
 }
@@ -234,7 +234,7 @@ func TestASweepGivesEveryFrameItsOwnSidecar(t *testing.T) {
 func TestASweepManifestCannotWriteOutsideItsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	manifest := `{"frames":[{"file":"../escaped.json"},{"file":"/etc/passwd"},{"file":""}]}`
-	if err := splitSweep(dir, []byte(manifest)); err != nil {
+	if err := splitWalk(dir, []byte(manifest)); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -242,7 +242,7 @@ func TestASweepManifestCannotWriteOutsideItsDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Only the manifest itself. Nothing was written for a name that is a path.
-	if len(entries) != 1 || entries[0].Name() != sweepManifest {
+	if len(entries) != 1 || entries[0].Name() != walkManifest {
 		t.Fatalf("a name that is a path must be skipped, got %v", entries)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped.json")); err == nil {
@@ -251,10 +251,61 @@ func TestASweepManifestCannotWriteOutsideItsDirectory(t *testing.T) {
 }
 
 func TestASweepWithNoManifestSaysSo(t *testing.T) {
-	if err := splitSweep(t.TempDir(), nil); err == nil {
-		t.Fatal("a sweep that carried no record of itself should say so")
+	if err := splitWalk(t.TempDir(), nil); err == nil {
+		t.Fatal("a walk that carried no record of itself should say so")
 	}
-	if err := splitSweep(t.TempDir(), []byte("{not json")); err == nil {
+	if err := splitWalk(t.TempDir(), []byte("{not json")); err == nil {
 		t.Fatal("a record that is not JSON should say so")
+	}
+}
+
+// The claim an exposure bracket makes, checked rather than assumed. Card 7.
+func TestABracketSaysWhenAFrameMissedItsPeriod(t *testing.T) {
+	const base = 4166667.0 // 1/240 s, one period of a 240 Hz panel
+
+	// What the phone actually produced: near enough whole multiples for a merge.
+	for _, got := range []float64{4147623, 8295246, 16633251, 33309261} {
+		frame := map[string]any{
+			"file":     "exposure-00.jpg",
+			"measured": map[string]any{"exposure_ns": got, "exposure_human": "4.15ms"},
+		}
+		line := checkPeriods(frame, base)
+		if frame["whole_periods"] != true {
+			t.Errorf("%.0f ns is %v periods, which is close enough to whole",
+				got, frame["base_periods"])
+		}
+		if strings.Contains(line, "duty cycle") {
+			t.Errorf("a good frame should not be warned about: %q", line)
+		}
+		if !strings.Contains(line, "periods") {
+			t.Errorf("every frame should report what it actually did, got %q", line)
+		}
+	}
+
+	// What a base that is not the panel's period looks like: a third of a period out.
+	frame := map[string]any{
+		"file":     "exposure-00.jpg",
+		"measured": map[string]any{"exposure_ns": 85500.0, "exposure_human": "85.5us"},
+	}
+	line := checkPeriods(frame, 125000)
+	if frame["whole_periods"] != false {
+		t.Fatal("0.684 of a period is not a whole number of them")
+	}
+	if !strings.Contains(line, "duty cycle") {
+		t.Errorf("a frame that missed its period must say so, got %q", line)
+	}
+	if frame["period_error"] != 0.316 {
+		t.Errorf("the error should be recorded for the merge, got %v", frame["period_error"])
+	}
+}
+
+// A focus sweep has no base period, and must not be told it missed one.
+func TestAWalkWithNoBasePeriodIsNotChecked(t *testing.T) {
+	frame := map[string]any{"measured": map[string]any{"exposure_ns": 12345.0}}
+	if line := checkPeriods(frame, 0); line != "" {
+		t.Fatalf("a focus sweep has no periods to miss, got %q", line)
+	}
+	if _, ok := frame["base_periods"]; ok {
+		t.Fatal("nothing should be recorded about periods that do not apply")
 	}
 }

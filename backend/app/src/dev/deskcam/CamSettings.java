@@ -273,6 +273,15 @@ public class CamSettings implements Cloneable {
         public float minFocusDiopters = 10f;
         public long minExposureNs = 100_000L, maxExposureNs = 100_000_000L;
         public int minIso = 100, maxIso = 3200;
+        /**
+         * The highest ISO the sensor reaches with analogue gain.
+         *
+         * Above it the extra gain is arithmetic on values the sensor already read, so it
+         * multiplies the noise with the signal and buys nothing a workstation could not do
+         * afterwards with the numbers in front of it. It matters to any measurement that
+         * compares frames at different exposures. Card 7.
+         */
+        public int maxAnalogIso = 3200;
         public int evMin = -12, evMax = 12;
         public double evStep = 1.0 / 6.0;
         public int flashMaxLevel = 1;
@@ -295,6 +304,8 @@ public class CamSettings implements Cloneable {
             if (exp != null) { caps.minExposureNs = exp.getLower(); caps.maxExposureNs = exp.getUpper(); }
             android.util.Range<Integer> iso = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
             if (iso != null) { caps.minIso = iso.getLower(); caps.maxIso = iso.getUpper(); }
+            Integer analog = c.get(CameraCharacteristics.SENSOR_MAX_ANALOG_SENSITIVITY);
+            caps.maxAnalogIso = analog != null ? analog : caps.maxIso;
             android.util.Range<Integer> ev = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
             if (ev != null) { caps.evMin = ev.getLower(); caps.evMax = ev.getUpper(); }
             android.util.Rational evs = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP);
@@ -336,6 +347,7 @@ public class CamSettings implements Cloneable {
             o.put("exposure_ns_range", minExposureNs + ".." + maxExposureNs);
             o.put("exposure_human_range", humanExposure(minExposureNs) + " .. " + humanExposure(maxExposureNs));
             o.put("iso_range", minIso + ".." + maxIso);
+            o.put("max_analog_iso", maxAnalogIso);
             o.put("ev_range", evMin + ".." + evMax);
             o.put("ev_step", round3(evStep));
             o.put("torch_max_level", flashMaxLevel);

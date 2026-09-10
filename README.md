@@ -186,6 +186,7 @@ this table ever disagrees with `/api/help`, `/api/help` is right and this is sta
 | `/api/set` | Apply the parameters. Give the result. |
 | `/api/af` | Do one autofocus sweep |
 | `/api/focussweep` | `steps` stills as the lens walks from `from` to `to` in dioptres, as one tar |
+| `/api/bracket` | `stops` stills at doubling exposures from `base`, as one tar |
 | `/api/reset` | Set all values to the default |
 | `/api/orientation` | The angle to gravity and the ambient light |
 | `/api/cameras` | List the cameras |
@@ -246,6 +247,7 @@ untouched-JPEG path for ever, which is a measurement fault rather than an inconv
 | `format` | `format=raw` makes `deskcam burst` take DNG frames one at a time |
 | `sharpness` | `sharpness=1` makes `/api/status` convert one fresh preview frame first |
 | `from`, `to`, `steps` | The focus sweep: the first and last lens position in dioptres, and how many frames |
+| `base`, `stops` | The exposure bracket: the shortest exposure, and how many frames of twice the one before |
 
 ### Sweeping the focus
 
@@ -254,7 +256,7 @@ deskcam focussweep from=3 to=6 steps=7
 ```
 
 Seven full-resolution stills as the lens walks, each with its own sidecar, plus
-`sweep.json` for the set. **The steps are equal in dioptres, never in millimetres.** Depth
+`walk.json` for the set. **The steps are equal in dioptres, never in millimetres.** Depth
 of field is very nearly constant per dioptre and wildly unequal per millimetre: near the
 98 mm closest focus one millimetre is about a tenth of a dioptre, and at half a metre it is
 four thousandths. A sweep spread evenly in millimetres would crawl at one end and step over
@@ -267,6 +269,53 @@ lens landed within 0.02 of every step it was asked for.
 
 The starting focus is put back afterwards, including when a step fails. A sweep is an
 excursion, not a change.
+
+### Bracketing a lit panel
+
+A lit panel in a dark bezel is wider than the sensor can hold in one frame, so it takes
+several exposures and a merge. The trap is that a panel is not a steady source: it is
+switched at some hundreds of hertz, and an exposure that is not a whole number of its PWM
+periods reads a different part of the duty cycle. Frames that should differ by exactly one
+stop then disagree about a panel that never changed, and the merge is wrong in a way that
+looks like data.
+
+So the bracket steps in **powers of two from one period**, which keeps every frame one stop
+apart AND a whole number of periods. Set the base to one period of the panel:
+
+```sh
+deskcam bracket base=1/240 stops=4 iso=56
+```
+
+Whether the sensor actually delivered whole periods is a separate question, and it is
+checked rather than assumed. Every frame records what it really did, and `deskcam bracket`
+prints it:
+
+```
+deskcam: what the sensor actually did
+  exposure-00-4.17ms1-240.jpg    4.15ms (1/241)       0.9954 periods
+  exposure-01-8.33ms1-120.jpg    8.30ms (1/121)       1.9909 periods
+  exposure-02-16.67ms1-60.jpg    16.63ms (1/60)       3.9920 periods
+  exposure-03-33.33ms1-30.jpg    33.31ms (1/30)       7.9942 periods
+```
+
+A frame more than two hundredths of a period out is named on the line, because the error
+lands at whatever phase the exposure started at and so wobbles between frames rather than
+being an offset they share. Asking for a base far below what the sensor can resolve shows
+it plainly: `base=1/8000` on this device returns 85.5 us for a requested 125 us, which is
+0.68 of a period, and every frame says so.
+
+**Merge on the measured exposure and never on the nominal stop.** The real ratios above are
+2.0000, 2.0051 and 2.0026, not 2. The sidecars carry `exposure_ns`, `base_periods` and
+`period_error` for exactly this.
+
+The ISO is not touched, because two frames that differ in both time and gain cannot be
+merged without knowing how the gain behaved. Above `max_analog_iso`, which this device
+reports as 444, the extra gain is arithmetic on values the sensor already read, so the
+bracket warns and tells you to apply it on the workstation instead.
+
+A bracket of 12 stops from 1/240 spans 4.17 ms to 8.53 s, a range of 2048 to 1, and took
+64 seconds. The waiting time scales with the exposure being asked for; a long one is slow,
+not broken.
 
 ### Focus by number, without sending a picture
 

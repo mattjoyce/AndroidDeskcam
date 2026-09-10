@@ -205,6 +205,11 @@ public final class Params {
                 + "closest the lens focuses, from min_focus_diopters in limits.", "to");
         router("/api/focussweep: how many frames, spread equally in diopters. 2..burst_max.",
                 "steps");
+        router("/api/bracket: the shortest exposure, and the period every other frame is a "
+                + "whole multiple of. Set it to one period of the panel's PWM, e.g. 1/240. "
+                + "Defaults to 1/240.", "base");
+        router("/api/bracket: how many frames, each twice the exposure of the one before. "
+                + "2..burst_max.", "stops");
         router("A cache buster. Ignored.", "t", "_");
     }
 

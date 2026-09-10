@@ -392,57 +392,72 @@ public class HttpServer implements Runnable {
                 float from = floatParam(params, "from", 0f, 0f, caps.minFocusDiopters);
                 float to = floatParam(params, "to", caps.minFocusDiopters, 0f, caps.minFocusDiopters);
                 int steps = (int) longParam(params, "steps", 12, 2, caps.maxBurst);
-                // Longer than a burst by default. Each step moves the lens and waits for
-                // it, and a frame taken before the lens arrives is a frame at the wrong
-                // focus wearing the right label.
-                long settleMs = longParam(params, "settle", 300, 0, 5000);
-                long perFrame = longParam(params, "timeout", 8000, 100, 60000);
 
-                long t0 = System.currentTimeMillis();
-                java.util.List<CameraEngine.SweepFrame> sweep =
-                        engine.focusSweep(req, from, to, steps, settleMs, perFrame);
-                long ms = System.currentTimeMillis() - t0;
-
-                // The manifest travels inside the archive. A sweep is the one capture
-                // where every frame differs in the thing that matters, so one record for
-                // the set would lose exactly the information the set exists to carry.
                 JSONObject manifest = new JSONObject();
-                manifest.put("tool", "DeskCam");
-                manifest.put("sweep", "focus");
+                manifest.put("walk", "focus");
                 manifest.put("from_diopters", CamSettings.round3(from));
                 manifest.put("to_diopters", CamSettings.round3(to));
                 manifest.put("steps", steps);
-                manifest.put("millis", ms);
-                manifest.put("steps_are",
-                        "equal in diopters, which is equal in depth of field. The lens "
-                        + "calibration is APPROXIMATE, so these are ordered positions and "
-                        + "not distances.");
-                JSONArray entries = new JSONArray();
+                manifest.put("steps_are", "equal in diopters, which is equal in depth of "
+                        + "field. The lens calibration is APPROXIMATE, so these are ordered "
+                        + "positions and not distances.");
 
-                java.util.List<String> names = new java.util.ArrayList<>();
-                java.util.List<byte[]> files = new java.util.ArrayList<>();
-                for (int i = 0; i < sweep.size(); i++) {
-                    CameraEngine.SweepFrame f = sweep.get(i);
-                    // The focus is in the name as well as the manifest, because a frame
-                    // that is untarred on its own has to still say which one it is.
-                    String name = String.format(Locale.US, "focus-%02d-%.3fd.jpg", i, f.asked);
-                    names.add(name);
-                    files.add(f.jpeg);
-                    JSONObject entry = f.provenance == null ? new JSONObject()
-                            : new JSONObject(f.provenance.toString());
-                    entry.put("file", name);
-                    entry.put("focus_diopters_asked", CamSettings.round3(f.asked));
-                    entries.put(entry);
+                sendWalk(out, params, req, engine.focusSteps(req, from, to, steps),
+                        manifest, "focus", i -> String.format(Locale.US, "%.3fd",
+                                Geom.sweepStep(from, to, i, steps)));
+                return;
+            }
+
+            case "/api/bracket": {
+                CamSettings req = apply(params);
+                CamSettings.Caps caps = engine.caps();
+                long asked;
+                try {
+                    asked = Parse.exposureNs(params.getOrDefault("base", "1/240"));
+                } catch (NumberFormatException e) {
+                    throw new BadRequest("bad value for 'base': " + e.getMessage());
                 }
-                manifest.put("frames", entries);
-                names.add("sweep.json");
-                files.add(manifest.toString(2).getBytes(StandardCharsets.UTF_8));
+                if (asked < caps.minExposureNs || asked > caps.maxExposureNs) {
+                    throw new BadRequest("'base' must be between "
+                            + CamSettings.humanExposure(caps.minExposureNs) + " and "
+                            + CamSettings.humanExposure(caps.maxExposureNs) + ", got "
+                            + CamSettings.humanExposure(asked));
+                }
+                final long baseNs = asked;
+                int stops = (int) longParam(params, "stops", 4, 2, caps.maxBurst);
+                long longest = baseNs << (stops - 1);
+                if (longest > caps.maxExposureNs) {
+                    throw new BadRequest("a bracket of " + stops + " stops from "
+                            + CamSettings.humanExposure(baseNs) + " ends at "
+                            + CamSettings.humanExposure(longest) + ", and this sensor stops at "
+                            + CamSettings.humanExposure(caps.maxExposureNs)
+                            + ". Use fewer stops or a shorter base.");
+                }
 
-                sendHead(out, 200, "application/x-tar", Tar.contentLength(files),
-                        "X-DeskCam-Frames: " + sweep.size() + "\r\n"
-                        + "X-DeskCam-Millis: " + ms + "\r\n");
-                Tar.writeTo(out, names, files);
-                out.flush();
+                JSONObject manifest = new JSONObject();
+                manifest.put("walk", "exposure");
+                manifest.put("base_ns", baseNs);
+                manifest.put("base_human", CamSettings.humanExposure(baseNs));
+                manifest.put("stops", stops);
+                manifest.put("steps_are", "powers of two from the base, so every frame is "
+                        + "one stop from the next AND a whole number of base periods. Set "
+                        + "the base to one period of the panel's PWM: an exposure that is "
+                        + "not a whole number of periods reads a different part of the duty "
+                        + "cycle, and the frames then disagree about a panel that never "
+                        + "changed.");
+                JSONArray warnings = new JSONArray();
+                if (req.iso > caps.maxAnalogIso) {
+                    warnings.put("iso " + req.iso + " is above this sensor's analogue limit of "
+                            + caps.maxAnalogIso + ", so the extra gain is arithmetic on values "
+                            + "already read. Drop the ISO and apply the gain on the "
+                            + "workstation, where the numbers are in front of you.");
+                }
+                manifest.put("warnings", warnings);
+
+                sendWalk(out, params, req, engine.exposureSteps(req, baseNs, stops),
+                        manifest, "exposure",
+                        i -> CamSettings.humanExposure(baseNs << i).replace("/", "-")
+                                .replaceAll("[ ()]", ""));
                 return;
             }
 
@@ -770,6 +785,72 @@ public class HttpServer implements Runnable {
      * looked exactly like no timeout at all. That is the opposite of rule R5: a value the
      * caller wrote and the server could not use is an error, not a silence.
      */
+    /** Names one frame of a walk, from its index. */
+    private interface StepLabel {
+        String of(int i);
+    }
+
+    /**
+     * Runs a walk and answers with the frames and one record of the set.
+     *
+     * The manifest travels inside the archive. A walk is the one capture where every frame
+     * differs in the thing the capture exists to vary, so one record for the set would
+     * lose exactly the information the set exists to carry: each frame's own provenance
+     * goes in, and the CLI splits them into a sidecar apiece.
+     */
+    private void sendWalk(BufferedOutputStream out, Map<String, String> params, CamSettings req,
+                          java.util.List<CamSettings> steps, JSONObject manifest,
+                          String prefix, StepLabel label) throws Exception {
+        // Longer than a burst by default. Each step moves the camera and waits for it, and
+        // a frame taken before it arrives is a frame at the wrong setting wearing the
+        // right label.
+        long settleMs = longParam(params, "settle", 300, 0, 5000);
+        // A capture cannot finish sooner than its own exposure, so the default waiting
+        // time has to know what the longest step is about to ask for. Three times it,
+        // because each step goes through the repeating preview request: at an 8.5 second
+        // exposure the preview frames are 8.5 seconds each too, and the still queues
+        // behind one of them. A bracket of twelve stops from 1/240 used to fail on a
+        // timeout, which reads as a broken camera rather than as a slow one.
+        long slowest = 0;
+        for (CamSettings step : steps) {
+            if (!step.aeAuto) slowest = Math.max(slowest, step.exposureNs);
+        }
+        long perFrame = longParam(params, "timeout",
+                Math.max(8000, slowest / 1_000_000L * 3 + 4000), 100, 120000);
+
+        long t0 = System.currentTimeMillis();
+        java.util.List<CameraEngine.SweepFrame> frames = engine.walk(steps, settleMs, perFrame);
+        long ms = System.currentTimeMillis() - t0;
+
+        manifest.put("tool", "DeskCam");
+        manifest.put("millis", ms);
+        JSONArray entries = new JSONArray();
+        java.util.List<String> names = new java.util.ArrayList<>();
+        java.util.List<byte[]> files = new java.util.ArrayList<>();
+        for (int i = 0; i < frames.size(); i++) {
+            CameraEngine.SweepFrame f = frames.get(i);
+            // The setting is in the name as well as the manifest, because a frame that is
+            // untarred on its own has to still say which one it is.
+            String name = String.format(Locale.US, "%s-%02d-%s.jpg", prefix, i, label.of(i));
+            names.add(name);
+            files.add(f.jpeg);
+            JSONObject entry = f.provenance == null ? new JSONObject()
+                    : new JSONObject(f.provenance.toString());
+            entry.put("file", name);
+            entry.put("step", i);
+            entries.put(entry);
+        }
+        manifest.put("frames", entries);
+        names.add("walk.json");
+        files.add(manifest.toString(2).getBytes(StandardCharsets.UTF_8));
+
+        sendHead(out, 200, "application/x-tar", Tar.contentLength(files),
+                "X-DeskCam-Frames: " + frames.size() + "\r\n"
+                + "X-DeskCam-Millis: " + ms + "\r\n");
+        Tar.writeTo(out, names, files);
+        out.flush();
+    }
+
     private static float floatParam(Map<String, String> p, String k, float dflt, float lo, float hi)
             throws BadRequest {
         String v = p.get(k);

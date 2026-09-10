@@ -940,15 +940,13 @@ public class CameraEngine {
         public boolean complete() { return frames.size() >= requested; }
     }
 
-    /** One frame of a focus sweep, and where the lens actually went for it. */
+    /** One frame of a walk, and what the camera reported for it. */
     public static final class SweepFrame {
         public final byte[] jpeg;
-        public final float asked;
         public final JSONObject provenance;
 
-        SweepFrame(byte[] jpeg, float asked, JSONObject provenance) {
+        SweepFrame(byte[] jpeg, JSONObject provenance) {
             this.jpeg = jpeg;
-            this.asked = asked;
             this.provenance = provenance;
         }
     }
@@ -1096,58 +1094,98 @@ public class CameraEngine {
     }
 
     /**
-     * A sweep of the lens, one still at each step, for focus stacking.
+     * Walks the camera through a list of settings, keeping one still at each.
      *
-     * The steps are equal in dioptres and never in millimetres. Depth of field is very
-     * nearly constant per dioptre and wildly unequal per millimetre: from the 98 mm
-     * closest focus of this lens, one millimetre is a tenth of a dioptre, and at half a
-     * metre it is four thousandths. A sweep in millimetres would crawl at one end and
-     * jump over the subject at the other.
+     * A burst is many frames of one setting; this is one frame each of many settings. The
+     * focus sweep of card 5 and the exposure bracket of card 7 are both this, and the two
+     * things they share are the two that are easy to get wrong: waiting for the camera to
+     * arrive at each step, and putting the starting state back afterwards even when a step
+     * fails. A walk is an excursion, not a change, and a tool that leaves the bench camera
+     * somewhere else after an experiment is a tool people stop running.
      *
-     * The absolute figures are not trustworthy and do not need to be.
-     * focusDistanceCalibration on this device is APPROXIMATE, so a dioptre is a lens
-     * position and not a distance. What a stack needs is that the positions are ordered
-     * and evenly spread, and that is all this claims.
-     *
-     * The lens is moved through the repeating preview request rather than per capture,
-     * because that is the path the lens actually follows when a person sets the focus and
-     * waits, and it is the one measured to settle. The starting focus is put back
-     * afterwards, including when a step fails: a sweep is an excursion, not a change.
+     * Each step goes through the repeating preview request rather than riding on the still
+     * request, because that is the path the camera follows when a person sets a value and
+     * waits, and it is the one that was measured to settle.
      */
-    public List<SweepFrame> focusSweep(CamSettings base, float from, float to, int steps,
-                                       long settleMs, long timeoutMs) throws Exception {
-        if (steps < 2) {
-            throw new IllegalArgumentException("a sweep needs at least 2 steps; "
-                    + "one frame at one focus is /api/still");
+    public List<SweepFrame> walk(List<CamSettings> steps, long settleMs, long timeoutMs)
+            throws Exception {
+        if (steps.size() < 2) {
+            throw new IllegalArgumentException("a walk needs at least 2 steps; "
+                    + "one frame at one setting is /api/still");
         }
-        if (steps > caps.maxBurst) {
+        if (steps.size() > caps.maxBurst) {
             // The same reasoning as a burst. Every frame is held until the archive is
-            // written, so the limit is the heap and it is checked before the first
+            // written, so the limit is the heap, and it is checked before the first
             // capture rather than part way through.
-            throw new IllegalArgumentException("steps=" + steps + " will not fit in memory "
-                    + "on this device; the most this heap can carry at " + stillSize.getWidth()
-                    + "x" + stillSize.getHeight() + " is " + caps.maxBurst);
+            throw new IllegalArgumentException(steps.size() + " frames will not fit in "
+                    + "memory on this device; the most this heap can carry at "
+                    + stillSize.getWidth() + "x" + stillSize.getHeight() + " is "
+                    + caps.maxBurst);
         }
         CamSettings restore = snapshot();
-        List<SweepFrame> out = new ArrayList<>(steps);
+        List<SweepFrame> out = new ArrayList<>(steps.size());
         try {
-            for (int i = 0; i < steps; i++) {
-                float asked = Geom.clamp(Geom.sweepStep(from, to, i, steps),
-                        0f, caps.minFocusDiopters);
-                CamSettings step = base.clone();
-                step.focusDiopters = asked;
-                step.afMode = CamSettings.AF_OFF;
+            for (CamSettings step : steps) {
                 CamSettings applied = update(step);
                 if (settleMs > 0) Thread.sleep(settleMs);
                 Shot shot = captureStill(applied, timeoutMs);
-                out.add(new SweepFrame(shot.bytes, asked, shot.provenance));
+                out.add(new SweepFrame(shot.bytes, shot.provenance));
             }
         } finally {
             try {
                 update(restore);
             } catch (Exception e) {
-                Log.w(TAG, "could not put the focus back after a sweep", e);
+                Log.w(TAG, "could not put the camera back after a walk", e);
             }
+        }
+        return out;
+    }
+
+    /**
+     * The lens positions of a focus sweep, equal in diopters and never in millimetres.
+     *
+     * Depth of field is very nearly constant per diopter and wildly unequal per
+     * millimetre: near the 98 mm closest focus of this lens one millimetre is about a
+     * tenth of a diopter, and at half a metre it is four thousandths. A sweep spread
+     * evenly in millimetres would crawl at one end and step over the subject at the other.
+     *
+     * The absolute figures are not trustworthy and do not need to be.
+     * focusDistanceCalibration on this device is APPROXIMATE, so a diopter is a lens
+     * position and not a distance. What a stack needs is that the positions are ordered
+     * and evenly spread, and that is all this claims. Card 5.
+     */
+    public List<CamSettings> focusSteps(CamSettings base, float from, float to, int steps) {
+        List<CamSettings> out = new ArrayList<>(Math.max(0, steps));
+        for (int i = 0; i < steps; i++) {
+            CamSettings step = base.clone();
+            step.focusDiopters = Geom.clamp(Geom.sweepStep(from, to, i, steps),
+                    0f, caps.minFocusDiopters);
+            step.afMode = CamSettings.AF_OFF;
+            out.add(step);
+        }
+        return out;
+    }
+
+    /**
+     * The exposures of a bracket, each a whole multiple of the base period.
+     *
+     * Powers of two from one period, so every step is one stop apart AND every step
+     * integrates a whole number of PWM cycles. A lit panel is not a steady source: it is
+     * switched at some hundreds of hertz, and an exposure that is not a whole number of
+     * its periods catches a different part of the duty cycle, so the frames of the bracket
+     * disagree about the brightness of a panel that never changed. Arbitrary stops are
+     * exactly the thing this must not do. Card 7.
+     *
+     * The ISO is not touched. Only the time changes, because two frames that differ in
+     * both cannot be merged without knowing how the gain behaved.
+     */
+    public List<CamSettings> exposureSteps(CamSettings base, long baseNs, int stops) {
+        List<CamSettings> out = new ArrayList<>(Math.max(0, stops));
+        for (int i = 0; i < stops; i++) {
+            CamSettings step = base.clone();
+            step.exposureNs = Geom.clampLong(baseNs << i, caps.minExposureNs, caps.maxExposureNs);
+            step.aeAuto = false;
+            out.add(step);
         }
         return out;
     }

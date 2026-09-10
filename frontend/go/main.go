@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,7 +129,9 @@ func run(argv []string) int {
 	case "burst":
 		return burst(in)
 	case "focussweep", "sweep":
-		return focusSweep(in)
+		return walkCommand(in, "/api/focussweep", "sweep")
+	case "bracket":
+		return walkCommand(in, "/api/bracket", "bracket")
 	case "stream":
 		return stream(in)
 
@@ -481,24 +484,38 @@ func aatest(in *invocation) int {
 	return runAnalysis([]string{"aatest", shots[0], shots[1], "--write", dir})
 }
 
-// focusSweep asks the phone to walk the lens and writes what comes back.
+// walkCommand asks the phone to walk the camera through a range and writes what comes
+// back: a focus sweep for stacking, or an exposure bracket for merging.
 //
 // Each frame gets its own sidecar, unlike a burst, which gets one for the set. Every
-// frame of a sweep differs in the one thing the sweep exists to vary, so a single record
-// would lose exactly what was being recorded. The phone puts them in sweep.json inside
-// the archive and this splits them out beside the frames. Card 5.
-func focusSweep(in *invocation) int {
+// frame of a walk differs in the one thing the walk exists to vary, so a single record
+// would lose exactly what was being recorded. The phone puts them in walk.json inside
+// the archive and this splits them out beside the frames. Cards 5 and 7.
+func walkCommand(in *invocation, path, prefix string) int {
 	dir := in.out
 	if dir == "" {
-		dir = filepath.Join(in.cfg.Shots, "deskcam-sweep-"+time.Now().Format("20060102-150405"))
+		dir = filepath.Join(in.cfg.Shots,
+			"deskcam-"+prefix+"-"+time.Now().Format("20060102-150405"))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("cannot make %s: %v", dir, err)
 	}
 
+	// A walk is many captures, and its slowest step can be seconds long on its own. The
+	// ordinary thirty second budget is for one request and is the wrong shape here: it
+	// turns a bracket that is merely slow into a phone that appears not to answer. The
+	// phone bounds its own work per frame, so what this needs is room for the sum of it.
+	// DESKCAM_TIMEOUT still wins when the operator has set one.
+	client := in.client
+	if os.Getenv("DESKCAM_TIMEOUT") == "" {
+		walking := in.cfg
+		walking.Timeout = 5 * time.Minute
+		client = NewClient(walking)
+	}
+
 	var manifest []byte
 	written := 0
-	reply, err := in.client.GetStream("/api/focussweep", in.query, func(r io.Reader) error {
+	reply, err := client.GetStream(path, in.query, func(r io.Reader) error {
 		archive := tar.NewReader(r)
 		for {
 			header, err := archive.Next()
@@ -517,7 +534,7 @@ func focusSweep(in *invocation) int {
 			if name == "." || name == ".." || name == "" {
 				continue
 			}
-			if name == sweepManifest {
+			if name == walkManifest {
 				body, err := io.ReadAll(io.LimitReader(archive, 1<<22))
 				if err != nil {
 					return err
@@ -540,39 +557,44 @@ func focusSweep(in *invocation) int {
 		}
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "deskcam: the focus sweep failed")
+		fmt.Fprintln(os.Stderr, "deskcam:", strings.TrimPrefix(path, "/api/"), "failed")
 		return failWith(err)
 	}
 	if got, ok := reply.headerInt("X-DeskCam-Frames"); ok && got != written {
 		fmt.Fprintf(os.Stderr, "deskcam: the phone sent %d frames and %d were written\n",
 			got, written)
 	}
-	if err := splitSweep(dir, manifest); err != nil {
+	if err := splitWalk(dir, manifest); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecars:", err)
 	}
 	fmt.Println(dir)
 	return 0
 }
 
-// The name the phone gives the record of a sweep, inside the archive.
-const sweepManifest = "sweep.json"
+// The name the phone gives the record of a walk, inside the archive.
+const walkManifest = "walk.json"
 
-// splitSweep turns the one manifest into a sidecar beside each frame, and keeps the
-// manifest too, because the order and the range of the sweep belong to the set.
-func splitSweep(dir string, manifest []byte) error {
+// splitWalk turns the one manifest into a sidecar beside each frame, and keeps the
+// manifest too, because the order and the range of the walk belong to the set.
+func splitWalk(dir string, manifest []byte) error {
 	if len(manifest) == 0 {
-		return fmt.Errorf("the sweep carried no %s", sweepManifest)
+		return fmt.Errorf("the walk carried no %s", walkManifest)
 	}
-	if err := os.WriteFile(filepath.Join(dir, sweepManifest), manifest, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, walkManifest), manifest, 0o644); err != nil {
 		return err
 	}
 	var doc struct {
+		BaseNs float64          `json:"base_ns"`
 		Frames []map[string]any `json:"frames"`
 	}
 	if err := json.Unmarshal(manifest, &doc); err != nil {
-		return fmt.Errorf("%s is not JSON: %w", sweepManifest, err)
+		return fmt.Errorf("%s is not JSON: %w", walkManifest, err)
 	}
+	var report []string
 	for _, frame := range doc.Frames {
+		if line := checkPeriods(frame, doc.BaseNs); line != "" {
+			report = append(report, line)
+		}
 		name, _ := frame["file"].(string)
 		if name == "" || name != filepath.Base(name) {
 			continue
@@ -595,7 +617,59 @@ func splitSweep(dir string, manifest []byte) error {
 			return err
 		}
 	}
+	// A bracket is merged on the real exposures and not the nominal stops, so the real
+	// exposures are put in front of the operator rather than left in a file.
+	if len(report) > 0 {
+		fmt.Fprintln(os.Stderr, "deskcam: what the sensor actually did")
+		for _, line := range report {
+			fmt.Fprintln(os.Stderr, "  "+line)
+		}
+	}
 	return nil
+}
+
+// How far from a whole PWM period an exposure may land before it is worth saying so.
+//
+// Two percent of one period. The error is a fraction of one period wherever it lands, so
+// what it costs is a fraction of one period's light out of however many the frame holds,
+// and it lands at whatever phase the exposure happened to start at, which is why it is a
+// wobble between frames rather than an offset they share. Two percent is small against
+// every other error in a merge and large enough to notice a base that is not a period at
+// all.
+const periodTolerance = 0.02
+
+// checkPeriods is the whole point of an exposure bracket, checked rather than assumed.
+//
+// The frames are asked for as whole multiples of the base period, but the sensor
+// quantises what it actually does. A lit panel is switched at some hundreds of hertz, and
+// an exposure that is not a whole number of its periods catches a different part of the
+// duty cycle, so frames that should differ by exactly one stop disagree about a panel that
+// never changed, and the merge is wrong in a way that looks like data. Card 7.
+//
+// Returns the line to show the operator, or "" when this is not a bracket.
+func checkPeriods(frame map[string]any, baseNs float64) string {
+	if baseNs <= 0 {
+		return "" // a focus sweep, or anything else with no base period
+	}
+	measured, _ := frame["measured"].(map[string]any)
+	got, ok := measured["exposure_ns"].(float64)
+	if !ok || got <= 0 {
+		return ""
+	}
+	periods := got / baseNs
+	off := math.Abs(periods - math.Round(periods))
+	frame["base_periods"] = math.Round(periods*10000) / 10000
+	frame["period_error"] = math.Round(off*10000) / 10000
+	frame["whole_periods"] = off <= periodTolerance
+
+	name, _ := frame["file"].(string)
+	human, _ := measured["exposure_human"].(string)
+	line := fmt.Sprintf("%-30s %-18s %8.4f periods", name, human, periods)
+	if off > periodTolerance {
+		line += fmt.Sprintf("  <- %.3f of a period out; this frame reads a different part "+
+			"of the duty cycle from the others", off)
+	}
+	return line
 }
 
 // scaleCommand measures px/mm from a reference in a capture and records it beside the

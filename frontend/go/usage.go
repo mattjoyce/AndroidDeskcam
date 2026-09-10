@@ -14,6 +14,10 @@ func usage() {
                                        walk the lens and keep a still at each step, for
                                        focus stacking. The steps are equal in dioptres,
                                        which is equal in depth of field
+  deskcam bracket [-o DIR] [base=1/240 stops=4]
+                                       stills at doubling exposures, for merging a lit
+                                       panel against a dark bezel. Set the base to one
+                                       period of the panel's PWM
   deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file).
                                        A stream is a view: it takes fps, n, w, h and
                                        jpegq, and refuses anything that would change
