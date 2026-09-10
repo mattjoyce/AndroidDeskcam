@@ -9,6 +9,10 @@ the help each listed a different set of parameters.
 
 These read the Java source as text. That is on purpose: they must fail on a workstation
 with no phone and no Android SDK, in the same second as the rest of the suite.
+
+`surface.py` beside this file is the other half, for the claim these cannot make: that a
+change meant to alter nothing altered nothing. It asks a running phone and compares two
+recordings, so it is a tool you run across a refactor rather than a test that runs here.
 """
 
 from __future__ import annotations

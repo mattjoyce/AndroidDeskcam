@@ -86,6 +86,25 @@ real files under a temporary directory, and the contract tests read `Params.java
 if this README or the specification names a parameter that does not exist, or misses one
 that does.
 
+The one check that does need the phone is for a change that is meant to alter nothing:
+
+```sh
+frontend/surface.py record /tmp/before      # against the phone as it is now
+./backend/build.sh && adb install -r -g backend/build/deskcam.apk
+frontend/surface.py record /tmp/after
+frontend/surface.py compare /tmp/before /tmp/after
+```
+
+It asks every endpoint, including the refusals, and compares the status line, the header
+names and the type of every field of every JSON body. Not the values: two captures of one
+scene differ in every byte and a sensor timestamp is a clock. It puts the camera into a
+fixed state first, because `focus_metres` exists only while the focus is manual and
+`tonemap_curve` only once measurement mode has reached a capture result, and a difference
+that comes from the camera rather than the change is how a check like this gets ignored.
+
+It also refuses to pass while `/api/help` advertises an endpoint it does not visit, which
+is rule R6 turned on the check itself. That caught a missing `/api/raw` on its first run.
+
 ### The Go binary
 
 `frontend/go/` builds one static binary with the CLI and the console in it:

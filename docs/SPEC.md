@@ -241,6 +241,14 @@ numbers. Each capture endpoint also returns `X-DeskCam-Provenance`, which holds 
 of that frame as JSON, so a client never has to ask a second question about a picture it
 already has.
 
+**A change meant to alter nothing is checked, not asserted.** `frontend/surface.py` asks a
+running phone for every endpoint in this table, refusals included, and compares two
+recordings: the status line, the header names, and the type of every field of every JSON
+body. Not the values, because two captures of one scene differ in every byte. It fixes the
+camera state before recording, since several fields are present only in some states, and
+it refuses to pass while `/api/help` advertises an endpoint it does not visit. Run it
+across any refactor of the router or the handlers. It was written for the one in D14.
+
 **The parameters live in one place.** `Params.java` declares every name, its group, and
 its help text. The parser reads that list and `/api/help` is printed from it, so this
 document and the README describe it rather than repeat it. `deskcam api` prints the
