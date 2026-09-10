@@ -185,6 +185,7 @@ this table ever disagrees with `/api/help`, `/api/help` is right and this is sta
 | `/api/stream` | MJPEG. A view only: `fps`, `n`, `w`, `h`, `jpegq`. |
 | `/api/set` | Apply the parameters. Give the result. |
 | `/api/af` | Do one autofocus sweep |
+| `/api/focussweep` | `steps` stills as the lens walks from `from` to `to` in dioptres, as one tar |
 | `/api/reset` | Set all values to the default |
 | `/api/orientation` | The angle to gravity and the ambient light |
 | `/api/cameras` | List the cameras |
@@ -244,6 +245,28 @@ untouched-JPEG path for ever, which is a measurement fault rather than an inconv
 | `port` | The port for `/api/nettest` |
 | `format` | `format=raw` makes `deskcam burst` take DNG frames one at a time |
 | `sharpness` | `sharpness=1` makes `/api/status` convert one fresh preview frame first |
+| `from`, `to`, `steps` | The focus sweep: the first and last lens position in dioptres, and how many frames |
+
+### Sweeping the focus
+
+```sh
+deskcam focussweep from=3 to=6 steps=7
+```
+
+Seven full-resolution stills as the lens walks, each with its own sidecar, plus
+`sweep.json` for the set. **The steps are equal in dioptres, never in millimetres.** Depth
+of field is very nearly constant per dioptre and wildly unequal per millimetre: near the
+98 mm closest focus one millimetre is about a tenth of a dioptre, and at half a metre it is
+four thousandths. A sweep spread evenly in millimetres would crawl at one end and step over
+the subject at the other.
+
+`focusDistanceCalibration` on this device is `APPROXIMATE`, so a dioptre here is a lens
+position and not a distance. A stack needs the positions ordered and evenly spread, and
+that is all this claims. A real sweep of 7 frames over 3 to 6 dioptres took 4.2 s, and the
+lens landed within 0.02 of every step it was asked for.
+
+The starting focus is put back afterwards, including when a step fails. A sweep is an
+excursion, not a change.
 
 ### Focus by number, without sending a picture
 

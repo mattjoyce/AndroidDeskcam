@@ -82,4 +82,18 @@ public final class Geom {
         }
         return v;
     }
+
+    /**
+     * The i'th of `steps` positions spread evenly from `from` to `to`, both ends included.
+     *
+     * A focus sweep uses this in diopters and never in millimetres. Depth of field is very
+     * nearly constant per diopter and wildly unequal per millimetre: near the 98 mm closest
+     * focus of this lens one millimetre is about a tenth of a diopter, and at half a metre
+     * it is four thousandths. A sweep spread evenly in millimetres would crawl at one end
+     * and step over the subject at the other. Card 5.
+     */
+    public static float sweepStep(float from, float to, int i, int steps) {
+        if (steps < 2) throw new NumberFormatException("a sweep needs at least 2 steps");
+        return from + (to - from) * i / (steps - 1);
+    }
 }

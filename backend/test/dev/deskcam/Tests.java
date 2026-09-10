@@ -38,6 +38,7 @@ public final class Tests {
         rotationParsing();
         tarWritesAReadableArchive(tmp);
         theAccessKeyRule();
+        aSweepIsEvenInDiopters();
         sharpnessRisesWithDetail();
         sharpnessPeaksAtFocus();
         sharpnessOnAnImpossibleRegion();
@@ -267,6 +268,33 @@ public final class Tests {
     // ------------------------------------------------------------- plumbing
 
     private interface Body { void run(); }
+
+    // ------------------------------------------------------- the focus sweep
+
+    /**
+     * "The steps are equal in dioptre space" is card 5's acceptance criterion, and this is
+     * it as arithmetic. Equal in diopters is equal in depth of field, which is the whole
+     * reason a stack is swept this way and not in millimetres.
+     */
+    private static void aSweepIsEvenInDiopters() {
+        int steps = 5;
+        float from = 2f, to = 10f;
+        eq("the first step is where it was asked to start", from, Geom.sweepStep(from, to, 0, steps));
+        eq("the last step is where it was asked to end", to, Geom.sweepStep(from, to, steps - 1, steps));
+
+        float gap = Geom.sweepStep(from, to, 1, steps) - Geom.sweepStep(from, to, 0, steps);
+        for (int i = 1; i < steps; i++) {
+            eq("gap " + i + " is the same as the first",
+                    gap, Geom.sweepStep(from, to, i, steps) - Geom.sweepStep(from, to, i - 1, steps));
+        }
+
+        // Backwards is a sweep too. Somebody will type from=10 to=2 and mean it.
+        eq("a descending sweep starts at its start", 10f, Geom.sweepStep(10f, 2f, 0, 3));
+        eq("a descending sweep ends at its end", 2f, Geom.sweepStep(10f, 2f, 2, 3));
+        eq("a descending sweep passes through the middle", 6f, Geom.sweepStep(10f, 2f, 1, 3));
+
+        threw("a sweep of one step", () -> Geom.sweepStep(2f, 10f, 0, 1));
+    }
 
     // --------------------------------------------------------- sharpness
 

@@ -180,3 +180,81 @@ func TestACaptureCarriesTheScaleMeasuredBeforeIt(t *testing.T) {
 			block["measured_from"])
 	}
 }
+
+// ------------------------------------------------------------- focus sweeps
+
+// A sweep is the one capture where every frame differs in the thing the capture exists to
+// vary, so one record for the set would lose exactly what was being recorded. Card 5.
+func TestASweepGivesEveryFrameItsOwnSidecar(t *testing.T) {
+	dir := t.TempDir()
+	names := []string{"focus-00-3.000d.jpg", "focus-01-4.500d.jpg"}
+	for _, name := range names {
+		body := solidJPEG(t, 64, 48, color.RGBA{B: 120, A: 255})
+		if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := `{"tool":"DeskCam","sweep":"focus","from_diopters":3,"to_diopters":4.5,
+	  "frames":[
+	    {"file":"focus-00-3.000d.jpg","focus_diopters_asked":3,
+	     "measured":{"focus_diopters":3.0},"settings":{"zoom":1}},
+	    {"file":"focus-01-4.500d.jpg","focus_diopters_asked":4.5,
+	     "measured":{"focus_diopters":4.51},"settings":{"zoom":1}}]}`
+
+	if err := splitSweep(dir, []byte(manifest)); err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range names {
+		side := filepath.Join(dir, strings.TrimSuffix(name, ".jpg")+".json")
+		raw, err := os.ReadFile(side)
+		if err != nil {
+			t.Fatalf("no sidecar for %s: %v", name, err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if doc["image"] != name {
+			t.Errorf("sidecar %d names %v, want %s", i, doc["image"], name)
+		}
+		if doc["width_px"] != 64.0 || doc["bytes"] == nil {
+			t.Errorf("sidecar %d should record the file it describes: %v", i, doc)
+		}
+		measured, _ := doc["measured"].(map[string]any)
+		if measured == nil || measured["focus_diopters"] == nil {
+			t.Errorf("sidecar %d lost the focus of its own frame: %v", i, doc)
+		}
+	}
+	// The set has properties no single frame has, so the manifest is kept as well.
+	if _, err := os.Stat(filepath.Join(dir, sweepManifest)); err != nil {
+		t.Error("the sweep's own record should be kept beside the frames")
+	}
+}
+
+func TestASweepManifestCannotWriteOutsideItsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{"frames":[{"file":"../escaped.json"},{"file":"/etc/passwd"},{"file":""}]}`
+	if err := splitSweep(dir, []byte(manifest)); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the manifest itself. Nothing was written for a name that is a path.
+	if len(entries) != 1 || entries[0].Name() != sweepManifest {
+		t.Fatalf("a name that is a path must be skipped, got %v", entries)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped.json")); err == nil {
+		t.Fatal("a sidecar escaped the sweep directory")
+	}
+}
+
+func TestASweepWithNoManifestSaysSo(t *testing.T) {
+	if err := splitSweep(t.TempDir(), nil); err == nil {
+		t.Fatal("a sweep that carried no record of itself should say so")
+	}
+	if err := splitSweep(t.TempDir(), []byte("{not json")); err == nil {
+		t.Fatal("a record that is not JSON should say so")
+	}
+}

@@ -199,6 +199,12 @@ public final class Params {
                 + "the sharpness it reports describes now rather than the last frame "
                 + "anything asked for. Costs one frame, and takes fresh and timeout. "
                 + "Card 9.", "sharpness");
+        router("/api/focussweep: the focus of the first frame, in diopters. Defaults to 0, "
+                + "which is as far away as the lens goes.", "from");
+        router("/api/focussweep: the focus of the last frame, in diopters. Defaults to the "
+                + "closest the lens focuses, from min_focus_diopters in limits.", "to");
+        router("/api/focussweep: how many frames, spread equally in diopters. 2..burst_max.",
+                "steps");
         router("A cache buster. Ignored.", "t", "_");
     }
 

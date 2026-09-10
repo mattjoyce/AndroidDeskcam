@@ -10,6 +10,10 @@ func usage() {
   deskcam raw [-o FILE] [k=v ...]      full-sensor RAW as a DNG, for measurement work
   deskcam burst N [-o DIR] [k=v ...]   N frames with identical settings, into a directory
                                        add format=raw for DNG frames
+  deskcam focussweep [-o DIR] [from=D to=D steps=N]
+                                       walk the lens and keep a still at each step, for
+                                       focus stacking. The steps are equal in dioptres,
+                                       which is equal in depth of field
   deskcam stream [-o FILE] [n=N]       MJPEG stream (default 30 frames to a file).
                                        A stream is a view: it takes fps, n, w, h and
                                        jpegq, and refuses anything that would change

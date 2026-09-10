@@ -940,6 +940,19 @@ public class CameraEngine {
         public boolean complete() { return frames.size() >= requested; }
     }
 
+    /** One frame of a focus sweep, and where the lens actually went for it. */
+    public static final class SweepFrame {
+        public final byte[] jpeg;
+        public final float asked;
+        public final JSONObject provenance;
+
+        SweepFrame(byte[] jpeg, float asked, JSONObject provenance) {
+            this.jpeg = jpeg;
+            this.asked = asked;
+            this.provenance = provenance;
+        }
+    }
+
     /**
      * Full-resolution still, cropped to the ROI.
      *
@@ -1080,6 +1093,63 @@ public class CameraEngine {
                 img.close();
             }
         }
+    }
+
+    /**
+     * A sweep of the lens, one still at each step, for focus stacking.
+     *
+     * The steps are equal in dioptres and never in millimetres. Depth of field is very
+     * nearly constant per dioptre and wildly unequal per millimetre: from the 98 mm
+     * closest focus of this lens, one millimetre is a tenth of a dioptre, and at half a
+     * metre it is four thousandths. A sweep in millimetres would crawl at one end and
+     * jump over the subject at the other.
+     *
+     * The absolute figures are not trustworthy and do not need to be.
+     * focusDistanceCalibration on this device is APPROXIMATE, so a dioptre is a lens
+     * position and not a distance. What a stack needs is that the positions are ordered
+     * and evenly spread, and that is all this claims.
+     *
+     * The lens is moved through the repeating preview request rather than per capture,
+     * because that is the path the lens actually follows when a person sets the focus and
+     * waits, and it is the one measured to settle. The starting focus is put back
+     * afterwards, including when a step fails: a sweep is an excursion, not a change.
+     */
+    public List<SweepFrame> focusSweep(CamSettings base, float from, float to, int steps,
+                                       long settleMs, long timeoutMs) throws Exception {
+        if (steps < 2) {
+            throw new IllegalArgumentException("a sweep needs at least 2 steps; "
+                    + "one frame at one focus is /api/still");
+        }
+        if (steps > caps.maxBurst) {
+            // The same reasoning as a burst. Every frame is held until the archive is
+            // written, so the limit is the heap and it is checked before the first
+            // capture rather than part way through.
+            throw new IllegalArgumentException("steps=" + steps + " will not fit in memory "
+                    + "on this device; the most this heap can carry at " + stillSize.getWidth()
+                    + "x" + stillSize.getHeight() + " is " + caps.maxBurst);
+        }
+        CamSettings restore = snapshot();
+        List<SweepFrame> out = new ArrayList<>(steps);
+        try {
+            for (int i = 0; i < steps; i++) {
+                float asked = Geom.clamp(Geom.sweepStep(from, to, i, steps),
+                        0f, caps.minFocusDiopters);
+                CamSettings step = base.clone();
+                step.focusDiopters = asked;
+                step.afMode = CamSettings.AF_OFF;
+                CamSettings applied = update(step);
+                if (settleMs > 0) Thread.sleep(settleMs);
+                Shot shot = captureStill(applied, timeoutMs);
+                out.add(new SweepFrame(shot.bytes, asked, shot.provenance));
+            }
+        } finally {
+            try {
+                update(restore);
+            } catch (Exception e) {
+                Log.w(TAG, "could not put the focus back after a sweep", e);
+            }
+        }
+        return out;
     }
 
     /**

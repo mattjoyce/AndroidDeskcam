@@ -204,6 +204,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/set` | JSON | Apply the parameters. Give the result. |
 | `/api/reset` | JSON | Set all values to the default. |
 | `/api/af` | JSON | Do one autofocus sweep. |
+| `/api/focussweep` | `application/x-tar` | `steps` stills as the lens walks from `from` to `to`, spread equally in dioptres. The archive holds `sweep.json`, which records the lens position asked for and reached at every frame. |
 | `/api/cameras` | JSON | List the cameras and the capabilities. |
 | `/api/help` | JSON | The self description. Refer to R6. |
 | `/api/nettest` | JSON | An outbound test. It finds the fault in section 4.4. It connects only to the address the request came from. |
@@ -229,7 +230,7 @@ The groups are decision D9:
 |---|---|---|
 | Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
 | Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
-| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `t` | one request |
+| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `from`, `to`, `steps`, `t` | one request |
 
 **The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
 `cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use

@@ -8,6 +8,7 @@ package main
 
 import (
 	"archive/tar"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -126,6 +127,8 @@ func run(argv []string) int {
 		return capture(in, "/api/raw", "dng")
 	case "burst":
 		return burst(in)
+	case "focussweep", "sweep":
+		return focusSweep(in)
 	case "stream":
 		return stream(in)
 
@@ -476,6 +479,123 @@ func aatest(in *invocation) int {
 		shots = append(shots, name)
 	}
 	return runAnalysis([]string{"aatest", shots[0], shots[1], "--write", dir})
+}
+
+// focusSweep asks the phone to walk the lens and writes what comes back.
+//
+// Each frame gets its own sidecar, unlike a burst, which gets one for the set. Every
+// frame of a sweep differs in the one thing the sweep exists to vary, so a single record
+// would lose exactly what was being recorded. The phone puts them in sweep.json inside
+// the archive and this splits them out beside the frames. Card 5.
+func focusSweep(in *invocation) int {
+	dir := in.out
+	if dir == "" {
+		dir = filepath.Join(in.cfg.Shots, "deskcam-sweep-"+time.Now().Format("20060102-150405"))
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fail("cannot make %s: %v", dir, err)
+	}
+
+	var manifest []byte
+	written := 0
+	reply, err := in.client.GetStream("/api/focussweep", in.query, func(r io.Reader) error {
+		archive := tar.NewReader(r)
+		for {
+			header, err := archive.Next()
+			if err == io.EOF {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if header.Typeflag != tar.TypeReg {
+				continue
+			}
+			// An archive is untrusted input and a name is still a path, however well the
+			// phone behaves. Same reasoning as the burst.
+			name := filepath.Base(header.Name)
+			if name == "." || name == ".." || name == "" {
+				continue
+			}
+			if name == sweepManifest {
+				body, err := io.ReadAll(io.LimitReader(archive, 1<<22))
+				if err != nil {
+					return err
+				}
+				manifest = body
+				continue
+			}
+			f, err := os.Create(filepath.Join(dir, name))
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(f, archive)
+			if closeErr := f.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				return err
+			}
+			written++
+		}
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "deskcam: the focus sweep failed")
+		return failWith(err)
+	}
+	if got, ok := reply.headerInt("X-DeskCam-Frames"); ok && got != written {
+		fmt.Fprintf(os.Stderr, "deskcam: the phone sent %d frames and %d were written\n",
+			got, written)
+	}
+	if err := splitSweep(dir, manifest); err != nil {
+		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecars:", err)
+	}
+	fmt.Println(dir)
+	return 0
+}
+
+// The name the phone gives the record of a sweep, inside the archive.
+const sweepManifest = "sweep.json"
+
+// splitSweep turns the one manifest into a sidecar beside each frame, and keeps the
+// manifest too, because the order and the range of the sweep belong to the set.
+func splitSweep(dir string, manifest []byte) error {
+	if len(manifest) == 0 {
+		return fmt.Errorf("the sweep carried no %s", sweepManifest)
+	}
+	if err := os.WriteFile(filepath.Join(dir, sweepManifest), manifest, 0o644); err != nil {
+		return err
+	}
+	var doc struct {
+		Frames []map[string]any `json:"frames"`
+	}
+	if err := json.Unmarshal(manifest, &doc); err != nil {
+		return fmt.Errorf("%s is not JSON: %w", sweepManifest, err)
+	}
+	for _, frame := range doc.Frames {
+		name, _ := frame["file"].(string)
+		if name == "" || name != filepath.Base(name) {
+			continue
+		}
+		image := filepath.Join(dir, name)
+		frame["image"] = name
+		if info, err := os.Stat(image); err == nil {
+			frame["bytes"] = info.Size()
+		}
+		width, height := pixelSize(image)
+		if width > 0 {
+			frame["width_px"] = width
+			frame["height_px"] = height
+		}
+		out, err := json.MarshalIndent(frame, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(sidecarPath(image), append(out, '\n'), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // scaleCommand measures px/mm from a reference in a capture and records it beside the
