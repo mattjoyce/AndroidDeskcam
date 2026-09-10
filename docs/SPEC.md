@@ -581,6 +581,11 @@ The stream is never stopped, at any level, because it carries the reason the rat
 Every part has `X-DeskCam-Fps` and `X-DeskCam-Thermal`, and `X-DeskCam-Shedding` once the
 rate is below what was asked for, so a client can tell heat from a network fault.
 
+**Plugged in and charging are different facts.** A phone told to stop at 80 percent, which
+is a sensible way to run one that lives on a stand, has the cable in and is not charging.
+`plugged_in` comes from whether there is power at the socket and `charging` from the
+platform's own battery status, so a field named for one never reports the other.
+
 **The thermal level and the battery temperature are different quantities.** The level is
 the platform's own judgement, on the scale it acts by, and needs no threshold of ours. The
 battery temperature is the only real thermometer an ordinary app may read, and it is

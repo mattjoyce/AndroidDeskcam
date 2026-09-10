@@ -1036,10 +1036,18 @@ at it, gets hot. `/api/status` carries a `device` block:
   "stream_slowdown": 4,
   "battery_percent": 100,
   "battery_celsius": 36.3,
+  "plugged_in": true,
   "charging": true,
+  "battery_status": "charging",
   "power_source": "ac"
 }
 ```
+
+**`plugged_in` and `charging` are two different facts.** A phone told to stop at 80 percent,
+which is a sensible way to run one that lives on a stand, has the cable in and is not
+charging: `plugged_in` stays true, `charging` goes false and `battery_status` says
+`not_charging`. The block says so in a note, because the alternative is somebody going to
+look for a bad cable.
 
 **`thermal` and `battery_celsius` are different quantities and it matters.** `thermal` is
 the platform's own level, the same one it throttles by, and it is what a stream reacts to.
@@ -1081,6 +1089,16 @@ because it is the channel carrying the reason.
 `deskcam show` ends with `HOT severe` once the platform is acting, and says nothing while
 the phone is merely warm. **Take it seriously for measurement work**: a throttled phone has
 a hot sensor, and a hot sensor is a noisier one.
+
+The same bench after the camera was given the idling of the section above, an open panel
+tab was closed, and the phone was set to stop charging at 80 percent:
+
+| | after an afternoon of captures | a quiet hour later |
+|---|---|---|
+| Thermal status | severe | **none** |
+| Battery | 38.1 °C | **27.2 °C** |
+
+Nothing about the hardware changed between those two columns.
 
 ### The console and the access key
 

@@ -117,8 +117,16 @@ public class Health {
         if (tenths != Integer.MIN_VALUE) {
             o.put("battery_celsius", CamSettings.round2(tenths / 10.0));
         }
+        // Plugged in and charging are two different facts, and a phone told to stop at
+        // 80 percent is exactly where they part company: the cable is in, the platform
+        // reports NOT_CHARGING, and a field called "charging" that was really reading
+        // "plugged" would say the battery is filling while it sits still for hours.
         int plugged = battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
-        o.put("charging", plugged != 0);
+        int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS,
+                BatteryManager.BATTERY_STATUS_UNKNOWN);
+        o.put("plugged_in", plugged != 0);
+        o.put("charging", status == BatteryManager.BATTERY_STATUS_CHARGING);
+        o.put("battery_status", statusWord(status));
         o.put("power_source", source(plugged));
         o.put("battery_means", "the battery temperature is the only thermometer an app of "
                 + "this kind may read. It is not the sensor and not the processor, and it "
@@ -134,6 +142,12 @@ public class Health {
                     + "service holds a wake lock, so it will not last. Check the cable.");
         } else if (plugged == 0) {
             o.put("note", "the phone is running on battery, not on the cable.");
+        } else if (status == BatteryManager.BATTERY_STATUS_NOT_CHARGING) {
+            // The usual reason on a bench is a charge limit, which is a good thing to run
+            // a phone on a stand with. Saying so stops the next person hunting a cable.
+            o.put("note", "the cable is in but the phone is not charging, which is what a "
+                    + "charge limit looks like. The battery will hold near " + percent
+                    + " percent rather than rise.");
         }
         return o;
     }
@@ -151,6 +165,16 @@ public class Health {
         } catch (Exception e) {
             Log.d(CameraEngine.TAG, "battery state unavailable: " + e);
             return null;
+        }
+    }
+
+    private static String statusWord(int status) {
+        switch (status) {
+            case BatteryManager.BATTERY_STATUS_CHARGING: return "charging";
+            case BatteryManager.BATTERY_STATUS_DISCHARGING: return "discharging";
+            case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return "not_charging";
+            case BatteryManager.BATTERY_STATUS_FULL: return "full";
+            default: return "unknown";
         }
     }
 
