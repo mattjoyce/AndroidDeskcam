@@ -54,13 +54,3 @@ func writeSidecar(image string, reply *Reply, client *Client, target string) err
 func sidecarPath(image string) string {
 	return strings.TrimSuffix(image, filepath.Ext(image)) + ".json"
 }
-
-// writeThumb asks the phone for a small copy. It is already resizing, and doing it here
-// would mean an image library on the workstation for one small job.
-func writeThumb(image string, client *Client) {
-	base := strings.TrimSuffix(image, filepath.Ext(image))
-	if _, err := client.GetFile("/api/frame", "w=320", base+".thumb.jpg"); err != nil {
-		// A thumbnail is a convenience. Its absence must never fail a capture.
-		return
-	}
-}

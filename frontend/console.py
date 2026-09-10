@@ -59,7 +59,15 @@ class State:
         self.token = self.load_token()
         self.last_pair: dict[str, Any] | None = None
         self.last_error: str | None = None
+        # Why the live view is not running, in the words the operator needs. An <img>
+        # that fails tells the page nothing but "failed", and the console is the only
+        # party that saw the phone's answer. Empty while the stream is healthy.
+        self.stream_error = ""
         self.new_nonce()
+
+    def note_stream(self, reason: str) -> None:
+        with self.lock:
+            self.stream_error = reason
 
     # ---------------------------------------------------------------- config
 
@@ -163,6 +171,39 @@ def fetch_json(url: str, timeout: float) -> Any:
     req = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec B310
         return json.loads(r.read().decode())
+
+
+def stream_refusal(e: urllib.error.HTTPError) -> str:
+    """
+    What the phone's refusal of the live view means, and what to do about it.
+
+    The status is the only machine-readable fact the phone reports about a failure, and
+    the page cannot read one off an <img> at all. This is the console turning what it
+    saw into the sentence the operator needs.
+    """
+    try:
+        raw = e.read(65536).decode(errors="replace")
+    except OSError:
+        raw = ""
+    detail = raw.strip()[:400]
+    try:
+        doc = json.loads(raw)
+        if isinstance(doc, dict) and isinstance(doc.get("error"), str):
+            detail = doc["error"]
+    except ValueError:
+        pass
+    next_step = {
+        401: "The phone expects a different access key. Pair again so it learns this "
+        "one, or remove the key.",
+        404: "This phone build has no live view at /api/stream. It may be an older APK.",
+        503: "The phone is busy with as many requests as it will take at once. Try again.",
+    }.get(e.code, "")
+    said = f"HTTP {e.code} from the phone's live view."
+    if detail:
+        said += f" {detail}"
+    if next_step:
+        said += f"\n{next_step}"
+    return said
 
 
 def probe_phone(
@@ -274,6 +315,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"captures": roll(st.shots)})
             return
 
+        if path == "/api/stream":
+            self.relay_stream(st)
+            return
+
         if path.startswith("/thumb/"):
             self.send_image(st, path[7:], thumb=True)
             return
@@ -319,13 +364,100 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         self.send(404, "text/plain", "no such page")
 
+    def relay_stream(self, st: State) -> None:
+        """
+        Relays the phone's live view to the page.
+
+        The page used to point its <img> straight at the phone. That was the one place it
+        went round the console, and it is where two correct decisions composed into a
+        broken feature: /api/state withholds the access key from the browser on purpose
+        (card 29), so the browser had none to send, so a phone with a key set answered
+        401 and the live view went black. The header still read "online", because the
+        console had probed the phone with the key it holds. Card 54.
+
+        Relaying MJPEG was refused on cost. The cost is one thread and a 32 KiB buffer
+        for one operator on the loopback, which is much less than a live view is worth.
+        """
+        if not st.phone:
+            st.note_stream("No phone is paired, so there is nothing to watch. Press Pair.")
+            self.send(502, "text/plain", "no phone paired")
+            return
+
+        # Only the frame rate is carried through. The phone refuses a camera parameter on
+        # a stream, and a console route that forwards whatever it is handed is a way for
+        # a page in this browser to reach the rest of the phone's query with the
+        # operator's key on it. A reconnect must not change what an agent is about to
+        # capture.
+        asked = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        params = {}
+        if asked.get("fps"):
+            try:
+                fps = int(asked["fps"][0])
+            except ValueError:
+                fps = 0
+            if not 1 <= fps <= 60:
+                self.send(400, "text/plain", "fps is a whole number of frames a second, 1 to 60")
+                return
+            params["fps"] = str(fps)
+        if st.token:
+            params["token"] = st.token
+        url = f"{st.phone}/api/stream"
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
+
+        try:
+            # phone_url_ok gated st.phone to http://IP:PORT, which is why B310 is not a
+            # scheme problem here.
+            req = urllib.request.Request(url, method="GET")
+            body = urllib.request.urlopen(req, timeout=15)  # nosec B310
+        except urllib.error.HTTPError as e:
+            reason = stream_refusal(e)
+            st.note_stream(reason)
+            self.send(502, "text/plain", reason)
+            return
+        except (urllib.error.URLError, OSError, TimeoutError) as e:
+            # Not str(e). A transport failure quotes the URL it was given, and that URL
+            # carries the access key, which would put the key in /api/state and on the
+            # page.
+            log.warning("the live view could not be relayed: %s", e)
+            reason = (
+                "The console could not reach the phone. Check that DeskCam is running "
+                "and that this machine and the phone are on the same network."
+            )
+            st.note_stream(reason)
+            self.send(502, "text/plain", reason)
+            return
+
+        with body:
+            self.send_response(200)
+            self.send_header(
+                "Content-Type",
+                body.headers.get("Content-Type", "multipart/x-mixed-replace"),
+            )
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            st.note_stream("")
+            # wfile is unbuffered, so each part reaches the browser as it arrives. A
+            # browser that closes the tab breaks the pipe, which is how this ends.
+            try:
+                while chunk := body.read(32768):
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except (OSError, TimeoutError) as e:
+                log.debug("the live view stopped: %s", e)
+                st.note_stream("The live view stopped part way through. Press Restream.")
+
     def send_image(self, st: State, name: str, thumb: bool) -> None:
         f = in_shots(st, urllib.parse.unquote(name))
         if f is None:
             self.send(404, "text/plain", "no such capture")
             return
-        # The phone writes NAME.thumb.jpg beside the capture, so there is nothing to
-        # decode here. A capture taken before that existed falls back to the full image.
+        # A thumbnail is written beside the capture, from the capture's own bytes, by
+        # whichever tool took it. There is nothing to decode here. A capture with none
+        # falls back to the full image, which is heavier but is at least the picture it
+        # claims to be: the bash CLI used to write a NAME.thumb.jpg fetched fresh from
+        # /api/frame after the capture, which showed a different moment. Card 54.
         if thumb:
             t = f.with_suffix(".thumb.jpg")
             if t.is_file():
@@ -524,6 +656,7 @@ def console_state(st: State) -> dict[str, Any]:
         "token_set": bool(st.token),
         "last_pair": st.last_pair,
         "last_error": st.last_error,
+        "stream_error": st.stream_error,
     }
     if st.phone:
         ip = st.phone.split("//", 1)[-1].split(":")[0]
@@ -621,6 +754,9 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
        border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
        color:#8b949e;pointer-events:none}
+ .warn{position:absolute;left:8px;right:8px;top:8px;display:none;white-space:pre-wrap;
+       background:rgba(13,17,23,.92);border:1px solid #f85149;border-radius:5px;
+       padding:5px 8px;font-size:11px;color:#f85149}
  .btns{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:8px;
        border-top:1px solid #21262d}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
@@ -666,6 +802,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
       <div id="box"></div>
       <div class="hint">drag a box to frame &middot; click to centre
         &middot; shift-click resets</div>
+      <div id="streamerr" class="warn"></div>
     </div>
     <div class="btns">
       <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
@@ -746,13 +883,27 @@ document.addEventListener('toggle', e=>{
 }, true);
 
 async function cam(q){ try{ await fetch('/api/cam?'+q); }catch(e){} refresh(); }
-/* The stream carries no camera parameter. A reconnect must not change what an agent
-   is about to capture, and this URL is rebuilt on every reconnect. */
+/* The live view comes through the console, not straight from the phone. The browser has
+   no access key on purpose, so pointing an <img> at the phone meant that setting a key
+   turned the video black with nothing on the page saying why. The console has the key and
+   relays the stream.
+
+   The URL carries no camera parameter. A reconnect must not change what an agent is about
+   to capture, and this URL is rebuilt on every reconnect. */
 function restream(){
   if(!S.phone) return;
-  const u=S.phone+'/api/stream?fps=10&t='+Date.now();
+  const u='/api/stream?fps=10&t='+Date.now();
   if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
 }
+/* An <img> that fails learns only that it failed. The console saw the phone's answer and
+   keeps the reason in /api/state, so the page can say which thing went wrong. */
+let streamRetryAt=0;
+function streamFailed(why){
+  const el=document.getElementById('streamerr');
+  el.textContent=why||'The live view is not running. Press Restream.';
+  el.style.display='block';
+}
+function streamOK(){ document.getElementById('streamerr').style.display='none'; }
 /* Rotation is how the phone is bolted down, so it is camera state and a deliberate
    press changes it. The stream then shows it because the camera has it. */
 async function rot(){
@@ -771,7 +922,8 @@ async function refresh(){
     document.getElementById('meta').textContent=
       (g.zoom!==undefined?'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ':'')+
       (m.exposure_human||'')+(m.iso?'  iso '+m.iso:'')+(g.measure?'  measure':'');
-    if(S.online) restream();
+    if(S.stream_error) streamFailed(S.stream_error);
+    if(S.online && Date.now()>=streamRetryAt) restream();
     if(!selName){
       document.getElementById('sidetitle').textContent='Live';
       document.getElementById('side').innerHTML = S.online ? sections(S)
@@ -841,6 +993,13 @@ function recall(){
 }
 
 const live=document.getElementById('live'), box=document.getElementById('box');
+live.addEventListener('load', streamOK);
+live.addEventListener('error', ()=>{
+  streamFailed(S.stream_error);
+  /* Retry, but not four hundred times an hour. refresh() runs every two seconds and a
+     dead phone would otherwise be dialled every one of them. */
+  streamUrl=''; streamRetryAt=Date.now()+5000;
+});
 let sx=0, sy=0, dragging=false;
 function frac(e){
   const b=live.getBoundingClientRect();

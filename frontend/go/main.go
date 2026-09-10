@@ -303,7 +303,11 @@ func capture(in *invocation, path, ext string) int {
 	if err := writeSidecar(out, reply, in.client, in.cfg.URL); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
 	}
-	writeThumb(out, in.client)
+	if err := writeThumb(out); err != nil {
+		// A thumbnail is a convenience. Its absence must never fail a capture, but it is
+		// made from a file that is right here, so a failure is worth a word.
+		fmt.Fprintln(os.Stderr, "deskcam: could not write the thumbnail:", err)
+	}
 	fmt.Println(out)
 	return 0
 }

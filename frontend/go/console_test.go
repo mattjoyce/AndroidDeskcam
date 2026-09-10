@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -239,7 +241,7 @@ func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
 	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
 		"/", "/qr.svg", "/api/state", "/api/roll",
-		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg",
+		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg", "/api/stream?fps=10",
 		"/api/cam?zoom=2", "/api/newcode", "/api/token?do=clear",
 	} {
 		if got := statusFromLAN(t, state, path); got != http.StatusForbidden {
@@ -344,6 +346,137 @@ func TestInShotsAcceptsOnlyWhatTheConsoleWrote(t *testing.T) {
 		if _, ok := inShots(shots, name); ok {
 			t.Errorf("%q must not be servable", name)
 		}
+	}
+}
+
+// ------------------------------------------------------------- the live view
+
+// A phone with an access key set. The stream is the one thing the page used to fetch
+// straight from the phone, and the browser has no key by design, so this is the request
+// that went dark the moment anyone turned a key on. Card 54.
+func phoneWithAKey(t *testing.T, key string) (*httptest.Server, *int) {
+	t.Helper()
+	frames := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("token") != key {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = fmt.Fprint(w, `{"ok":false,"error":"wrong or missing token"}`)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/stream":
+			w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+			w.WriteHeader(http.StatusOK)
+			frames++
+			_, _ = fmt.Fprintf(w, "--frame\r\nContent-Type: image/jpeg\r\n\r\nJPEGBYTES\r\n")
+		case "/api/status":
+			_, _ = fmt.Fprint(w, `{"settings":{"zoom":1},"state":"running"}`)
+		default:
+			_, _ = fmt.Fprint(w, "{}")
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, &frames
+}
+
+// pairTo points the console at an address the way handlePair would.
+func pairTo(state *consoleState, phone string) {
+	state.mu.Lock()
+	state.phone = phone
+	state.mu.Unlock()
+}
+
+func TestTheLiveViewWorksWhenAnAccessKeyIsSet(t *testing.T) {
+	state, server, _ := testConsole(t)
+	setToken(t, "the-key")
+	phone, frames := phoneWithAKey(t, "the-key")
+	pairTo(state, phone.URL)
+
+	resp, err := server.Client().Get(server.URL + "/api/stream?fps=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
+		t.Fatalf("the live view answered %d: %s", resp.StatusCode, body)
+	}
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "multipart/x-mixed-replace") {
+		t.Fatalf("the browser needs the phone's content type, got %q",
+			resp.Header.Get("Content-Type"))
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "JPEGBYTES") {
+		t.Fatalf("the frames should reach the page, got %q", body)
+	}
+	if *frames != 1 {
+		t.Fatalf("the phone served %d streams, want 1", *frames)
+	}
+	if strings.Contains(string(body), "the-key") {
+		t.Fatal("the key must not reach the browser")
+	}
+}
+
+// The page cannot read a status code off an <img>. The console saw the phone's answer, so
+// it keeps the reason where the page can ask for it.
+func TestAStreamThatFailsSaysWhy(t *testing.T) {
+	state, server, _ := testConsole(t)
+	phone, _ := phoneWithAKey(t, "the-key") // the console has no key, so this refuses
+	pairTo(state, phone.URL)
+
+	code, body := get(t, server, "/api/stream?fps=10")
+	if code != http.StatusBadGateway {
+		t.Fatalf("a refused stream should be a 502, got %d", code)
+	}
+	if !strings.Contains(body, "401") {
+		t.Fatalf("the page should be told what the phone said, got %q", body)
+	}
+
+	_, state1 := get(t, server, "/api/state")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(state1), &doc); err != nil {
+		t.Fatal(err)
+	}
+	reason, _ := doc["stream_error"].(string)
+	if !strings.Contains(reason, "401") || !strings.Contains(reason, "access key") {
+		t.Fatalf("the state should name the key as the problem, got %q", reason)
+	}
+}
+
+func TestAStreamWithNoPhoneSaysSoRatherThanNothing(t *testing.T) {
+	_, server, _ := testConsole(t)
+	code, body := get(t, server, "/api/stream")
+	if code != http.StatusBadGateway || !strings.Contains(body, "no phone") {
+		t.Fatalf("want a 502 saying no phone is paired, got %d %q", code, body)
+	}
+}
+
+// A page in this browser must not be able to use the console as a way to reach the rest
+// of the phone's query with the operator's key attached to it.
+func TestTheStreamCarriesNothingButTheFrameRate(t *testing.T) {
+	state, server, _ := testConsole(t)
+	setToken(t, "the-key")
+	var seen string
+	phone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/stream" {
+			seen = r.URL.RawQuery
+		}
+		_, _ = fmt.Fprint(w, "{}")
+	}))
+	defer phone.Close()
+	pairTo(state, phone.URL)
+
+	if code, _ := get(t, server, "/api/stream?fps=10&rotate=180&zoom=8&t=123"); code != http.StatusOK {
+		t.Fatalf("the stream should have been relayed, got %d", code)
+	}
+	if seen != "fps=10&token=the-key" {
+		t.Fatalf("the phone was sent %q, want only the frame rate and the key", seen)
+	}
+	if code, _ := get(t, server, "/api/stream?fps=nonsense"); code != http.StatusBadRequest {
+		t.Error("a frame rate that is not a number should be refused here")
 	}
 }
 
@@ -511,8 +644,13 @@ func TestThePageCarriesNoSecretAndNoCameraParameterInItsStream(t *testing.T) {
 		t.Fatal("the page must not carry the key")
 	}
 	// A reconnecting browser must not rewrite the camera an agent is about to use.
-	if !strings.Contains(body, "/api/stream?fps=10&t=") {
+	if !strings.Contains(body, "'/api/stream?fps=10&t='") {
 		t.Fatal("the stream URL should carry only fps and a cache buster")
+	}
+	// The live view goes through the console, which holds the key. Pointing it at the
+	// phone is what made an access key turn the video black. Card 54.
+	if strings.Contains(body, "S.phone+'/api/stream") {
+		t.Fatal("the page must not fetch the stream from the phone directly")
 	}
 	if strings.Contains(body, "stream?fps=10&rotate=") {
 		t.Fatal("the stream URL must not carry a camera parameter")

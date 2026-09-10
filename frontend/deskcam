@@ -152,14 +152,6 @@ MISSING
 # picture. They used to come from a second /api/status request made after the capture
 # returned, which described whatever the camera was doing by then, and two captures
 # running at once could exchange their sidecars.
-# The phone makes the thumbnail. It is already resizing, and doing it here would mean an
-# image library on the workstation for one small job.
-write_thumb() {
-    local img="$1"
-    local base="${img%.*}"
-    req_bin /api/frame "w=320" "${base}.thumb.jpg" >/dev/null 2>&1 || true
-}
-
 write_sidecar() {
     local img="$1"
     local prov
@@ -345,20 +337,17 @@ case "$CMD" in
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/still "$Q" "$OUT" || die "capture failed"
         write_sidecar "$OUT"
-        write_thumb "$OUT"
         echo "$OUT" ;;
     frame|preview)
         [ -z "$OUT" ] && OUT="$(timestamped)"
         req_bin /api/frame "$Q" "$OUT" || die "capture failed"
         write_sidecar "$OUT"
-        write_thumb "$OUT"
         echo "$OUT" ;;
     raw|dng)
         # The DNG holds the whole sensor array. The zoom and pan do not apply to it.
         [ -z "$OUT" ] && OUT="$(timestamped dng)"
         req_bin /api/raw "$Q" "$OUT" || die "raw capture failed"
         write_sidecar "$OUT"
-        write_thumb "$OUT"
         echo "$OUT" ;;
     burst)
         # A hardware burst of JPEGs arrives as one tar. RAW is captured one frame at a

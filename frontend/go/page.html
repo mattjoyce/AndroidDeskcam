@@ -55,6 +55,9 @@
  .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
        border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
        color:#8b949e;pointer-events:none}
+ .warn{position:absolute;left:8px;right:8px;top:8px;display:none;white-space:pre-wrap;
+       background:rgba(13,17,23,.92);border:1px solid #f85149;border-radius:5px;
+       padding:5px 8px;font-size:11px;color:#f85149}
  .btns{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:8px;
        border-top:1px solid #21262d}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
@@ -100,6 +103,7 @@
       <div id="box"></div>
       <div class="hint">drag a box to frame &middot; click to centre
         &middot; shift-click resets</div>
+      <div id="streamerr" class="warn"></div>
     </div>
     <div class="btns">
       <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
@@ -192,13 +196,27 @@ function change(path){
   return fetch(path, {method:'POST', headers:{'X-DeskCam-Console':'1'}});
 }
 async function cam(q){ try{ await change('/api/cam?'+q); }catch(e){} refresh(); }
-/* The stream carries no camera parameter. A reconnect must not change what an agent
-   is about to capture, and this URL is rebuilt on every reconnect. */
+/* The live view comes through the console, not straight from the phone. The browser has
+   no access key on purpose, so pointing an <img> at the phone meant that setting a key
+   turned the video black with nothing on the page saying why. The console has the key and
+   relays the stream.
+
+   The URL carries no camera parameter. A reconnect must not change what an agent is about
+   to capture, and this URL is rebuilt on every reconnect. */
 function restream(){
   if(!S.phone) return;
-  const u=S.phone+'/api/stream?fps=10&t='+Date.now();
+  const u='/api/stream?fps=10&t='+Date.now();
   if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
 }
+/* An <img> that fails learns only that it failed. The console saw the phone's answer and
+   keeps the reason in /api/state, so the page can say which thing went wrong. */
+let streamRetryAt=0;
+function streamFailed(why){
+  const el=document.getElementById('streamerr');
+  el.textContent=why||'The live view is not running. Press Restream.';
+  el.style.display='block';
+}
+function streamOK(){ document.getElementById('streamerr').style.display='none'; }
 /* Rotation is how the phone is bolted down, so it is camera state and a deliberate
    press changes it. The stream then shows it because the camera has it. */
 async function rot(){
@@ -220,7 +238,8 @@ async function refresh(){
     document.getElementById('meta').textContent=
       (g.zoom!==undefined?'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ':'')+
       (m.exposure_human||'')+(m.iso?'  iso '+m.iso:'')+(g.measure?'  measure':'');
-    if(S.online) restream();
+    if(S.stream_error) streamFailed(S.stream_error);
+    if(S.online && Date.now()>=streamRetryAt) restream();
     if(!selName){
       document.getElementById('sidetitle').textContent='Live';
       document.getElementById('side').innerHTML = S.online ? sections(S)
@@ -290,6 +309,13 @@ function recall(){
 }
 
 const live=document.getElementById('live'), box=document.getElementById('box');
+live.addEventListener('load', streamOK);
+live.addEventListener('error', ()=>{
+  streamFailed(S.stream_error);
+  /* Retry, but not four hundred times an hour. refresh() runs every two seconds and a
+     dead phone would otherwise be dialled every one of them. */
+  streamUrl=''; streamRetryAt=Date.now()+5000;
+});
 let sx=0, sy=0, dragging=false;
 function frac(e){
   const b=live.getBoundingClientRect();

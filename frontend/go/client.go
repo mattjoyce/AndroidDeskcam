@@ -108,6 +108,15 @@ func advice(err error) string {
 	return "" // 4xx: the phone's own message already names the fix
 }
 
+// sentence turns one of advice's fragments, which are written to follow "deskcam: ..."
+// on a terminal, into something that can stand on its own on the console's page.
+func sentence(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 func (c *Client) url(path, query string) string {
 	q := strings.TrimPrefix(strings.TrimSpace(query), "&")
 	if c.token != "" {

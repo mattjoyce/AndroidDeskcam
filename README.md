@@ -534,15 +534,22 @@ next pairing tells the phone to forget it too. The console has the same two as b
 key is never typed on the phone's on-screen keyboard, which was the reason nobody turned it
 on.
 
-`deskcam serve` binds to every interface, because the phone has to reach it to pair. It
-answers with no secret: the pairing text carries the access key and the pairing code, so it
-lives in the QR image on the screen and never in JSON. Pairing takes the phone's address
-from where the request came from and not from what the request says about itself, and one
-code pairs once. The console serves only the captures in the shots directory, by name, and
-only `.jpg`, `.jpeg`, `.dng` and `.json`.
+`deskcam serve` binds to every interface, because the phone has to reach it to pair, and
+then offers the network exactly one route, `/p/`, the pairing callback. The page, the roll
+and the QR image answer the browser on the machine the console runs on and nobody else,
+because the QR carries the access key. Pairing takes the phone's address from where the
+request came from and not from what the request says about itself, and one code pairs once.
+The console serves only the captures in the shots directory, by name, and only `.jpg`,
+`.jpeg`, `.dng` and `.json`.
 
-The live view is a view. `/api/stream` refuses any parameter that would change the camera,
-so opening the console in a browser cannot change the next capture an agent takes.
+The page never talks to the phone. Controls and the live view both go through the console,
+which is the only party holding the key; an `<img>` pointed straight at the phone had no
+key to send and went black the moment anyone set one. When the stream fails, the console
+puts the phone's own answer on the page rather than showing an empty frame.
+
+The live view is a view. The console forwards nothing but `fps`, and `/api/stream` refuses
+any parameter that would change the camera, so opening the console in a browser cannot
+change the next capture an agent takes.
 
 There is still no TLS and the API token is still off by default; on an untrusted network,
 set one.

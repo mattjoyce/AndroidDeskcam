@@ -13,9 +13,11 @@ backend/test.
 from __future__ import annotations
 
 import http.client
+import http.server
 import json
 import threading
 import time
+import urllib.parse
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -409,6 +411,115 @@ def test_a_missing_config_is_not_an_error(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert console.State.load_token() is None
 
 
+# ------------------------------------------------------------- the live view
+
+
+class PhoneWithAKey(http.server.BaseHTTPRequestHandler):
+    """
+    A stub phone that wants an access key, which is the case the live view broke in.
+
+    The rest of this suite needs no phone. This one does: the bug was that the browser
+    has no key by design, so the request the page made straight to the phone came back
+    401 and the video went black in silence. Card 54.
+    """
+
+    key = "the-key"
+    seen = ""
+
+    def do_GET(self) -> None:
+        path, _, query = self.path.partition("?")
+        asked = urllib.parse.parse_qs(query)
+        if path == "/api/stream":
+            PhoneWithAKey.seen = query
+        if asked.get("token", [""])[0] != self.key:
+            body = b'{"ok":false,"error":"wrong or missing token"}'
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/stream":
+            body = b"--frame\r\nContent-Type: image/jpeg\r\n\r\nJPEGBYTES\r\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def phone() -> Iterator[str]:
+    PhoneWithAKey.seen = ""
+    srv = http.server.HTTPServer(("127.0.0.1", 0), PhoneWithAKey)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        thread.join(2)
+
+
+def test_the_live_view_works_when_an_access_key_is_set(
+    server: tuple[str, int], state: console.State, phone: str
+) -> None:
+    state.phone = phone
+    state.token = PhoneWithAKey.key
+    code, body = get(server, "/api/stream?fps=10")
+    assert code == 200, body
+    assert b"JPEGBYTES" in body
+    assert PhoneWithAKey.key.encode() not in body
+
+
+def test_a_stream_that_fails_says_why(
+    server: tuple[str, int], state: console.State, phone: str
+) -> None:
+    """The page cannot read a status code off an <img>. The console saw the answer."""
+    state.phone = phone
+    state.token = None  # so the phone refuses
+    code, body = get(server, "/api/stream?fps=10")
+    assert code == 502
+    assert b"401" in body
+
+    _, raw = get(server, "/api/state")
+    reason = json.loads(raw)["stream_error"]
+    assert "401" in reason
+    assert "access key" in reason
+
+
+def test_a_stream_with_no_phone_says_so_rather_than_nothing(server: tuple[str, int]) -> None:
+    code, body = get(server, "/api/stream")
+    assert code == 502
+    assert b"no phone" in body
+
+
+def test_the_stream_carries_nothing_but_the_frame_rate(
+    server: tuple[str, int], state: console.State, phone: str
+) -> None:
+    """
+    A page in this browser must not be able to use the console as a way to reach the
+    rest of the phone's query with the operator's key attached to it.
+    """
+    state.phone = phone
+    state.token = PhoneWithAKey.key
+    code, _ = get(server, "/api/stream?fps=10&rotate=180&zoom=8&t=123")
+    assert code == 200
+    assert PhoneWithAKey.seen == f"fps=10&token={PhoneWithAKey.key}"
+
+    code, _ = get(server, "/api/stream?fps=nonsense")
+    assert code == 400
+
+
 # ---------------------------------------------------------------- the page
 
 
@@ -428,8 +539,11 @@ def test_the_stream_url_carries_no_camera_parameter(server: tuple[str, int]) -> 
     """A reconnecting browser must not rewrite the camera an agent is about to use."""
     _, body = get(server, "/")
     text = body.decode()
-    assert "/api/stream?fps=10&t=" in text
+    assert "'/api/stream?fps=10&t='" in text
     assert "rotate=" not in text.split("function restream")[1].split("}")[0]
+    # The live view goes through the console, which holds the key. Pointing it at the
+    # phone is what made an access key turn the video black. Card 54.
+    assert "S.phone+'/api/stream" not in text
 
 
 def test_an_unknown_path_is_a_404(server: tuple[str, int]) -> None:

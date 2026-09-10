@@ -39,6 +39,10 @@ type consoleState struct {
 	tokenDeclared bool
 	lastPair      map[string]any
 	lastError     string
+	// Why the live view is not running, in the words the operator needs. An <img> that
+	// fails tells the page nothing but "failed", and the console is the only party that
+	// saw the phone's answer. Empty while the stream is healthy.
+	streamError string
 }
 
 func newConsoleState(cfg Config, port int) (*consoleState, error) {
@@ -255,6 +259,7 @@ func (s *consoleState) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/qr.svg", local(s.handleQR))
 	mux.HandleFunc("/api/state", local(s.handleState))
 	mux.HandleFunc("/api/roll", local(s.handleRoll))
+	mux.HandleFunc("/api/stream", local(s.handleStream))
 	mux.HandleFunc("/img/", local(s.handleFile))
 	mux.HandleFunc("/thumb/", local(s.handleFile))
 	mux.HandleFunc("/sidecar/", local(s.handleFile))
@@ -373,6 +378,7 @@ func (s *consoleState) handleState(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	out["last_pair"] = s.lastPair
 	out["last_error"] = s.lastError
+	out["stream_error"] = s.streamError
 	s.mu.Unlock()
 
 	if phone != "" {
@@ -449,8 +455,9 @@ func (s *consoleState) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such capture", http.StatusNotFound)
 		return
 	}
-	// The phone writes NAME.thumb.jpg beside the capture, so there is nothing to decode
-	// here. A capture taken before that existed falls back to the full image.
+	// The thumbnail is written beside the capture, from the capture's own bytes, when the
+	// capture is taken. There is nothing to decode here, and a capture taken before that
+	// existed falls back to the full image.
 	if kind == "thumb" {
 		thumb := strings.TrimSuffix(path, filepath.Ext(path)) + ".thumb.jpg"
 		if info, err := os.Stat(thumb); err == nil && !info.IsDir() {
@@ -474,9 +481,138 @@ func (s *consoleState) handleFile(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// noteStream records why the live view is or is not running, for the page to read from
+// /api/state. An <img> only ever learns that it failed.
+func (s *consoleState) noteStream(reason string) {
+	s.mu.Lock()
+	s.streamError = reason
+	s.mu.Unlock()
+}
+
+// streamClient is for the live view alone.
+//
+// No overall timeout: a stream is meant to stay open for as long as the page is watching,
+// and http.Client.Timeout covers reading the body as well as reaching the phone.
+// ResponseHeaderTimeout bounds the part that can hang without a single pixel arriving,
+// and the request context ends the rest when the browser goes away.
+var streamClient = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 10 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
+	},
+}
+
+// handleStream relays the phone's live view to the page.
+//
+// The page used to point its <img> straight at the phone. That was the one place it went
+// round the console, and it was where two correct decisions composed into a broken
+// feature: /api/state withholds the access key from the browser on purpose (card 29), so
+// the browser had none to send, so a phone with a key set answered 401 and the live view
+// went black. The header still read "online", because the console had probed it with the
+// key it holds.
+//
+// Relaying MJPEG was refused on cost. The cost is one goroutine and a 32 KiB buffer for
+// one operator on the loopback, which is a great deal less than a live view is worth.
+func (s *consoleState) handleStream(w http.ResponseWriter, r *http.Request) {
+	phone, token, _ := s.snapshot()
+	if phone == "" {
+		s.noteStream("No phone is paired, so there is nothing to watch. Press Pair.")
+		http.Error(w, "no phone paired", http.StatusBadGateway)
+		return
+	}
+
+	// Only the frame rate is carried through. The phone refuses a camera parameter on a
+	// stream, and a console route that forwards whatever it is handed is a way for a page
+	// in this browser to reach the rest of the phone's query with the operator's key on
+	// it. A reconnect must not change what an agent is about to capture.
+	q := url.Values{}
+	if raw := r.URL.Query().Get("fps"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 60 {
+			http.Error(w, "fps is a whole number of frames a second, 1 to 60",
+				http.StatusBadRequest)
+			return
+		}
+		q.Set("fps", strconv.Itoa(n))
+	}
+	if token != "" {
+		q.Set("token", token)
+	}
+	target := phone + "/api/stream"
+	if len(q) > 0 {
+		target += "?" + q.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		// The message would quote the URL, and the URL carries the key. Say what is
+		// wrong with the address instead of repeating it.
+		s.noteStream("The paired address is not one the console can request. Pair again.")
+		http.Error(w, "the paired address is not a URL", http.StatusInternalServerError)
+		return
+	}
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		if r.Context().Err() != nil {
+			return // the page closed the stream; that is not a fault to report
+		}
+		// Not err.Error(). A transport failure quotes the URL it was given, and that URL
+		// carries the access key, which would put the key in /api/state and on the page.
+		reason := sentence(advice(err))
+		s.noteStream(reason)
+		http.Error(w, reason, http.StatusBadGateway)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		failed := &HTTPError{Status: resp.StatusCode, Message: errorIn(body), Path: "/api/stream"}
+		reason := fmt.Sprintf("HTTP %d from the phone's live view.", resp.StatusCode)
+		if said := errorIn(body); said != "" {
+			reason += " " + said
+		}
+		if next := advice(failed); next != "" {
+			reason += "\n" + sentence(next)
+		}
+		s.noteStream(reason)
+		http.Error(w, reason, http.StatusBadGateway)
+		return
+	}
+
+	kind := resp.Header.Get("Content-Type")
+	if kind == "" {
+		kind = "multipart/x-mixed-replace"
+	}
+	w.Header().Set("Content-Type", kind)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	s.noteStream("")
+
+	// Copied by hand rather than with io.Copy, because each part has to reach the browser
+	// as it arrives. Buffered until 2 KiB had accumulated, a 10 fps view would show its
+	// frames late and out of step with the camera.
+	flush := http.NewResponseController(w)
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, err := w.Write(buf[:n]); err != nil {
+				return // the browser has gone; nothing to say and nobody to say it to
+			}
+			_ = flush.Flush()
+		}
+		if readErr != nil {
+			if readErr != io.EOF && r.Context().Err() == nil {
+				s.noteStream("The live view stopped part way through. Press Restream.")
+			}
+			return
+		}
+	}
+}
+
 // handleCam forwards a control request to the phone, so the page only ever talks to the
-// console. The live stream still comes straight from the phone, because relaying MJPEG
-// would cost far more than it is worth.
+// console. So does the live view, through handleStream.
 func (s *consoleState) handleCam(w http.ResponseWriter, r *http.Request) {
 	phone, token, _ := s.snapshot()
 	if phone == "" {
