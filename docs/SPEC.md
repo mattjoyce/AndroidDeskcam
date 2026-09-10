@@ -445,10 +445,17 @@ unchanged image. The agent would then think that the setting applied.
 **D6. A pan step uses ROI widths. It does not use frame fractions.** Thus `pan left` has
 the same result at 1x and at 8x. A person and an agent both expect this.
 
-**D7. The engine converts a preview frame only on demand.** A bench camera that runs all
-day must cost nothing when nobody looks at it. The count of watching clients is an atomic
-counter, because a read-then-write on a plain field could lose an update and leave the
-count above zero for ever, which defeats the decision quietly.
+**D7. The engine converts a preview frame only on demand.** The count of watching clients
+is an atomic counter, because a read-then-write on a plain field could lose an update and
+leave the count above zero for ever, which defeats the decision quietly.
+
+**This decision covers less than its wording once suggested.** It said "a bench camera that
+runs all day must cost nothing when nobody looks at it", and what it actually stops is one
+CPU cost: the YUV to NV21 conversion. The sensor, the ISP and the HAL carried on at 29
+frames a second for the life of the service, and a phone left running overnight was found
+at the platform's `severe` thermal level because of it. A decision that answers a narrower
+question than its title suggests is harder to notice than no decision at all. What that
+sentence was reaching for is now D16, and this one is about the conversion alone.
 
 **D8. A capture describes itself.** Every capture request carries its own
 `CaptureCallback`, and a frame is paired with its result by sensor timestamp. The record
@@ -582,6 +589,46 @@ a battery at a comfortable 36 degrees. Measured on this bench, `dumpsys thermals
 against the app at the same moment: status 3 (severe), battery 29.5 degrees, skin 34.1 and
 35.0, display 29.6, and the TPU at 53.0. Every thermometer an app can reach said the phone
 was comfortable; the platform was throttling because of a part none of them measures.
+
+**D16. The camera stops reading the sensor when nobody is asking.** After 20 seconds with
+no stream client and nothing requesting a frame, the repeating preview request is stopped.
+The session and the device stay open: closing them costs a second or more to undo and gives
+the reopen path something to race with, while stopping the repeating request is the cheap
+end of the same idea and the end where the power goes.
+
+**The waiting on the way back is the part that matters.** A repeating request that has just
+restarted delivers frames at once, and with automatic exposure the first of them were
+exposed while the loop was still converging. Every path that needs a frame, including a
+still, a DNG and a burst, wakes the preview and waits: four frames always, and for the
+exposure loop to report itself converged when the exposure is automatic, bounded at two
+seconds. A capture is never given a frame from a pipeline that has not settled. **The first
+capture after a quiet period must not be quietly worse than the same capture during a busy
+one**, because that is a fault nothing downstream could detect.
+
+Measured on a Pixel 6a, three runs each: nothing at all while idle, against 29 frames a
+second awake; a wake of 305 to 348 ms with the exposure fixed and 377 to 803 ms with it
+automatic; a still taken against a sleeping camera 764 to 822 ms in total. The exposure of
+the first frame after a wake was identical to one taken two seconds later in every
+automatic run, and the ISO agreed to within 5 of 200.
+
+**A wake counts as a demand.** Without that the watchdog idled the camera 273 ms after
+waking it, while the still that woke it was still being captured, and the next capture paid
+the wake again. The idle test also requires that no capture is in flight, because a long
+bracket is minutes of work that asks for nothing until it finishes.
+
+**The watchdog has to know the difference.** It reopens a camera that has produced no frame
+for 15 seconds, which is exactly what a deliberately idle camera looks like. Without the
+distinction it would reopen the camera every fifteen seconds for ever, costing far more
+than the frames it saved. It now reads the time of the last frame rather than comparing a
+counter between its own ticks, and it skips the stall test entirely while the preview is
+idle. `/api/status` carries a `preview` block, so an idle camera and a broken one are
+distinguishable from outside instead of both being a frame counter that stopped.
+
+**A page that nobody is looking at does not hold the camera awake.** An `<img>` on an MJPEG
+stream keeps its connection for as long as its `src` is set, whether the tab is visible,
+buried, or on a machine with the lid shut. Both panels stop their stream on
+`visibilitychange` and start it again when shown. Idling the engine achieves nothing while
+a forgotten tab holds it awake, which is how this was found.
 
 ## 7. Non-goals
 

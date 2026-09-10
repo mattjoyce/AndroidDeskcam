@@ -418,6 +418,22 @@ function restream() {
   view.src = '/api/stream?fps=12&t=' + Date.now();
 }
 
+/* A tab nobody is looking at must not hold the camera awake.
+
+   An <img> pointed at an MJPEG stream keeps its connection open for as long as the src
+   is set, whether the tab is visible, buried behind twenty others, or on a laptop with
+   its lid shut. A panel left open overnight was found holding this camera at full rate
+   until morning, which defeats the engine's own idling and is most of why the phone was
+   too hot to trust. Card 59. */
+function stopView() {
+  view.removeAttribute('src');
+}
+
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) { stopView(); } else { restream(); }
+});
+window.addEventListener('pagehide', stopView);
+
 refresh();
 setInterval(refresh, 2000);
 </script>

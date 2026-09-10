@@ -946,8 +946,35 @@ one it took in `settings.capture_path`, as `camera_jpeg` or `decoded_and_reencod
 captures on opposite sides of the limit are different kinds of image, and comparing them
 measures the pipeline rather than the subject.
 
-The app converts a preview frame only when a client asks for one. An idle service costs
-almost nothing.
+**The camera stops reading the sensor when nobody is asking.** After 20 seconds with no
+stream client and nothing requesting a frame, the repeating preview request is stopped.
+The next request that needs a frame starts it again and waits for the exposure loop to
+settle before answering, so the first capture after a quiet period is not quietly worse
+than one taken during a busy one. `/api/status` carries a `preview` block saying whether
+it is idle, for how long, and what the last wake cost.
+
+This sentence used to read "the app converts a preview frame only when a client asks for
+one; an idle service costs almost nothing." The first half is decision D7 and is true. The
+second half was not: the conversion stopped, and the sensor, the ISP and the HAL carried on
+at 29 frames a second for the life of the service. A bench phone left running overnight was
+found at the platform's `severe` thermal level for that reason.
+
+Measured on a Pixel 6a, three runs each:
+
+| | |
+|---|---|
+| Frames while idle | **0 in 10 s**, against 29 a second awake |
+| Wake, exposure fixed | 305 to 348 ms |
+| Wake, exposure automatic | 377 to 803 ms |
+| A still taken against a sleeping camera | 764 to 822 ms, about 320 ms of it the wake |
+
+The exposure of the first frame after a wake was **identical** to one taken two seconds
+later in every automatic run, and the ISO agreed to within 5 of 200. The cost of idling is
+a slower first capture, never a worse one.
+
+A stream client stops it idling, which is why a browser tab left open on the panel used to
+hold the camera awake all night. Both panels now stop their stream while their tab is
+hidden.
 
 ### Heat and battery
 

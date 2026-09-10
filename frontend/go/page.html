@@ -206,9 +206,21 @@ async function cam(q){ try{ await change('/api/cam?'+q); }catch(e){} refresh(); 
    to capture, and this URL is rebuilt on every reconnect. */
 function restream(){
   if(!S.phone) return;
+  if(document.hidden) return;
   const u='/api/stream?fps=10&t='+Date.now();
   if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
 }
+/* A tab nobody is looking at must not hold the camera awake. An <img> on an MJPEG stream
+   keeps its connection for as long as its src is set, visible or not, and a console left
+   open overnight held this camera at full rate until morning. Card 59. */
+function stopView(){
+  streamUrl='';
+  document.getElementById('live').removeAttribute('src');
+}
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){ stopView(); } else { restream(); }
+});
+window.addEventListener('pagehide',stopView);
 /* An <img> that fails learns only that it failed. The console saw the phone's answer and
    keeps the reason in /api/state, so the page can say which thing went wrong. */
 let streamRetryAt=0;

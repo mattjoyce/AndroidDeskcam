@@ -258,6 +258,13 @@ the camera and the sidecar says which one changed and that the scale no longer d
 it. What none of it can see is the stand moving, so a sidecar carrying a scale is making a
 claim about the settings and never about the bench.
 
+**The camera sleeps, and waking it is not free.** After 20 seconds with nothing asking
+for a frame the phone stops reading its sensor. The next capture starts it again and waits
+for the exposure to settle before answering, so you never get a frame from a pipeline that
+has not converged: the cost is a slower first capture, never a worse one. `deskcam status`
+has a `preview` block saying whether it is idle and what the last wake cost. If you are
+about to take a series where timing matters, take one throwaway frame first.
+
 **A hot phone is a noisier phone.** `deskcam show` ends with `HOT severe` once the
 platform is throttling, and `deskcam status` carries a `device` block with the level and
 the battery. A long session of bursts and walks will get there. Captures are never slowed,
