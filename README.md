@@ -949,6 +949,65 @@ measures the pipeline rather than the subject.
 The app converts a preview frame only when a client asks for one. An idle service costs
 almost nothing.
 
+### Heat and battery
+
+A phone bolted to a stand, holding a camera and a wake lock for hours with nobody looking
+at it, gets hot. `/api/status` carries a `device` block:
+
+```json
+"device": {
+  "thermal": "severe",
+  "thermal_level": 3,
+  "throttling": true,
+  "stream_slowdown": 4,
+  "battery_percent": 100,
+  "battery_celsius": 36.3,
+  "charging": true,
+  "power_source": "ac"
+}
+```
+
+**`thermal` and `battery_celsius` are different quantities and it matters.** `thermal` is
+the platform's own level, the same one it throttles by, and it is what a stream reacts to.
+`battery_celsius` is a real temperature from the only thermometer an ordinary app may
+read, and it is neither the sensor nor the processor.
+
+This bench phone after an afternoon of bursts, walks and streams, from
+`dumpsys thermalservice` beside what the app reports:
+
+| | reading |
+|---|---|
+| Platform thermal status | **3, severe** |
+| Battery | 29.5 °C |
+| Skin | 34.1 and 35.0 °C |
+| Display | 29.6 °C |
+| TPU | **53.0 °C** |
+
+Every thermometer an app can reach says the phone is comfortable. The platform is
+throttling severely because of a part none of them measures. That is the whole reason
+`thermal` is the number this reacts to and `battery_celsius` is only there for context.
+
+**A stream gives way; a capture never does.** A stream is the continuous load, so its rate
+is cut: half at `moderate`, a quarter at `severe`, an eighth at `critical`. Each part of
+the stream says so, so a client that sees its rate fall can tell heat from a network fault:
+
+```
+Content-Type: image/jpeg
+X-DeskCam-Fps: 2.50
+X-DeskCam-Thermal: severe
+X-DeskCam-Shedding: throttling severely, and the platform says the experience is largely
+  affected. The stream rate is a quarter of what was asked for. Captures are not slowed.
+```
+
+Six frames at a requested 10 fps took 2.46 s rather than 0.6 s on a severe phone, which is
+the quarter rate the table promises. Nothing is slowed at `light`, which the platform
+defines as throttling nobody can feel. The stream is never stopped, even at `shutdown`,
+because it is the channel carrying the reason.
+
+`deskcam show` ends with `HOT severe` once the platform is acting, and says nothing while
+the phone is merely warm. **Take it seriously for measurement work**: a throttled phone has
+a hot sensor, and a hot sensor is a noisier one.
+
 ### The console and the access key
 
 `deskcam token new` makes a random key, keeps it in `~/.config/deskcam/token` at mode 600,

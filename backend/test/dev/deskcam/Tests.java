@@ -53,6 +53,8 @@ public final class Tests {
         aTapeRefusesBeforeItRuns();
         aTapeIgnoresCommentsAndBlankLines();
         waitIsTheOneVerbThatIsNotAnEndpoint();
+        theThermalLadderOnlyEverSlowsDown();
+        anUnknownThermalLevelChangesNothing();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -578,6 +580,51 @@ public final class Tests {
         eq("and carries its milliseconds", 500, steps.get(0).waitMs);
         eq("a capture does have one", 1, steps.get(1).path != null ? 1 : 0);
         eq("and no wait", 0, steps.get(1).waitMs);
+    }
+
+    // ----------------------------------------------------------- the heat
+
+    /**
+     * The one judgement in card 44: how much a stream gives up at each level.
+     *
+     * A table is easy to get subtly wrong in a way nothing notices, because the levels
+     * above moderate are the ones nobody sees on a desk. What must hold is that it only
+     * ever goes one way, that it never speeds a stream up, and that it does something by
+     * the time the platform says the experience is suffering.
+     */
+    private static void theThermalLadderOnlyEverSlowsDown() {
+        double previous = 0;
+        for (int level = Thermal.NONE; level <= Thermal.SHUTDOWN; level++) {
+            double now = Thermal.slowdown(level);
+            yes("level " + level + " never speeds the stream up", now >= 1);
+            yes("level " + level + " is not gentler than the level below it", now >= previous);
+            previous = now;
+            yes("level " + level + " has words for a person", !Thermal.means(level).isEmpty());
+            yes("level " + level + " has a name", !Thermal.word(level).startsWith("level "));
+        }
+        // Nothing at light: the platform defines it as throttling nobody can feel, and a
+        // camera that halved its rate on a slightly warm phone would not be trusted.
+        eq("nothing happens while it is cool", 1f, (float) Thermal.slowdown(Thermal.NONE));
+        eq("and nothing at light", 1f, (float) Thermal.slowdown(Thermal.LIGHT));
+        yes("something happens by moderate", Thermal.slowdown(Thermal.MODERATE) > 1);
+        no("cool is not throttling", Thermal.throttling(Thermal.LIGHT));
+        yes("moderate is", Thermal.throttling(Thermal.MODERATE));
+        // Never zero, or the stream would stop and take the explanation with it.
+        yes("even shutdown leaves a trickle", Thermal.slowdown(Thermal.SHUTDOWN) < 100);
+    }
+
+    /**
+     * A level from a platform newer than this build.
+     *
+     * Guessing a slowdown from a number nobody here understands is worse than leaving the
+     * rate alone and reporting the level as it was given.
+     */
+    private static void anUnknownThermalLevelChangesNothing() {
+        eq("a level from the future slows nothing", 1f, (float) Thermal.slowdown(99));
+        eq("and neither does one never reported", 1f, (float) Thermal.slowdown(Thermal.UNKNOWN));
+        yes("but it is named as what it is", Thermal.word(99).contains("99"));
+        yes("and described", Thermal.means(99).contains("hotter than critical"));
+        no("an unknown level is not called throttling", Thermal.throttling(Thermal.UNKNOWN));
     }
 
     // -------------------------------------------------------- the access key

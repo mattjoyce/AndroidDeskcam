@@ -122,6 +122,12 @@ func summarise(status map[string]any) string {
 	if c := str(s, "camera"); c != "" && c != "0" {
 		bits = append(bits, "camera "+c)
 	}
+	// Only once the platform is acting on it. A phone that is merely warm says nothing,
+	// because a marker that is always there is a marker nobody reads; a phone throttling
+	// hard is giving fewer frames and a noisier sensor, and that changes a capture. Card 44.
+	if device := sub(status, "device"); flag(device, "throttling") {
+		bits = append(bits, "HOT "+str(device, "thermal"))
+	}
 	if state := str(status, "state"); state != "" && state != "running" {
 		bits = append(bits, "["+state+"]")
 	}

@@ -1014,9 +1014,10 @@ public class HttpServer implements Runnable {
         if (problems.length() > 0) throw new BadRequest(problems.toString().trim());
 
         double fps = Geom.clampDouble(doubleParam(params, "fps", 10), 0.1, 30);
-        long minIntervalMs = (long) (1000.0 / fps);
+        long askedIntervalMs = (long) (1000.0 / fps);
         long maxFrames = longParam(params, "n", Long.MAX_VALUE, 1, Long.MAX_VALUE);
 
+        Health health = engine.health();
         String head = "HTTP/1.1 200 OK\r\n"
                 + "Content-Type: multipart/x-mixed-replace; boundary=" + BOUNDARY + "\r\n"
                 + "Cache-Control: no-store, no-cache, must-revalidate\r\n"
@@ -1051,9 +1052,27 @@ public class HttpServer implements Runnable {
                     Thread.sleep(200);
                     continue;
                 }
+                // The rate this frame was actually sent at, on the frame itself. A
+                // client that sees its stream slow down can read why here rather than
+                // guess at a network fault, and it is per part because the answer
+                // changes while the stream runs. Card 44.
+                double slowdown = health == null ? 1 : health.slowdown();
+                long intervalMs = (long) (askedIntervalMs * slowdown);
                 String part = "--" + BOUNDARY + "\r\n"
                         + "Content-Type: image/jpeg\r\n"
+                        + String.format(Locale.US, "X-DeskCam-Fps: %.2f\r\n",
+                                intervalMs > 0 ? 1000.0 / intervalMs : fps)
+                        + "X-DeskCam-Thermal: " + (health == null ? "unknown" : health.word())
+                        + "\r\n"
+                        + (slowdown > 1
+                            ? "X-DeskCam-Shedding: " + Thermal.means(health.thermalStatus())
+                                    .replaceAll("[\\r\\n]", " ") + "\r\n"
+                            : "")
                         + "Content-Length: " + jpeg.length + "\r\n\r\n";
+                if (health != null && health.levelChanged()) {
+                    Log.i(TAG, "stream rate is now " + (intervalMs > 0 ? 1000.0 / intervalMs : fps)
+                            + " fps: the device is " + Thermal.means(health.thermalStatus()));
+                }
                 out.write(part.getBytes(StandardCharsets.US_ASCII));
                 out.write(jpeg);
                 out.write("\r\n".getBytes(StandardCharsets.US_ASCII));
@@ -1062,7 +1081,7 @@ public class HttpServer implements Runnable {
                 streamed += jpeg.length;
 
                 long spent = System.currentTimeMillis() - t0;
-                if (spent < minIntervalMs) Thread.sleep(minIntervalMs - spent);
+                if (spent < intervalMs) Thread.sleep(intervalMs - spent);
             }
         } catch (IOException closed) {
             // A viewer closing the tab is how a stream normally ends. Letting it reach

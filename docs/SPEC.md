@@ -126,6 +126,8 @@ reading it happened to see.
 | `WebUi.java` | The browser panel and the `/api/help` document |
 | `Sensors.java` | Gravity and ambient light, giving the angle between the optical axis and gravity, averaged over 32 samples |
 | `Sharp.java` | The variance of the Laplacian over a region, which is the sharpness of a frame as one number |
+| `Health.java` | What the device says about its own condition: the platform's thermal level, and the battery |
+| `Thermal.java` | How much a stream gives up at each thermal level, and what each level means |
 | `Hunt.java` | What a focus curve says: the peak, the contrast, and the two shapes that are a refusal |
 | `Tape.java` | Reads a script: the verbs, their parameters, and the refusals that cost nothing |
 | `Answer.java` | What an endpoint produced, before anything decides whether it is an HTTP response or a part of a script's stream |
@@ -211,14 +213,14 @@ The server also accepts POST with a query string or a flat JSON body.
 
 | Endpoint | Result | Notes |
 |---|---|---|
-| `/api/status` | JSON | The settings, the limits, the geometry, the `measured` block, and a `sharpness` block when a preview frame has been converted. `sharpness=1` converts a fresh one first. |
+| `/api/status` | JSON | The settings, the limits, the geometry, the `measured` block, a `device` block for heat and battery, and a `sharpness` block when a preview frame has been converted. `sharpness=1` converts a fresh one first. |
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
 | `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
 | `/api/burst` | `application/x-tar` | `n` frames with identical settings. The headers give the frame count, the time, and the rate. |
 | `/api/orientation` | JSON | The angle between the optical axis and gravity, averaged over 32 samples, and the ambient light. It equals the angle to a flat subject only on a level surface. |
 | `/api/shadingmap` | JSON | The lens shading map, if the device delivers one. Refer to section 4.3. |
 | `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
-| `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. |
+| `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. Each part carries `X-DeskCam-Fps` and `X-DeskCam-Thermal`, and `X-DeskCam-Shedding` while the rate is below what was asked for. Refer to decision D15. |
 | `/api/set` | JSON | Apply the parameters. Give the result. |
 | `/api/reset` | JSON | Set all values to the default. |
 | `/api/af` | JSON | Do one autofocus sweep. |
@@ -554,6 +556,32 @@ where it put the camera, because the `SET` lines of a finished tape are changes 
 asked for. A verb whose own answer says `ok: false`, which today is only a focus hunt that
 found no peak, is a failed step: carrying on would take the next capture out of focus and
 report it as a success.
+
+**D15. A stream sheds load when the device is hot. A capture does not.** The service holds
+a camera and a wake lock for hours on a phone that is usually bolted to a stand with its
+screen off, and until card 44 it knew nothing about the state of that phone. `/api/status`
+now reports the platform's thermal level and the battery.
+
+The **stream** is the only continuous load this project puts on the device, so it is the
+thing that gives way: the interval between frames is multiplied by two at `moderate`, four
+at `severe`, eight at `critical`, and twenty at `emergency` and above. Nothing changes at
+`light`, which the platform defines as throttling nobody can feel, and a bench camera that
+halved its rate every time a phone warmed slightly would not be trusted. A **capture** is
+never slowed. It is one-off work the caller asked for, and a measurement that silently
+took longer because of heat would be worse than one that took the time.
+
+The stream is never stopped, at any level, because it carries the reason the rate fell.
+Every part has `X-DeskCam-Fps` and `X-DeskCam-Thermal`, and `X-DeskCam-Shedding` once the
+rate is below what was asked for, so a client can tell heat from a network fault.
+
+**The thermal level and the battery temperature are different quantities.** The level is
+the platform's own judgement, on the scale it acts by, and needs no threshold of ours. The
+battery temperature is the only real thermometer an ordinary app may read, and it is
+neither the sensor nor the processor and lags both. A phone can be throttling severely with
+a battery at a comfortable 36 degrees. Measured on this bench, `dumpsys thermalservice`
+against the app at the same moment: status 3 (severe), battery 29.5 degrees, skin 34.1 and
+35.0, display 29.6, and the TPU at 53.0. Every thermometer an app can reach said the phone
+was comfortable; the platform was throttling because of a part none of them measures.
 
 ## 7. Non-goals
 

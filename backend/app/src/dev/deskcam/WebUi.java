@@ -25,7 +25,10 @@ public class WebUi {
         JSONObject ep = new JSONObject();
         ep.put("GET /api/status", "Current settings, sensor limits, and the last measured "
                 + "exposure/ISO/focus of the PREVIEW. A still carries its own values in its "
-                + "sidecar and its EXIF.");
+                + "sidecar and its EXIF. The 'device' block is how hot the phone is and how "
+                + "much charge it has left: 'thermal' is the platform's own level, which is "
+                + "what /api/stream slows down for, and 'battery_celsius' is the only real "
+                + "thermometer an app may read and is not the same thing.");
         ep.put("GET /api/cameras", "List cameras with facing, resolution, closest focus and capabilities.");
         ep.put("GET /api/help", "This document.");
         ep.put("GET /api/set", "Apply control parameters, return the resulting state.");
@@ -75,7 +78,11 @@ public class WebUi {
                 + "never on the nominal stop; walk.json carries both.");
         ep.put("GET /api/stream", "MJPEG stream (multipart/x-mixed-replace). Takes presentation "
                 + "parameters only: fps, n, w, h, jpegq. A parameter that would change the camera "
-                + "is refused, so one viewer cannot alter what another client captures.");
+                + "is refused, so one viewer cannot alter what another client captures. Each part "
+                + "carries X-DeskCam-Fps and X-DeskCam-Thermal, and X-DeskCam-Shedding once the "
+                + "phone is hot enough that the rate has been cut below what was asked for: a "
+                + "stream is the continuous load on the device, so it is the thing that gives "
+                + "way. Captures are never slowed.");
         ep.put("POST /api/script", "Runs a tape of verbs, one per line, as one operation. "
                 + "The body is the tape as plain text; the answer is a multipart/mixed "
                 + "stream of one JSON event per step, each capture's pixels following its "

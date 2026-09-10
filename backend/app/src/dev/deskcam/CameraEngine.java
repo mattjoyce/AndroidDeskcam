@@ -153,6 +153,7 @@ public class CameraEngine {
      */
     private volatile String activeCameraId = "0";
     private Sensors sensors;
+    private Health health;
     /**
      * A small copy of the last still, for the phone's own screen. Decoded with
      * inSampleSize, which reads a reduced image straight out of the JPEG rather than
@@ -289,7 +290,15 @@ public class CameraEngine {
                 lastSeen = seen;
                 if ((noDevice || stalled) && !reopening.get()) {
                     if (stalled) {
-                        lastError = "the camera is open but has produced no frame for 15 seconds";
+                        // With the thermal state in it, because a camera that stops giving
+                        // frames on a phone the platform is throttling hard is a different
+                        // fault from one that stops on a cool phone, and reopening it is a
+                        // different kind of hopeful. The watchdog still reopens either
+                        // way; what changes is that the report no longer hides the reason.
+                        Health h = health;
+                        String heat = h == null ? "" : " (thermal status: " + h.word() + ")";
+                        lastError = "the camera is open but has produced no frame for 15 "
+                                + "seconds" + heat;
                         Log.w(TAG, "watchdog: " + lastError);
                     }
                     reopenLater(noDevice ? "watchdog saw no camera" : "watchdog saw no frames");
@@ -1834,6 +1843,11 @@ public class CameraEngine {
 
     public void setSensors(Sensors s) { this.sensors = s; }
 
+    public void setHealth(Health h) { this.health = h; }
+
+    /** What the device says about its own condition, or null before the service set it. */
+    public Health health() { return health; }
+
     public JSONObject orientation() throws JSONException {
         return sensors == null ? new JSONObject().put("available", false) : sensors.toJson();
     }
@@ -1871,6 +1885,7 @@ public class CameraEngine {
         }
         o.put("sensor", sensor);
         if (sensors != null) o.put("orientation", sensors.toJson());
+        if (health != null) o.put("device", health.toJson());
 
         TotalCaptureResult r = lastResult;
         if (r != null) {

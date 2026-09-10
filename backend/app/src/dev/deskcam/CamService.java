@@ -42,6 +42,7 @@ public class CamService extends Service {
 
     private CameraEngine engine;
     private Sensors sensors;
+    private Health health;
     private static volatile CameraEngine liveEngine;
     private HttpServer http;
     private PowerManager.WakeLock wakeLock;
@@ -100,8 +101,11 @@ public class CamService extends Service {
 
             sensors = new Sensors(this);
             sensors.start();
+            health = new Health(this);
+            health.start();
             engine = new CameraEngine(this);
             engine.setSensors(sensors);
+            engine.setHealth(health);
             liveEngine = engine;
 
             // The server comes up first, and on purpose. The part that reports a fault
@@ -136,6 +140,7 @@ public class CamService extends Service {
         liveEngine = null;
         if (engine != null) { engine.stop(); engine = null; }
         if (sensors != null) { sensors.stop(); sensors = null; }
+        if (health != null) { health.stop(); health = null; }
         if (wakeLock != null && wakeLock.isHeld()) { wakeLock.release(); wakeLock = null; }
         Log.i(TAG, "service down");
         super.onDestroy();

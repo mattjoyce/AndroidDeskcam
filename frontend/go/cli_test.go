@@ -615,3 +615,28 @@ func (p scriptPart) encode() string {
 	}
 	return head + fmt.Sprintf("Content-Length: %d\r\n\r\n", len(body)) + body + "\r\n"
 }
+
+// A phone the platform is throttling has a hot sensor, and a hot sensor is a noisier one,
+// so it belongs on the line that names everything able to change the next capture. A
+// phone that is merely warm says nothing: a marker that is always there is not read.
+func TestShowSaysWhenThePhoneIsTooHot(t *testing.T) {
+	line := func(device map[string]any) string {
+		return summarise(map[string]any{
+			"state":    "running",
+			"settings": map[string]any{"zoom": 1.0, "cx": 0.5, "cy": 0.5},
+			"device":   device,
+		})
+	}
+	hot := line(map[string]any{"thermal": "severe", "throttling": true})
+	if !strings.Contains(hot, "HOT severe") {
+		t.Errorf("a throttling phone should say so, got %q", hot)
+	}
+	warm := line(map[string]any{"thermal": "light", "throttling": false})
+	if strings.Contains(warm, "HOT") {
+		t.Errorf("a phone nobody is throttling says nothing, got %q", warm)
+	}
+	// An older phone, or one that never reported, must not print an empty marker.
+	if none := line(nil); strings.Contains(none, "HOT") {
+		t.Errorf("no reading is not a hot phone, got %q", none)
+	}
+}

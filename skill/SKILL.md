@@ -258,6 +258,13 @@ the camera and the sidecar says which one changed and that the scale no longer d
 it. What none of it can see is the stand moving, so a sidecar carrying a scale is making a
 claim about the settings and never about the bench.
 
+**A hot phone is a noisier phone.** `deskcam show` ends with `HOT severe` once the
+platform is throttling, and `deskcam status` carries a `device` block with the level and
+the battery. A long session of bursts and walks will get there. Captures are never slowed,
+but the sensor is hot, so treat a `HOT` marker the way you would treat a changed setting:
+give the phone a few minutes before you quote a number you are comparing against an earlier
+one. A stream does slow down, and says so in each part.
+
 **Sharpness is a comparison, never a measurement.** It moves with the subject, with how
 much of the frame the region of interest holds, and with the noise. Only compare readings
 taken with everything but the focus held still, and check the age the reading comes with.

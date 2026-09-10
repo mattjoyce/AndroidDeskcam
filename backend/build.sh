@@ -52,6 +52,7 @@ javac -Xlint:all -Werror -encoding UTF-8 --release 17 \
     "$ROOT/app/src/dev/deskcam/Sharp.java" \
     "$ROOT/app/src/dev/deskcam/Hunt.java" \
     "$ROOT/app/src/dev/deskcam/Tape.java" \
+    "$ROOT/app/src/dev/deskcam/Thermal.java" \
     "$ROOT/test/dev/deskcam/Tests.java"
 java -cp "$OUT/testclasses" dev.deskcam.Tests "$OUT/testwork"
 
