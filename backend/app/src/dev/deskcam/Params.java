@@ -195,6 +195,10 @@ public final class Params {
         router("format=raw makes the CLI take a burst of DNG frames one at a time.", "format");
         router("Milliseconds to wait after an autofocus sweep, 0..5000.", "wait");
         router("Port for /api/nettest, 1..65535.", "port");
+        router("sharpness=1 makes /api/status convert one fresh preview frame first, so "
+                + "the sharpness it reports describes now rather than the last frame "
+                + "anything asked for. Costs one frame, and takes fresh and timeout. "
+                + "Card 9.", "sharpness");
         router("A cache buster. Ignored.", "t", "_");
     }
 

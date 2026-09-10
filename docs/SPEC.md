@@ -193,7 +193,7 @@ The server also accepts POST with a query string or a flat JSON body.
 
 | Endpoint | Result | Notes |
 |---|---|---|
-| `/api/status` | JSON | The settings, the limits, the geometry, and the `measured` block |
+| `/api/status` | JSON | The settings, the limits, the geometry, the `measured` block, and a `sharpness` block when a preview frame has been converted. `sharpness=1` converts a fresh one first. |
 | `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
 | `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
 | `/api/burst` | `application/x-tar` | `n` frames with identical settings. The headers give the frame count, the time, and the rate. |
@@ -229,7 +229,7 @@ The groups are decision D9:
 |---|---|---|
 | Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
 | Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
-| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `t` | one request |
+| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `t` | one request |
 
 **The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
 `cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use

@@ -177,6 +177,36 @@ func TestShowPrintsEverySettingThatCanSpoilTheNextCapture(t *testing.T) {
 	}
 }
 
+// Sharpness is a comparison, so a stale one is worse than none: an agent following the
+// slope of a focus sweep would walk straight past the peak on a number from four seconds
+// ago. Card 9.
+func TestShowPrintsSharpnessAndSaysWhenItIsOld(t *testing.T) {
+	with := func(age float64) string {
+		return summarise(map[string]any{
+			"state":     "running",
+			"settings":  map[string]any{"zoom": 1.0, "cx": 0.5, "cy": 0.5},
+			"sharpness": map[string]any{"value": 341.46, "frame_age_ms": age},
+		})
+	}
+	fresh := with(35)
+	if !strings.Contains(fresh, "sharp 341.46") {
+		t.Errorf("show should print the sharpness, got %q", fresh)
+	}
+	if strings.Contains(fresh, "old") {
+		t.Errorf("a frame from this moment is not old, got %q", fresh)
+	}
+	if stale := with(4200); !strings.Contains(stale, "sharp 341.46 (4.2s old)") {
+		t.Errorf("an old reading must say how old, got %q", stale)
+	}
+	// A phone nobody is watching converts no preview frames, so there is nothing to say.
+	none := summarise(map[string]any{
+		"state": "running", "settings": map[string]any{"zoom": 1.0},
+	})
+	if strings.Contains(none, "sharp") {
+		t.Errorf("no frame means no sharpness, got %q", none)
+	}
+}
+
 func TestShowSaysWhenTheCameraIsNotRunning(t *testing.T) {
 	line := summarise(map[string]any{
 		"state":    "disconnected",

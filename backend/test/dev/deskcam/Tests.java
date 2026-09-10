@@ -38,6 +38,10 @@ public final class Tests {
         rotationParsing();
         tarWritesAReadableArchive(tmp);
         theAccessKeyRule();
+        sharpnessRisesWithDetail();
+        sharpnessPeaksAtFocus();
+        sharpnessOnAnImpossibleRegion();
+        sharpnessStaysInsideItsBudget();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -263,6 +267,87 @@ public final class Tests {
     // ------------------------------------------------------------- plumbing
 
     private interface Body { void run(); }
+
+    // --------------------------------------------------------- sharpness
+
+    /** A luma plane holding vertical bars, blurred by averaging over `blur` pixels. */
+    private static byte[] bars(int w, int h, int period, int blur) {
+        byte[] sharp = new byte[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                sharp[y * w + x] = (byte) ((x / (period / 2)) % 2 == 0 ? 40 : 210);
+            }
+        }
+        if (blur <= 1) return sharp;
+        byte[] out = new byte[w * h];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int sum = 0, n = 0;
+                for (int k = -blur / 2; k <= blur / 2; k++) {
+                    int sx = x + k;
+                    if (sx < 0 || sx >= w) continue;
+                    sum += sharp[y * w + sx] & 0xff;
+                    n++;
+                }
+                out[y * w + x] = (byte) (sum / n);
+            }
+        }
+        return out;
+    }
+
+    private static void sharpnessRisesWithDetail() {
+        int w = 640, h = 480;
+        double flat = Sharp.focus(new byte[w * h], w, h, 0, 0, w, h);
+        double edges = Sharp.focus(bars(w, h, 16, 1), w, h, 0, 0, w, h);
+        eq("a flat field has no detail", 0f, (float) flat);
+        yes("edges beat a flat field", edges > 100);
+    }
+
+    /**
+     * The claim card 9 actually makes: a sweep through focus has one clear maximum.
+     *
+     * Blur here stands in for defocus. The value must fall away on the blurred side and
+     * never wander, because an agent hunting the peak follows the slope.
+     */
+    private static void sharpnessPeaksAtFocus() {
+        int w = 640, h = 480;
+        double previous = Double.MAX_VALUE;
+        // Widening blur, so this walks away from focus one step at a time.
+        for (int blur : new int[]{1, 3, 5, 9, 17}) {
+            double value = Sharp.focus(bars(w, h, 32, blur), w, h, 0, 0, w, h);
+            yes("blur " + blur + " is less sharp than the step before it", value < previous);
+            previous = value;
+        }
+    }
+
+    private static void sharpnessOnAnImpossibleRegion() {
+        int w = 64, h = 64;
+        byte[] plane = bars(w, h, 8, 1);
+        eq("no plane", (float) Sharp.NOT_MEASURABLE, (float) Sharp.focus(null, w, h, 0, 0, w, h));
+        eq("a region of nothing", (float) Sharp.NOT_MEASURABLE,
+                (float) Sharp.focus(plane, w, h, 10, 10, 2, 2));
+        eq("a plane shorter than it claims", (float) Sharp.NOT_MEASURABLE,
+                (float) Sharp.focus(new byte[10], w, h, 0, 0, w, h));
+        // A region reaching past the edge is clipped to what is there, not refused.
+        yes("a region hanging off the edge is clipped",
+                Sharp.focus(plane, w, h, 32, 32, 999, 999) > 0);
+    }
+
+    /**
+     * The budget is 20 ms on a phone. This runs on a workstation, so it cannot prove that.
+     * What it proves is the thing that would break the budget: the sample count is bounded
+     * however large the region is.
+     */
+    private static void sharpnessStaysInsideItsBudget() {
+        yes("a whole preview frame stays inside the sample budget",
+                (long) (1280 - 2) * (960 - 2) / rowStepFor(1280, 960) <= Sharp.MAX_SAMPLES);
+        yes("a small region is measured at full density", rowStepFor(320, 240) == 1);
+    }
+
+    private static long rowStepFor(int w, int h) {
+        long area = (long) (w - 2) * (h - 2);
+        return Math.max(1, (area + Sharp.MAX_SAMPLES - 1) / Sharp.MAX_SAMPLES);
+    }
 
     // -------------------------------------------------------- the access key
 

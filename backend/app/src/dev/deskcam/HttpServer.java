@@ -272,6 +272,13 @@ public class HttpServer implements Runnable {
 
             case "/api/status": {
                 apply(params);
+                // sharpness=1 pays for one preview frame so the number describes now. The
+                // focus loop of card 9 is: set the focus, ask for this, compare. Without
+                // it the reading is whatever the last frame was, and its age says so.
+                if (params.containsKey("sharpness") && Parse.bool(params.get("sharpness"))) {
+                    engine.demandFrame(longParam(params, "timeout", 1500, 100, 60000),
+                            (int) longParam(params, "fresh", 2, 0, 30));
+                }
                 JSONObject o = engine.status();
                 o.put("ok", true);
                 sendJson(out, 200, o);

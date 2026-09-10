@@ -243,6 +243,44 @@ untouched-JPEG path for ever, which is a measurement fault rather than an inconv
 | `wait` | The wait after an autofocus sweep |
 | `port` | The port for `/api/nettest` |
 | `format` | `format=raw` makes `deskcam burst` take DNG frames one at a time |
+| `sharpness` | `sharpness=1` makes `/api/status` convert one fresh preview frame first |
+
+### Focus by number, without sending a picture
+
+`/api/status` reports a `sharpness` block: the variance of the Laplacian over the region of
+interest of a preview frame. It is one of the two calculations that belong on the device,
+because it lets an agent close a focus loop by moving the lens and reading a number instead
+of pulling frames across the network.
+
+```sh
+deskcam set focus=4.25 && deskcam show sharpness=1
+zoom 1x  at 0.5,0.5  af off  ae manual  29.97ms (1/33)  iso 100  MEASURE  sharp 33.6
+```
+
+A real sweep of a rule 235 mm from the lens, exposure and ISO held fixed, one reading a
+step:
+
+| dioptres | 1.0 | 3.0 | 3.5 | 4.0 | **4.25** | 4.5 | 5.0 | 5.5 | 6.0 | 9.0 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| sharpness | 3.5 | 11.4 | 20.3 | 30.8 | **33.6** | 31.0 | 18.0 | 9.4 | 5.8 | 2.9 |
+
+One maximum, monotone either side of it, at the distance the phone's own autofocus picks.
+
+Three things about the number. It is a **comparison and never a measurement**: it moves
+with the subject, with how much of the frame the region of interest holds, and with the
+noise, which at high ISO is itself high-frequency detail. Only compare readings taken with
+everything but the focus held still.
+
+It **describes the last preview frame that was converted**, which may be old, so its age is
+reported beside it and `deskcam show` prints the age once it is over half a second.
+Without `sharpness=1` nothing new is converted, because a status poll that demanded a frame
+would have an open console page converting every frame at thirty a second for a page that
+is not showing video (decision D7).
+
+It costs about **9 ms** on a Pixel 6a and the cost is reported with the value. The sample
+count is capped for that: rows are skipped, never columns and never the kernel's
+neighbours, because a kernel over subsampled pixels measures a blurrier image than the one
+in front of the camera and would put the peak in the wrong place.
 
 ### Errors
 

@@ -17,6 +17,8 @@ func usage() {
 
   deskcam status                       full JSON state
   deskcam show                         one-line summary
+  deskcam show sharpness=1             the same, with a fresh sharpness reading. Move the
+                                       focus, read the number, repeat: the peak is focus
   deskcam set k=v [k=v ...]            apply any control parameters
   deskcam reset                        restore defaults
   deskcam recall FILE.json             restore the settings of a past capture

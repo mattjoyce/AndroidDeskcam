@@ -103,6 +103,7 @@ public class CameraEngine {
     private byte[] latestNv21;
     private int latestW, latestH;
     private long latestSeq = 0;
+    private long latestAtMs = 0;
 
     /**
      * Every preview image the camera has handed over, converted or not.
@@ -489,6 +490,7 @@ public class CameraEngine {
                         latestNv21 = nv21;
                         latestW = img.getWidth();
                         latestH = img.getHeight();
+                        latestAtMs = System.currentTimeMillis();
                         latestSeq++;
                         frameLock.notifyAll();
                     }
@@ -1369,6 +1371,74 @@ public class CameraEngine {
     }
 
     /**
+     * How sharp the last converted preview frame was, over the region of interest.
+     *
+     * Measured here and not in the frame callback, so a phone nobody is watching pays
+     * nothing for it. Measured lazily also means the answer can be old, which is why its
+     * age is reported beside it and never left for the caller to assume. Card 9.
+     *
+     * Nothing here demands a frame. Decision D7 says the engine converts on demand, and
+     * making a status poll count as demand would have the console converting every
+     * preview frame at thirty a second for a page that is not showing video. An agent
+     * closing a focus loop asks for a fresh one with sharpness=1, which is one request
+     * and one frame.
+     */
+    public JSONObject sharpness() throws JSONException {
+        byte[] nv21;
+        int w, h;
+        long at, seq;
+        synchronized (frameLock) {
+            nv21 = latestNv21;
+            w = latestW;
+            h = latestH;
+            at = latestAtMs;
+            seq = latestSeq;
+        }
+        if (nv21 == null) return null;
+
+        // The luma plane is the first w*h bytes of NV21, which is why this costs nothing
+        // beyond the arithmetic: no decode, no copy, no colour.
+        CamSettings s = snapshot();
+        Rect roi = s.roiFor(w, h);
+        long t0 = System.nanoTime();
+        double value = Sharp.focus(nv21, w, h, roi.left, roi.top, roi.width(), roi.height());
+        double costMs = (System.nanoTime() - t0) / 1e6;
+        if (value == Sharp.NOT_MEASURABLE) return null;
+
+        JSONObject o = new JSONObject();
+        o.put("value", CamSettings.round2(value));
+        o.put("frame_age_ms", Math.max(0, System.currentTimeMillis() - at));
+        o.put("frame_seq", seq);
+        o.put("cost_ms", CamSettings.round2(costMs));
+        o.put("region", roi.left + "," + roi.top + " " + roi.width() + "x" + roi.height());
+        o.put("means", "variance of the Laplacian over the region of interest of a preview "
+                + "frame. Higher is sharper. It is a comparison and not a measurement: it "
+                + "moves with the subject, the region and the noise, so only compare values "
+                + "taken with everything but the focus held still.");
+        return o;
+    }
+
+    /**
+     * Converts one preview frame now, so the next sharpness reading describes this moment.
+     *
+     * The lens takes time to arrive, and the pipeline has several requests in flight, so a
+     * frame that exists the instant after a focus change was very likely exposed before
+     * it. skip discards that many first, for the same reason grabFrame does.
+     */
+    public void demandFrame(long timeoutMs, int skip) throws InterruptedException {
+        lastDemandMs = System.currentTimeMillis();
+        long from = currentSeq() + Math.max(0, skip);
+        synchronized (frameLock) {
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            while (latestSeq <= from) {
+                long wait = deadline - System.currentTimeMillis();
+                if (wait <= 0) return;   // say nothing; the age of the answer says it
+                frameLock.wait(Math.min(wait, 100));
+            }
+        }
+    }
+
+    /**
      * Counts the clients watching a stream.
      *
      * It was a read then a write on a plain field, so two streams starting at once could
@@ -1503,6 +1573,8 @@ public class CameraEngine {
             o.put("measured_from", "preview");
             o.put("pipeline", pipelineJson(r));
         }
+        JSONObject sharp = sharpness();
+        if (sharp != null) o.put("sharpness", sharp);
         return o;
     }
 

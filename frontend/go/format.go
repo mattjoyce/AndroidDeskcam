@@ -106,6 +106,16 @@ func summarise(status map[string]any) string {
 	if flag(s, "awb_lock") {
 		bits = append(bits, "awb locked")
 	}
+	// Sharpness is a comparison, so the age comes with it. A number from a frame taken
+	// four seconds ago says nothing about the focus that was set two seconds ago, and an
+	// agent walking a sweep would follow it straight past the peak. Card 9.
+	if sharp := sub(status, "sharpness"); sharp != nil {
+		note := "sharp " + str(sharp, "value")
+		if age, ok := num(sharp, "frame_age_ms"); ok && age >= 500 {
+			note += fmt.Sprintf(" (%.1fs old)", age/1000)
+		}
+		bits = append(bits, note)
+	}
 	if p := str(s, "capture_path"); p != "" && p != "camera_jpeg" {
 		bits = append(bits, "path "+p)
 	}

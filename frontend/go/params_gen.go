@@ -39,6 +39,7 @@ var Params = map[string]Kind{
 	"sensitivity": Camera,
 	"settle":      Router,
 	"shadingmap":  Camera,
+	"sharpness":   Router,
 	"shutter":     Camera,
 	"stillsize":   Camera,
 	"t":           Router,
