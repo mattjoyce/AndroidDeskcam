@@ -1567,6 +1567,137 @@ public class CameraEngine {
     }
 
     /**
+     * The sharpness of the last converted frame as a bare number, for a loop that reads it
+     * many times and does not want a JSON object each time.
+     *
+     * Returns Sharp.NOT_MEASURABLE when there is no frame, which is the same answer the
+     * caller gets for a region too small to hold the kernel: nothing to compare.
+     */
+    private double sharpnessValue() {
+        byte[] nv21;
+        int w, h;
+        synchronized (frameLock) {
+            nv21 = latestNv21;
+            w = latestW;
+            h = latestH;
+        }
+        if (nv21 == null) return Sharp.NOT_MEASURABLE;
+        Rect roi = snapshot().roiFor(w, h);
+        return Sharp.focus(nv21, w, h, roi.left, roi.top, roi.width(), roi.height());
+    }
+
+    /**
+     * Walks the lens and stops where the picture is sharpest, reporting the curve it saw.
+     *
+     * The one loop in this system that has to run on the phone. Every step depends on the
+     * frame the last step produced, so driven from the workstation each decision costs a
+     * round trip: the fourteen readings that found the peak by hand cost a set, a settle,
+     * a fresh frame and a status apiece. Here they cost none. Card 56.
+     *
+     * Coarse then fine, because the curve has one maximum and a coarse pass finds which
+     * part of the range holds it for a fraction of the readings a fine pass over the whole
+     * range would need.
+     *
+     * This is the one walk that is a change rather than an excursion: when it chooses, it
+     * leaves the lens where it decided, because deciding is the whole point of it.
+     * /api/focussweep puts the focus back; this does not. When it refuses it puts the
+     * focus back, because then it decided nothing and has no business moving the bench.
+     */
+    public JSONObject focusHunt(CamSettings base, float from, float to, int coarse, int fine,
+                                long settleMs, int fresh, long timeoutMs) throws Exception {
+        long started = System.currentTimeMillis();
+        CamSettings restore = snapshot();
+        float lo = Math.min(from, to);
+        float hi = Math.max(from, to);
+        List<Hunt.Reading> readings = new ArrayList<>();
+        JSONArray walked = new JSONArray();
+
+        sweepInto(base, from, to, coarse, settleMs, fresh, timeoutMs, readings, walked);
+        Hunt.Verdict verdict = Hunt.judge(readings, lo, hi, caps.minFocusDiopters);
+
+        // A fine pass is only worth its readings once a peak is known to be in the range.
+        // Refining around the end of a flat curve measures the same nothing more closely.
+        int coarseReadings = readings.size();
+        if (verdict.chose() && fine >= 2) {
+            float step = Math.abs(hi - lo) / Math.max(1, coarse - 1);
+            sweepInto(base,
+                    Geom.clamp(verdict.at - step, 0f, caps.minFocusDiopters),
+                    Geom.clamp(verdict.at + step, 0f, caps.minFocusDiopters),
+                    fine, settleMs, fresh, timeoutMs, readings, walked);
+            verdict = Hunt.judge(readings, lo, hi, caps.minFocusDiopters);
+        }
+
+        JSONObject out = new JSONObject();
+        out.put("ok", verdict.chose());
+        out.put("diopters", CamSettings.round3(verdict.at));
+        if (verdict.at > 0.001f) {
+            out.put("focus_metres_approx", CamSettings.round3(1f / verdict.at));
+        }
+        out.put("sharpness", CamSettings.round2(verdict.sharpness));
+        out.put("contrast", CamSettings.round3(verdict.contrast));
+        out.put("from_diopters", CamSettings.round3(lo));
+        out.put("to_diopters", CamSettings.round3(hi));
+        out.put("coarse_readings", coarseReadings);
+        out.put("fine_readings", readings.size() - coarseReadings);
+        out.put("readings", readings.size());
+        out.put("walked", walked);
+        out.put("means", "sharpness is the variance of the Laplacian over the region of "
+                + "interest. It is a comparison and not a measurement: it moves with the "
+                + "subject, the region and the noise, so these values describe this hunt "
+                + "and nothing else. contrast is how far the curve rose above its own "
+                + "floor, and is what decides whether there was a peak at all.");
+        if (base.aeAuto) {
+            out.put("warning", "automatic exposure was on, so the exposure moved between "
+                    + "readings and the sharpness moved with it. This hunt may have climbed "
+                    + "the exposure loop rather than the lens. Fix exposure= and iso=.");
+        }
+
+        if (verdict.chose()) {
+            CamSettings chosen = base.clone();
+            chosen.focusDiopters = verdict.at;
+            chosen.afMode = CamSettings.AF_OFF;
+            update(chosen);
+        } else {
+            out.put("refused", verdict.refusal);
+            out.put("reason", verdict.reason);
+            update(restore);
+            out.put("focus_restored_to", restore.focusDiopters == null
+                    ? JSONObject.NULL : CamSettings.round3(restore.focusDiopters));
+        }
+        out.put("millis", System.currentTimeMillis() - started);
+        return out;
+    }
+
+    /**
+     * One pass of the hunt: set the lens, wait for a frame taken there, measure it.
+     *
+     * A position that could not be measured is left out of the curve rather than recorded
+     * as zero. Zero is a reading of a flat field, and one of those in the middle of a
+     * sweep would put a trough where there was only a missing frame.
+     */
+    private void sweepInto(CamSettings base, float from, float to, int steps, long settleMs,
+                           int fresh, long timeoutMs, List<Hunt.Reading> readings,
+                           JSONArray walked) throws Exception {
+        for (int i = 0; i < steps; i++) {
+            float at = Geom.clamp(steps < 2 ? from : Geom.sweepStep(from, to, i, steps),
+                    0f, caps.minFocusDiopters);
+            CamSettings step = base.clone();
+            step.focusDiopters = at;
+            step.afMode = CamSettings.AF_OFF;
+            update(step);
+            if (settleMs > 0) Thread.sleep(settleMs);
+            // A fresh frame, or the reading describes the focus before this one.
+            demandFrame(timeoutMs, fresh);
+            double value = sharpnessValue();
+            if (value == Sharp.NOT_MEASURABLE) continue;
+            readings.add(new Hunt.Reading(at, value));
+            walked.put(new JSONObject()
+                    .put("diopters", CamSettings.round3(at))
+                    .put("sharpness", CamSettings.round2(value)));
+        }
+    }
+
+    /**
      * Converts one preview frame now, so the next sharpness reading describes this moment.
      *
      * The lens takes time to arrive, and the pipeline has several requests in flight, so a

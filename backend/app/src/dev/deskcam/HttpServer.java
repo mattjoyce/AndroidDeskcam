@@ -414,6 +414,38 @@ public class HttpServer implements Runnable {
                 return;
             }
 
+            case "/api/focushunt": {
+                CamSettings req = apply(params);
+                CamSettings.Caps caps = engine.caps();
+                float from = floatParam(params, "from", 0f, 0f, caps.minFocusDiopters);
+                float to = floatParam(params, "to", caps.minFocusDiopters, 0f, caps.minFocusDiopters);
+                if (Math.abs(to - from) < 0.05f) {
+                    throw new BadRequest(String.format(Locale.US,
+                            "a hunt needs a range to search, and from=%.3f to=%.3f is one "
+                            + "position. To set the focus, use /api/set focus=%.3f.",
+                            from, to, from));
+                }
+                // Nine and five. The curve of card 56 spans about four diopters at half
+                // height, so nine over the whole ten-diopter range cannot step over it,
+                // and five inside one coarse step land within a fortieth of a diopter of
+                // the peak, which is finer than the lens repeats.
+                int coarse = (int) longParam(params, "coarse", 9, 3, 30);
+                int fine = (int) longParam(params, "fine", 5, 0, 30);
+                // Not the settle() helper: that one sleeps once for the request, and this
+                // needs the wait at every step of the walk. The lens settles well inside
+                // 300 ms on this device, and the frames discarded after it cost time too.
+                long settleMs = longParam(params, "settle", 150, 0, 5000);
+                int fresh = (int) longParam(params, "fresh", 3, 0, 30);
+                JSONObject o = engine.focusHunt(req, from, to, coarse, fine, settleMs, fresh,
+                        longParam(params, "timeout", 2000, 100, 60000));
+                // A hunt that refuses answers 200 with ok:false and the curve it walked.
+                // The request was good, the camera worked, and the curve is the useful
+                // part of the answer: none of that is a 4xx, and an agent that only reads
+                // the status line would throw away the reason it was refused.
+                sendJson(out, 200, o);
+                return;
+            }
+
             case "/api/bracket": {
                 CamSettings req = apply(params);
                 CamSettings.Caps caps = engine.caps();

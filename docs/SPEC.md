@@ -102,6 +102,20 @@ sensor limits, and the measured results. It stays alive when the screen is off.
 These tasks are not its work: image stacks, image merges, frame alignment, colour
 science, computer vision, and storage of old captures.
 
+**One loop runs on the phone, and the test for a second one is narrow.** The backend
+decides nothing about a picture except where to put the lens, in `/api/focushunt`. That
+one qualifies because every step of it depends on the frame the step before it produced,
+so driven from the workstation each decision costs a round trip: a set, a settle, a fresh
+frame and a status apiece. The test for anything else that wants to move here is not
+whether it would be convenient or quick. It is whether the loop needs a frame between its
+decisions. A focus hunt does. A focus sweep does not, which is why `/api/focussweep` takes
+a range and a step count and this takes a range and answers with a decision.
+
+The frames of a hunt do not leave the phone, and neither do the intermediate results. What
+comes back is the position chosen, the sharpness there, and the curve that found it. A
+hunt is allowed to answer that there is no peak, and does so rather than name the largest
+reading it happened to see.
+
 ### 4.2 Components
 
 | File | Responsibility |
@@ -111,6 +125,8 @@ science, computer vision, and storage of old captures.
 | `HttpServer.java` | HTTP/1.1 on a `ServerSocket`, the routes, and the MJPEG parts |
 | `WebUi.java` | The browser panel and the `/api/help` document |
 | `Sensors.java` | Gravity and ambient light, giving the angle between the optical axis and gravity, averaged over 32 samples |
+| `Sharp.java` | The variance of the Laplacian over a region, which is the sharpness of a frame as one number |
+| `Hunt.java` | What a focus curve says: the peak, the contrast, and the two shapes that are a refusal |
 | `Tar.java` | A small USTAR writer, for a burst in one response |
 | `CamService.java` | The foreground service, the life cycle, the notice, and the address |
 | `MainActivity.java` | The permissions, start and stop, and the headless start |
@@ -207,6 +223,7 @@ The server also accepts POST with a query string or a flat JSON body.
 | `/api/walk` | `application/x-tar` | One still at each of `values`, walking the camera parameter named by `vary`. Only camera state can be walked. No step rule is implied: the caller gives the values. |
 | `/api/bracket` | `application/x-tar` | `stops` stills at doubling exposures from `base`, so every frame is one stop apart and a whole multiple of the base period. The archive holds `walk.json`, which records the exposure asked for and reached at every frame. |
 | `/api/focussweep` | `application/x-tar` | `steps` stills as the lens walks from `from` to `to`, spread equally in dioptres. The archive holds `walk.json`, which records the lens position asked for and reached at every frame. |
+| `/api/focushunt` | JSON | Walks the lens between `from` and `to`, measures the sharpness of a frame at each position, and stops at the peak. A coarse pass of `coarse` readings over the range, then a fine pass of `fine` around the best of it. No frame crosses the network. It answers the chosen position, the peak, and the whole curve. It refuses, with `ok: false`, when the curve is flat or its peak is at an end of the range, and then puts the focus back. Refer to section 4.1. |
 | `/api/cameras` | JSON | List the cameras and the capabilities. |
 | `/api/help` | JSON | The self description. Refer to R6. |
 | `/api/nettest` | JSON | An outbound test. It finds the fault in section 4.4. It connects only to the address the request came from. |
@@ -232,7 +249,7 @@ The groups are decision D9:
 |---|---|---|
 | Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `awbgains`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
 | Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
-| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `from`, `to`, `steps`, `base`, `stops`, `vary`, `values`, `t` | one request |
+| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `from`, `to`, `steps`, `coarse`, `fine`, `base`, `stops`, `vary`, `values`, `t` | one request |
 
 **The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
 `cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use

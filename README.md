@@ -190,6 +190,7 @@ this table ever disagrees with `/api/help`, `/api/help` is right and this is sta
 | `/api/set` | Apply the parameters. Give the result. |
 | `/api/af` | Do one autofocus sweep |
 | `/api/focussweep` | `steps` stills as the lens walks from `from` to `to` in dioptres, as one tar |
+| `/api/focushunt` | Walks the lens on the phone, reads the sharpness of each frame, and stops at the peak. Gives the chosen position and the curve. No frame crosses the network. |
 | `/api/bracket` | `stops` stills at doubling exposures from `base`, as one tar |
 | `/api/walk` | One still at each of `values`, walking the camera parameter named by `vary` |
 | `/api/reset` | Set all values to the default |
@@ -253,6 +254,7 @@ untouched-JPEG path for ever, which is a measurement fault rather than an inconv
 | `format` | `format=raw` makes `deskcam burst` take DNG frames one at a time |
 | `sharpness` | `sharpness=1` makes `/api/status` convert one fresh preview frame first |
 | `from`, `to`, `steps` | The focus sweep: the first and last lens position in dioptres, and how many frames |
+| `coarse`, `fine` | The focus hunt: how many readings over the whole range, and how many around the best of them |
 | `base`, `stops` | The exposure bracket: the shortest exposure, and how many frames of twice the one before |
 | `vary`, `values` | The walk: which camera parameter to vary, and the list to vary it over |
 
@@ -394,6 +396,87 @@ It costs about **9 ms** on a Pixel 6a and the cost is reported with the value. T
 count is capped for that: rows are skipped, never columns and never the kernel's
 neighbours, because a kernel over subsampled pixels measures a blurrier image than the one
 in front of the camera and would put the peak in the wrong place.
+
+### Hunting the focus
+
+That loop is fourteen round trips: a set, a settle, a fresh frame and a status for every
+reading. `/api/focushunt` is the same loop on the phone, where each step costs none of
+that, and it is the one loop in this project that has to live there, because every step
+depends on the frame the last step produced.
+
+```sh
+deskcam set measure=on exposure=1/33 iso=200
+deskcam focus hunt
+```
+
+```
+   0.000 d       3.4  ##
+   1.276 d       4.3  ###
+   2.551 d      11.3  #######
+   3.827 d      62.5  #######################################
+   5.102 d      28.9  ##################
+   6.378 d       5.6  ###
+   7.653 d       3.4  ##
+   8.929 d       3.1  ##
+  10.204 d       2.7  ##
+  the fine pass, around the best of the coarse one
+   2.551 d      11.5  #######
+   3.189 d      29.8  ##################
+   3.827 d      64.4  ######################################## <-
+   4.464 d      61.7  ######################################
+   5.102 d      29.8  ###################
+chosen 3.827 d (about 261 mm), sharpness 64.38, contrast 0.959, 14 readings in 4.0 s
+```
+
+A coarse pass over the range, then a fine pass around the best of it. `coarse=9` cannot
+step over a peak that is several dioptres wide at half height, and `fine=5` inside one
+coarse step lands within about a sixth of a dioptre of the best the coarse pass found.
+Fourteen readings over the whole ten-dioptre range of this lens take about four seconds,
+which the answer reports rather than asks you to remember. The curve comes back with the
+answer, and the CLI draws it, because both of the ways this can fail are shapes.
+
+**The position repeats; the peak value does not.** Twelve hunts of one subject on this
+bench, started from both ends of the lens travel: eleven chose 3.827 d and one chose the
+next fine step at 4.464 d, whose sharpness was within a few percent of it. The peak value
+across those same twelve runs ran from 34.9 to 64.5, nearly two to one. That is the point
+about the metric being a comparison, made in the strongest way available: two hunts of the
+same subject agree about where the lens goes and disagree about the number, so use
+`diopters` and never compare `sharpness` between hunts.
+
+**It is allowed to refuse**, which is the difference between this and `/api/af`. A flat
+curve means nothing in the region of interest came into focus anywhere in the range:
+
+```
+$ deskcam focus hunt exposure=1/4000 iso=56
+   0.000 d       0.0
+   ... every reading the same ...
+deskcam: no focus chosen (flat): the sharpness moved by 0% across 0.00 to 10.20 dioptres,
+and a peak moves it by far more.
+```
+
+A peak sitting on an end of the range means the search stopped while the curve was still
+climbing, so the real peak is outside it:
+
+```
+$ deskcam focus hunt from=0 to=3
+   ... climbing all the way to the last reading ...
+       3 d      20.3  ######################################## <-
+deskcam: no focus chosen (peak_at_edge): the sharpest reading, 3.00 dioptres, is the near
+end of the range that was searched ... Widen the range and hunt again, e.g. to=6.00
+```
+
+Both answer `ok: false` with the reason and the curve, put the focus back where they found
+it, and exit non-zero. `af_state: focused` on a low-contrast board at 98 mm is not always
+an answer; this says so.
+
+When it does choose, the lens stays there. A hunt is a decision and not an excursion,
+which is the opposite of `/api/focussweep`, and it is the only walk in this project that
+behaves that way.
+
+**Fix the exposure first.** Sharpness is a comparison, so everything except the focus has
+to be held still for the duration. With `ae=auto` the exposure moves between readings and
+the metric moves with it, and the hunt climbs the auto-exposure loop rather than the lens.
+It warns when it sees `ae=auto`, but the fix is `exposure=` and `iso=`.
 
 ### Errors
 

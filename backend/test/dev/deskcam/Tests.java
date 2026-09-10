@@ -45,6 +45,10 @@ public final class Tests {
         sharpnessPeaksAtFocus();
         sharpnessOnAnImpossibleRegion();
         sharpnessStaysInsideItsBudget();
+        aHuntFindsThePeak();
+        aHuntRefusesAFlatCurve();
+        aHuntRefusesAPeakOnTheEdge();
+        aHuntWithNoReadings();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -428,6 +432,75 @@ public final class Tests {
     private static long rowStepFor(int w, int h) {
         long area = (long) (w - 2) * (h - 2);
         return Math.max(1, (area + Sharp.MAX_SAMPLES - 1) / Sharp.MAX_SAMPLES);
+    }
+
+    // ------------------------------------------------------------- the hunt
+
+    /** The curve of card 56, measured on the bench: a rule 235 mm from the lens. */
+    private static java.util.List<Hunt.Reading> realSweep() {
+        float[] at = {1.0f, 3.0f, 3.5f, 4.0f, 4.25f, 4.5f, 5.0f, 5.5f, 6.0f, 9.0f};
+        double[] sharp = {3.5, 11.4, 20.3, 30.8, 33.6, 31.0, 18.0, 9.4, 5.8, 2.9};
+        java.util.List<Hunt.Reading> out = new java.util.ArrayList<>();
+        for (int i = 0; i < at.length; i++) out.add(new Hunt.Reading(at[i], sharp[i]));
+        return out;
+    }
+
+    private static void aHuntFindsThePeak() {
+        Hunt.Verdict v = Hunt.judge(realSweep(), 0f, 10.2f, 10.2f);
+        yes("a real curve is an answer", v.chose());
+        eq("the peak of the real curve", 4.25f, v.at);
+        yes("the real curve is nothing like flat", v.contrast > 0.9);
+    }
+
+    /**
+     * Nothing in focus anywhere looks like this: one number, wobbling with the noise.
+     *
+     * The wobble is what makes the refusal necessary. Every list has a largest element,
+     * so a hunt that only reports the largest always claims to have found something.
+     */
+    private static void aHuntRefusesAFlatCurve() {
+        java.util.List<Hunt.Reading> flat = new java.util.ArrayList<>();
+        double[] noise = {4.0, 4.2, 3.9, 4.1, 4.3, 4.0, 3.8, 4.05};
+        for (int i = 0; i < noise.length; i++) flat.add(new Hunt.Reading(i * 1.4f, noise[i]));
+        Hunt.Verdict v = Hunt.judge(flat, 0f, 9.8f, 10.2f);
+        no("a flat curve is not an answer", v.chose());
+        eq("and it says which kind of refusal", 1, Hunt.FLAT.equals(v.refusal) ? 1 : 0);
+        yes("the reason names the range", v.reason.contains("9.80"));
+    }
+
+    /**
+     * A curve still climbing where the search stopped. The largest reading is the last
+     * one looked at, which is not the same thing as a peak.
+     */
+    private static void aHuntRefusesAPeakOnTheEdge() {
+        java.util.List<Hunt.Reading> climbing = new java.util.ArrayList<>();
+        double[] rising = {3.0, 6.0, 12.0, 21.0, 33.0};
+        for (int i = 0; i < rising.length; i++) {
+            climbing.add(new Hunt.Reading(Geom.sweepStep(2f, 6f, i, rising.length), rising[i]));
+        }
+        Hunt.Verdict v = Hunt.judge(climbing, 2f, 6f, 10.2f);
+        no("a curve still climbing at the edge is not an answer", v.chose());
+        eq("and it says which kind of refusal", 1, Hunt.AT_EDGE.equals(v.refusal) ? 1 : 0);
+        yes("it offers a wider range", v.reason.contains("to=10.00"));
+        eq("the best seen is still reported", 6f, v.at);
+
+        // The same shape, but the end of the range is the end of the lens. There is
+        // nothing beyond it to widen into, so the advice has to be different.
+        java.util.List<Hunt.Reading> toTheStop = new java.util.ArrayList<>();
+        for (int i = 0; i < rising.length; i++) {
+            toTheStop.add(new Hunt.Reading(Geom.sweepStep(6f, 10.2f, i, rising.length), rising[i]));
+        }
+        Hunt.Verdict stop = Hunt.judge(toTheStop, 6f, 10.2f, 10.2f);
+        no("a peak at the lens stop is not an answer either", stop.chose());
+        yes("and it says to move the camera",
+                stop.reason.contains("move the camera back"));
+        no("it does not offer a range the lens cannot reach", stop.reason.contains("to="));
+    }
+
+    private static void aHuntWithNoReadings() {
+        Hunt.Verdict v = Hunt.judge(new java.util.ArrayList<>(), 0f, 10.2f, 10.2f);
+        no("no readings is not an answer", v.chose());
+        eq("an empty curve is a flat one", 1, Hunt.FLAT.equals(v.refusal) ? 1 : 0);
     }
 
     // -------------------------------------------------------- the access key

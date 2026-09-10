@@ -66,7 +66,18 @@ img=$(deskcam snap zoom=5)
 shadow. Turn it off after with `torch=0`.
 
 If focus is wrong, `deskcam af` runs one autofocus sweep, or set the distance yourself in
-metres with `focusm`.
+metres with `focusm`. When you want a number rather than a claim, `deskcam focus hunt`
+walks the lens on the phone, prints the curve it measured, and leaves the lens at the
+peak. Fix the exposure first, or it climbs the auto-exposure loop instead of the lens:
+
+```sh
+deskcam set exposure=1/33 iso=200 && deskcam focus hunt
+```
+
+It exits non-zero, and puts the focus back, when there is no peak in the range: either the
+curve was flat, so nothing in the crop came into focus anywhere, or the peak was at an end
+of the range and the real one is outside it. That refusal is the reason to use it over
+`deskcam af`, which reports `focused` with nothing behind it.
 
 ## Photographing a display
 
@@ -118,7 +129,8 @@ that frame.
 | Linear sensor data | `deskcam raw -o x.dng` | 10-bit, unprocessed, for real measurement. 24 MB. |
 | Less noise | `deskcam burst 16` | Average the frames. Noise falls by about the square root of the count. |
 | Repeat an old shot | `deskcam recall old.json` | Restores the camera settings, so a comparison is valid. |
-| Find the best focus | `deskcam show sharpness=1` | A number, not a picture. Move the focus, read it again, keep the peak. |
+| Find the best focus | `deskcam focus hunt` | The phone walks the lens and stops at the peak. One request, no frames over the network, and it refuses when there is no peak. |
+| Read the sharpness once | `deskcam show sharpness=1` | A number, not a picture. The hunt above is this in a loop on the phone. |
 | Everything sharp at once | `deskcam focussweep from=3 to=6 steps=7` | A still at each lens position, for stacking. Steps are equal in dioptres. |
 | A lit panel in a dark bezel | `deskcam bracket base=1/240 stops=4` | Doubling exposures, each a whole multiple of the panel's PWM period. |
 
@@ -211,6 +223,9 @@ claim about the settings and never about the bench.
 **Sharpness is a comparison, never a measurement.** It moves with the subject, with how
 much of the frame the region of interest holds, and with the noise. Only compare readings
 taken with everything but the focus held still, and check the age the reading comes with.
+Twelve hunts of one subject on this bench agreed about the lens position and gave peak
+values from 34.9 to 64.5, so take the `diopters` a hunt returns and never carry its
+`sharpness` to another hunt.
 
 **Merge a bracket on the measured exposure, never on the nominal stop.** The sensor does
 not deliver exactly what it was asked for. Every frame records `exposure_ns`,

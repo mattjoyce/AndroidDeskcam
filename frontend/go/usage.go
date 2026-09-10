@@ -13,7 +13,8 @@ func usage() {
   deskcam focussweep [-o DIR] [from=D to=D steps=N]
                                        walk the lens and keep a still at each step, for
                                        focus stacking. The steps are equal in dioptres,
-                                       which is equal in depth of field
+                                       which is equal in depth of field. To find one
+                                       sharpest position instead, see deskcam focus hunt
   deskcam walk vary=NAME values=A,B,C  one still at each value, e.g. vary=torch
                                        values=0,10,20,45. You supply the values; the two
                                        axes with a step rule of their own are below
@@ -54,6 +55,11 @@ func usage() {
   deskcam center                       recentre
   deskcam af                           one autofocus sweep
   deskcam focus METRES|auto            manual focus distance
+  deskcam focus hunt [from=D to=D]     walk the lens on the phone, print the curve, and
+                                       leave it at the sharpest position. Fix the exposure
+                                       first, or the hunt climbs the exposure loop. Exits
+                                       non-zero, and puts the focus back, when the curve
+                                       has no peak in the range
   deskcam exposure VALUE               1/120, 8ms, 250us, 0.5s
   deskcam iso N                        manual sensitivity
   deskcam auto                         back to auto exposure and focus

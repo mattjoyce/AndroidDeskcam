@@ -48,6 +48,17 @@ public class WebUi {
                 + "walk.json, which records the lens position asked for and reached at every "
                 + "frame. For focus stacking. The largest steps this device can hold is "
                 + "limits.burst_max.");
+        ep.put("GET /api/focushunt", "Walks the lens between from= and to= diopters, "
+                + "reads the sharpness of a frame at every position, and leaves the lens at "
+                + "the peak. Answers the chosen position, its sharpness, and the whole "
+                + "curve. No frame crosses the network. A coarse pass over the range then a "
+                + "fine one around its best: coarse=9 and fine=5 by default. It refuses "
+                + "rather than choosing when the curve is flat, which means nothing came "
+                + "into focus anywhere in the range, or when the peak is at an end of the "
+                + "range, which means the peak is outside it; both answer ok:false with the "
+                + "reason and the curve, and put the focus back. Fix exposure= and iso= "
+                + "first: with ae=auto the exposure moves between readings and the hunt "
+                + "climbs the exposure loop instead of the lens.");
         ep.put("GET /api/walk", "One still at each of the values given, as a tar: "
                 + "vary=NAME&values=A,B,C. Only camera state can be walked. This endpoint "
                 + "knows no step rule and invents no values, which is why the two axes "

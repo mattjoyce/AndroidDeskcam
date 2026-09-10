@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -359,4 +360,79 @@ func TestABurstArchiveCannotWriteOutsideItsDirectory(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "escaped.jpg")); err != nil {
 		t.Fatal("the member should have landed inside the burst directory")
 	}
+}
+
+// A hunt that found nothing has to exit non-zero.
+//
+// The whole point of the endpoint over /api/af is that it can say there was no peak, and
+// a shell script that runs `deskcam focus hunt && deskcam snap` has to hear that. Card 56.
+func TestAHuntThatRefusesExitsNonZero(t *testing.T) {
+	answers := map[string]string{
+		"chose": `{"ok":true,"diopters":3.827,"focus_metres_approx":0.261,
+			"sharpness":64.38,"contrast":0.959,"readings":14,"millis":4021,
+			"coarse_readings":1,"walked":[{"diopters":0,"sharpness":3.4},
+			{"diopters":3.827,"sharpness":64.38}]}`,
+		"flat": `{"ok":false,"refused":"flat","reason":"the sharpness moved by 0%",
+			"diopters":0,"sharpness":4.1,"contrast":0.02,"readings":9,"millis":2600,
+			"coarse_readings":9,"walked":[{"diopters":0,"sharpness":4.1}]}`,
+	}
+	for _, shape := range []string{"chose", "flat"} {
+		body := answers[shape]
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/focushunt" {
+				t.Errorf("a hunt should go to /api/focushunt, went to %s", r.URL.Path)
+			}
+			_, _ = fmt.Fprint(w, body)
+		}))
+
+		cfg := Config{URL: server.URL, Shots: t.TempDir(), Timeout: defaultTestTimeout}
+		in := &invocation{command: "focus", args: []string{"hunt"}, cfg: cfg,
+			client: NewClient(cfg)}
+		printed, code := captureStdout(t, func() int { return focusHunt(in) })
+		server.Close()
+
+		switch shape {
+		case "chose":
+			if code != 0 {
+				t.Errorf("a hunt that chose should exit 0, got %d", code)
+			}
+			for _, want := range []string{"chosen 3.827 d", "about 261 mm", "sharpness 64.38",
+				"contrast 0.959", "14 readings in 4.0 s", "the fine pass"} {
+				if !strings.Contains(printed, want) {
+					t.Errorf("a hunt should print %q, got:\n%s", want, printed)
+				}
+			}
+			// The curve is the evidence, so it is drawn and not summarised away.
+			if !strings.Contains(printed, "3.827 d") || !strings.Contains(printed, "#") {
+				t.Errorf("a hunt should draw the curve it walked, got:\n%s", printed)
+			}
+		case "flat":
+			if code == 0 {
+				t.Error("a hunt that refused must not exit 0")
+			}
+			// The curve still goes to stdout: a refusal is an answer with evidence.
+			if !strings.Contains(printed, "0.000 d") {
+				t.Errorf("a refusal should still draw the curve, got:\n%s", printed)
+			}
+		}
+	}
+}
+
+// captureStdout runs f with stdout on a pipe and gives back what it wrote.
+func captureStdout(t *testing.T, f func() int) (string, int) {
+	t.Helper()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	was := os.Stdout
+	os.Stdout = write
+	code := f()
+	os.Stdout = was
+	_ = write.Close()
+	out, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out), code
 }

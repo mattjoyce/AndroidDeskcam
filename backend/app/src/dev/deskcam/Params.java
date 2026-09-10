@@ -217,12 +217,20 @@ public final class Params {
                 + "the sharpness it reports describes now rather than the last frame "
                 + "anything asked for. Costs one frame, and takes fresh and timeout. "
                 + "Card 9.", "sharpness");
-        router("/api/focussweep: the focus of the first frame, in diopters. Defaults to 0, "
-                + "which is as far away as the lens goes.", "from");
-        router("/api/focussweep: the focus of the last frame, in diopters. Defaults to the "
-                + "closest the lens focuses, from min_focus_diopters in limits.", "to");
+        router("/api/focussweep and /api/focushunt: the focus of the first frame, or the "
+                + "far end of the range to hunt, in diopters. Defaults to 0, which is as "
+                + "far away as the lens goes.", "from");
+        router("/api/focussweep and /api/focushunt: the focus of the last frame, or the "
+                + "near end of the range to hunt, in diopters. Defaults to the closest the "
+                + "lens focuses, from min_focus_diopters in limits.", "to");
         router("/api/focussweep: how many frames, spread equally in diopters. 2..burst_max.",
                 "steps");
+        router("/api/focushunt: how many readings in the pass over the whole range, 3..30. "
+                + "Defaults to 9. This pass finds which part of the range holds the peak.",
+                "coarse");
+        router("/api/focushunt: how many readings in the pass around the best of the coarse "
+                + "one, 0..30. Defaults to 5. fine=0 skips it and answers with the coarse "
+                + "peak.", "fine");
         router("/api/bracket: the shortest exposure, and the period every other frame is a "
                 + "whole multiple of. Set it to one period of the panel's PWM, e.g. 1/240. "
                 + "Defaults to 1/240.", "base");

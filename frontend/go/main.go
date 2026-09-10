@@ -175,7 +175,10 @@ func run(argv []string) int {
 		return printSummary(in, "/api/af", in.query)
 	case "focus":
 		if in.arg(0) == "" {
-			return fail("usage: deskcam focus METRES|auto")
+			return fail("usage: deskcam focus METRES|auto|hunt")
+		}
+		if in.arg(0) == "hunt" {
+			return focusHunt(in)
 		}
 		if in.arg(0) == "auto" {
 			return printSummary(in, "/api/set", in.with("af=continuous&focus=auto"))
@@ -731,6 +734,101 @@ func measureCommand(in *invocation) int {
 			"  the points are pixels of that capture, from its top left corner")
 	}
 	return runAnalysis(append([]string{"distance"}, in.args...))
+}
+
+// ---------------------------------------------------------------- the hunt
+
+// focusHunt asks the phone to walk the lens and stop at the sharpest position.
+//
+// The whole loop runs on the phone, so this is one request however many readings it
+// takes. What comes back is the curve as well as the answer, and the curve is printed,
+// because a peak worth trusting looks like a peak and this is the only place a person can
+// see that. Card 56.
+func focusHunt(in *invocation) int {
+	// A hunt is a walk with a settle at every step, so it outlives the ordinary
+	// per-request budget for the same reason a sweep does.
+	client := in.client
+	if os.Getenv("DESKCAM_TIMEOUT") == "" {
+		hunting := in.cfg
+		hunting.Timeout = 5 * time.Minute
+		client = NewClient(hunting)
+	}
+	answer, err := client.GetJSON("/api/focushunt", in.query)
+	if err != nil {
+		return failWith(err)
+	}
+	printCurve(answer)
+
+	if warning := str(answer, "warning"); warning != "" {
+		fmt.Fprintln(os.Stderr, "deskcam: "+warning)
+	}
+	if !flag(answer, "ok") {
+		// A refusal is an answer, and the curve above is the evidence for it. It exits
+		// non-zero because a script that carries on as though the focus were set is
+		// exactly what this endpoint exists to prevent.
+		fmt.Fprintf(os.Stderr, "deskcam: no focus chosen (%s): %s\n",
+			str(answer, "refused"), str(answer, "reason"))
+		return 1
+	}
+
+	line := fmt.Sprintf("chosen %s d", str(answer, "diopters"))
+	if metres, ok := num(answer, "focus_metres_approx"); ok {
+		line += fmt.Sprintf(" (about %.0f mm)", metres*1000)
+	}
+	line += fmt.Sprintf(", sharpness %s, contrast %s", str(answer, "sharpness"),
+		str(answer, "contrast"))
+	if ms, ok := num(answer, "millis"); ok {
+		line += fmt.Sprintf(", %s readings in %.1f s", str(answer, "readings"), ms/1000)
+	}
+	fmt.Println(line)
+	return 0
+}
+
+// printCurve draws what the lens saw, one row per reading, in the order they were taken.
+//
+// A bar chart in a terminal is not decoration here. Both refusals this endpoint can
+// return are shapes of curve, and a shape is the one thing a column of numbers hides.
+func printCurve(answer map[string]any) {
+	walked, _ := answer["walked"].([]any)
+	if len(walked) == 0 {
+		return
+	}
+	highest := 0.0
+	for _, row := range walked {
+		if v, ok := num(element(row), "sharpness"); ok && v > highest {
+			highest = v
+		}
+	}
+	// The two passes are one list, and the second one walks back down the range, so a
+	// reader who is not told where it starts sees a curve that doubles back on itself.
+	fine, _ := num(answer, "coarse_readings")
+	best, _ := num(answer, "sharpness")
+	for i, row := range walked {
+		if fine > 0 && i == int(fine) {
+			fmt.Println("  the fine pass, around the best of the coarse one")
+		}
+		reading := element(row)
+		value, _ := num(reading, "sharpness")
+		at, _ := num(reading, "diopters")
+		bars := 0
+		if highest > 0 {
+			bars = int(math.Round(value / highest * curveWidth))
+		}
+		mark := ""
+		if value == best && best > 0 {
+			mark = " <-"
+		}
+		fmt.Printf("  %6.3f d %9.1f  %s%s\n", at, value, strings.Repeat("#", bars), mark)
+	}
+}
+
+// The widest bar, in characters. Forty leaves the numbers room inside eighty columns.
+const curveWidth = 40
+
+// element is sub() for a value that arrived as a member of a JSON array.
+func element(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
 }
 
 // -------------------------------------------------------------------- output
