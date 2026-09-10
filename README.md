@@ -112,21 +112,25 @@ a foreground service of type `camera` has to be a Java class. See card 53.
 ## Installation
 
 ```sh
+cd frontend/go && go build -o deskcam . && cd ../..
 adb install -r -g backend/build/deskcam.apk   # -g gives the permissions immediately
-./frontend/deskcam start                      # or open the app and touch Start
-./frontend/deskcam wifi                       # find the Wi-Fi address of the phone
-./frontend/deskcam show
+./frontend/go/deskcam start                   # or open the app and touch Start
+./frontend/go/deskcam wifi                    # find the Wi-Fi address of the phone
+./frontend/go/deskcam show
 ```
 
 The `-g` option is important. Without it you must give the camera permission and the local
 network permission by hand.
 
-Put `frontend/deskcam` on your `PATH`. For an agent, link the skill as well:
+Put the binary on your `PATH`. For an agent, link the skill as well:
 
 ```sh
-ln -s "$PWD/frontend/deskcam" ~/.local/bin/deskcam
+ln -s "$PWD/frontend/go/deskcam" ~/.local/bin/deskcam
 ln -s "$PWD/skill" ~/.claude/skills/deskcam
 ```
+
+Nothing else is needed. One file, no runtime. Measuring what is in a picture is the one
+thing that asks for more: `pip install -e '.[analysis]'`.
  The CLI stores the target in
 `~/.config/deskcam/url`. The variable `DESKCAM_URL` replaces the stored value.
 

@@ -3,13 +3,13 @@
 [project]
 name = "deskcam-frontend"
 version = "0.1.0"
-description = "Workstation console and CLI for the DeskCam bench camera"
+description = "Measurement tools for the DeskCam bench camera"
 requires-python = ">=3.11"
-dependencies = ["segno"]   # pillow dropped: the phone makes the thumbnails
+dependencies = []          # the binary needs no runtime; measuring needs [analysis]
 
 [project.optional-dependencies]
 # Measuring what is in a picture needs array maths; taking one does not. Kept out of the
-# base install so the CLI and the console stay light, and so the boundary between
+# base install so the binary stays free of it, and so the boundary between
 # transport and measurement is visible in the packaging as well as in the code.
 analysis = ["numpy>=1.24", "pillow>=10"]
 
@@ -28,8 +28,8 @@ quote-style = "double"
 ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
-# segno ships no stubs. It is the one dependency and it is used in three lines.
-module = ["segno"]
+# numpy and pillow ship stubs; these do not.
+module = ["PIL.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

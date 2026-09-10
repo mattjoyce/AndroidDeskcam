@@ -64,7 +64,7 @@ crosses it. You can rewrite one half and not touch the other half.
   WORKSTATION (frontend)                 |   PHONE (backend)
                                          |
   Claude Code ──┐                        |
-                ├─→ frontend/deskcam ──┐ |
+                ├─→ deskcam, one file ─┐ |
   person shell ─┘                      │ |
                                        ├─┼──→ HTTP :8080 ──→ HttpServer
   browser ─────────────────────────────┘ |                      │
@@ -326,8 +326,10 @@ numerical work.
 
 ### 5.2 The CLI
 
-The CLI is `frontend/deskcam`. It finds the target in this order: the `--url` option, then
-`$DESKCAM_URL`, then `~/.config/deskcam/url`, then localhost.
+The CLI is one static Go binary, built from `frontend/go/`. It finds the target in this
+order: the `--url` option, then `$DESKCAM_URL`, then `~/.config/deskcam/url`, then
+localhost. Taking a photograph needs no runtime behind it; measuring what is in one needs
+`pip install -e '.[analysis]'`, and the binary says so when a tool is missing. Decision D13.
 
 These commands map to the contract: `snap`, `frame`, `stream`, `status`, `show`, `set`,
 `reset`, `zoom`, `pan`, `center`, `af`, `focus`, `exposure`, `iso`, `auto`, `torch`,
@@ -465,6 +467,30 @@ for an average of six frames, which is above the square root of six and therefor
 impossible, and it reported maximum confidence while doing so, because its interval was
 tight and its estimator was biased. Precision is not correctness, so the gate also knows
 the physical bound.
+
+**D13. One static binary on the workstation, Java on the phone, Python for the maths.**
+Three languages, and each one is there for a reason that cannot be argued away by taste.
+
+The workstation half was a Bash script that shelled out to `python3` five times for JSON,
+so Python was required for every operation including taking a photograph, plus a Python
+console with its own dependency for QR codes. It is one Go binary now: drop a file on the
+PATH and a photograph needs no runtime at all.
+
+The phone stays Java because four framework classes do the load-bearing work and none has
+an NDK equivalent. `DngCreator` writes the DNG with the sensor calibration matrices out of
+the capture result, which is the whole RAW story. `BitmapRegionDecoder` decodes only the
+requested tile, which is why a deep zoom costs less than a shallow one. `ExifInterface` and
+`YuvImage` are the same argument, smaller. Underneath that, camera access is granted per
+app UID, so a binary run from `adb shell` cannot open the camera at all, and a foreground
+service of type `camera` must be a Java `Service`.
+
+`frontend/analysis/` stays Python because it is array maths over image data, which is
+NumPy's job. In Go that means cgo bindings to OpenCV, so the C toolchain comes back and
+nothing is gained. The seam holds because the two halves talk through files: a directory of
+captures and their sidecars, with no database to keep in step.
+
+The cost of the split is one boundary, and it is drawn where the work changes kind rather
+than where the languages happen to differ. Card 53.
 
 ## 7. Non-goals
 

@@ -18,17 +18,17 @@ run() { echo ">> $*"; "$@"; }
 
 run "$BIN/ruff" check frontend/
 run "$BIN/ruff" format --check frontend/
-run "$BIN/mypy" frontend/console.py frontend/analysis frontend/test_console.py \
-    frontend/test_contract.py frontend/test_analysis.py
+run "$BIN/mypy" frontend/analysis frontend/test_contract.py frontend/test_analysis.py
 
 # bandit reads the shipped module. Test files are excluded because B101 fires on every
 # assert, which is what a test is made of.
-run "$BIN/bandit" -q -r frontend/console.py frontend/analysis
+run "$BIN/bandit" -q -r frontend/analysis
 
 run "$PY" -m pytest frontend/ -q
 
-# The Go half: the CLI and the console. Skipped rather than failed when there is no
-# toolchain, because the Python tools have to stay runnable on a machine without one.
+# The Go half: the CLI and the console, which is now the whole workstation tool. Skipped
+# rather than failed when there is no toolchain, because the measurement tools have to
+# stay runnable on a machine without one.
 if command -v go >/dev/null 2>&1; then
     echo ">> go (frontend/go)"
     (

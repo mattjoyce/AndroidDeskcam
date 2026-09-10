@@ -656,3 +656,112 @@ func TestThePageCarriesNoSecretAndNoCameraParameterInItsStream(t *testing.T) {
 		t.Fatal("the stream URL must not carry a camera parameter")
 	}
 }
+
+// ------------------------------------------- ported from the Python console
+
+// These eight came across when console.py was deleted in the card 53 cutover. Each one
+// held a property the Go suite did not, and a property nobody tests is a property that
+// stops being true.
+
+func TestACodeIsValidJustInsideItsLife(t *testing.T) {
+	// The other side of TestACodeDiesOfOldAge. A boundary needs both of its sides, or a
+	// comparison that is off by one only fails in the direction nobody checked.
+	state, _, _ := testConsole(t)
+	state.nonceBorn = time.Now().Add(-nonceTTL + time.Second)
+	if !state.spendNonce(state.nonce) {
+		t.Fatal("a code one second short of its life must still pair")
+	}
+}
+
+func TestTheOperatorsOwnBrowserStillGetsEverything(t *testing.T) {
+	// The counterpart to TestOnlyPairingIsOfferedToTheNetwork. Refusing the network is
+	// only correct if the machine it runs on is still served, and a rule that refuses
+	// everything passes the other test perfectly.
+	_, server, shots := testConsole(t)
+	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
+	for _, path := range []string{
+		"/", "/qr.svg", "/api/state", "/api/roll",
+		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg",
+	} {
+		if code, _ := get(t, server, path); code != http.StatusOK {
+			t.Errorf("the operator's own browser should get %s, got %d", path, code)
+		}
+	}
+}
+
+func TestAnUnknownPathIsA404(t *testing.T) {
+	_, server, _ := testConsole(t)
+	if code, _ := get(t, server, "/nope"); code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", code)
+	}
+}
+
+func TestTheRollHonoursItsLimit(t *testing.T) {
+	_, _, shots := testConsole(t)
+	for i := 0; i < 5; i++ {
+		writeCapture(t, shots, fmt.Sprintf("shot%d.jpg", i), map[string]any{"zoom": 1.0})
+		time.Sleep(2 * time.Millisecond) // so newest-first has something to sort on
+	}
+	if got := len(roll(shots, 3)); got != 3 {
+		t.Fatalf("a limit of 3 returned %d captures", got)
+	}
+}
+
+func TestTheRollSurvivesACaptureWithNoSidecar(t *testing.T) {
+	// A capture with no record of how it was taken is still a capture. Dropping it would
+	// hide the file from the only page that lists it.
+	_, _, shots := testConsole(t)
+	if err := os.WriteFile(filepath.Join(shots, "lonely.jpg"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	items := roll(shots, 60)
+	if len(items) != 1 || items[0].Name != "lonely.jpg" {
+		t.Fatalf("a capture with no sidecar must still be listed, got %v", items)
+	}
+	if items[0].Summary != "" {
+		t.Errorf("and it must not invent a summary, got %q", items[0].Summary)
+	}
+}
+
+func TestASavedAddressThatIsNotAnAddressIsIgnored(t *testing.T) {
+	// A file on disk is not a trusted input. Everything downstream builds a URL out of
+	// this, and the console sends the access key to whatever it names.
+	for _, tc := range []struct{ saved, want string }{
+		{"file:///etc/passwd", ""},
+		{"http://evil.example.com:8080", ""},
+		{"http://192.168.86.120:8080", "http://192.168.86.120:8080"},
+	} {
+		dir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+		if err := writeConfig(urlFile(), tc.saved); err != nil {
+			t.Fatal(err)
+		}
+		state, err := newConsoleState(Config{Shots: dir}, 9999)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.phone != tc.want {
+			t.Errorf("saved %q became phone %q, want %q", tc.saved, state.phone, tc.want)
+		}
+	}
+}
+
+func TestAMissingConfigIsNotAnError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "nothing"))
+	state, err := newConsoleState(Config{Shots: dir}, 9999)
+	if err != nil {
+		t.Fatalf("a first run has no config and that is not a fault: %v", err)
+	}
+	if state.phone != "" || state.currentToken() != "" {
+		t.Fatal("a first run knows no phone and holds no key")
+	}
+}
+
+func TestProbingAnAddressWithNothingOnIt(t *testing.T) {
+	// Port 9 is discard. Nothing on this machine answers HTTP there, so this is the
+	// dial-failure path rather than the not-an-address path above it.
+	if probePhone("127.0.0.1", 9, "", time.Second) != nil {
+		t.Fatal("a port with nothing on it is not a phone")
+	}
+}
