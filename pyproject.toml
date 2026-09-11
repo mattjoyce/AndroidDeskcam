@@ -1,5 +1,5 @@
 # Quality gates for the workstation half. The phone half is Java and is not covered here.
-# Settings follow "Agent Coding Standards - Python" in the vault.
+# ruff, mypy and bandit settings, as run by frontend/check.sh.
 [project]
 name = "deskcam-frontend"
 version = "0.1.0"

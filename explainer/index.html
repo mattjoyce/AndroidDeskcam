@@ -275,7 +275,7 @@ echo "Captured inspection image at: $img"
 
         <h3>Prerequisites</h3>
         <ul>
-          <li>Any Android device supporting Camera2 API (Android 10+; optimized for Pixel 6a on GrapheneOS / Android 17).</li>
+          <li>Any Android device supporting Camera2 API (Android 13+, minSdk 33; optimized for Pixel 6a on GrapheneOS / Android 17).</li>
           <li>Workstation running Linux or macOS with Go and Android SDK build-tools installed.</li>
           <li>USB-C cable (for adb) or shared Wi-Fi subnet.</li>
         </ul>
@@ -461,7 +461,7 @@ deskcam analyse stack sweep/</code></pre>
           The phone runtime is built from scratch without standard Android app bloat:
         </p>
         <ul>
-          <li><code>HttpServer.java</code> (~400 lines): A lean, multithreaded HTTP/1.1 server running on a raw <code>ServerSocket</code>. It handles keep-alive connections, serves MJPEG multipart streams, and dynamically formats USTAR tar archives in memory.</li>
+          <li><code>HttpServer.java</code> (about 1,340 lines, most of it the endpoints): A lean, multithreaded HTTP/1.1 server running on a raw <code>ServerSocket</code>. It closes the connection after every response, serves MJPEG multipart streams, and dynamically formats USTAR tar archives in memory.</li>
           <li><code>CameraEngine.java</code>: Controls the Camera2 hardware capture session. It coordinates two pipelines: a repeating preview stream (YUV_420_888 &rarr; NV21) and on-demand full-resolution still captures.</li>
           <li><code>TotalCaptureResult</code> Correlation (Decision D8): Every frame request is paired with its hardware capture result using the sensor's hardware timestamp clock, guaranteeing that EXIF metadata and sidecars reflect the true physical capture.</li>
         </ul>
@@ -995,7 +995,7 @@ SNAP</textarea>
               <span style="font-family:var(--font-mono); font-size:0.72rem;">Toolchain</span>
             </div>
             <div class="card-title">The Backend Has No Dependencies</div>
-            <div class="card-desc">This is what makes a build without Gradle possible, repeatable in seconds from a shell. A hand-written HTTP server is about 400 lines and gives direct control of the MJPEG parts.</div>
+            <div class="card-desc">This is what makes a build without Gradle possible, repeatable in seconds from a shell. A hand-written HTTP server gives direct control of the MJPEG parts.</div>
           </div>
 
           <div class="info-card">

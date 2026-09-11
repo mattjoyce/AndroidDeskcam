@@ -17,6 +17,9 @@ The rules are `R1` to `R8` and the decisions are `D1` to `D17`. Both are referre
 number throughout the repository, in the code comments, in the kanban cards and in the
 commit messages, so the numbers are stable and are never reused.
 
+The kanban cards those comments cite are a private board and are not in this repository.
+Where a comment cites a card, the comment beside it carries the reasoning.
+
 *(Previously `docs/SPEC.md`. The full prior document, including the reference sections, is
 in git history.)*
 
@@ -37,7 +40,7 @@ This one assumption gives eight rules. The current build obeys all eight.
 | R5 | An unknown parameter is an error. It is not ignored. | A spelling mistake fails immediately. It does not give a wrong image. |
 | R6 | The API describes itself at `/api/help` | The agent learns the API. It does not read this repository. |
 | R7 | Units are the units in a datasheet (`1/120`, `8ms`, `250us`, `0.12`) | The agent does no unit conversion. |
-| R8 | All operations are idempotent | A second attempt is always safe. |
+| R8 | Setting a value is idempotent; the relative moves `dx`, `dy`, `zoomby` are not | A second attempt is always safe, except a relative move, which moves again. |
 
 R3 controls the shape of the API more than the other rules. This command is complete:
 
@@ -227,7 +230,7 @@ The plan for it remains Python with OpenCV, rawpy and NumPy.
 necessary. It is also better, because it keeps true sensor pixels. Refer to the hardware facts above.
 
 **D2. The backend has no dependencies.** This makes the build without Gradle possible. The
-build is then repeatable in seconds from a shell. A written HTTP server is about 400 lines.
+build is then repeatable in seconds from a shell. A written HTTP server was about 400 lines when this was decided; `HttpServer.java` is 1,340 today, most of it the endpoints.
 It gives direct control of the MJPEG parts.
 
 **D3. All operations are GET.** This does not agree with REST. It is correct here. The
@@ -498,7 +501,8 @@ the LAN.
 **No image processing on the device**, except crop, rotate, and resize. Refer to the split
 split rule.
 
-**No automatic start after a reboot.** The platform prevents it. Refer to the platform facts above.
+**No automatic start after a reboot.** The platform prevents it. `BootReceiver` still makes the
+attempt when the autostart box is ticked, and the platform refuses it. Refer to the platform facts above.
 
 **No photographic features.** No portrait mode. No scene modes. No tone maps for a display.
 These features damage a measurement.

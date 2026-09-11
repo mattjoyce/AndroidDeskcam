@@ -21,11 +21,11 @@ What you are trusting when you run this, and where to check each claim:
 * **Zero Gradle, Zero Android Studio, Zero AGP**: The phone app compiles directly with Android SDK build tools (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`) in under 5 seconds. No Gradle daemon, no downloading unknown Maven plugins or transitive dependencies.
 * **One Go Dependency**: The workstation CLI compiles to a single static binary. Its only module outside the standard library is `rsc.io/qr` v0.2.0, for the pairing QR code, pinned in `go.sum`.
 * **Zero Cloud Calls or Telemetry**: Nothing in this repository contacts the internet. The Android app talks only to your LAN or to an `adb forward` USB loopback; the CLI talks only to the phone; the explainer page loads no remote fonts or scripts.
-* **Stateless & Contract-Tested**: The HTTP interface is the single, clean seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) holds the parameter tables, endpoint lists, CLI reference, and enum values in these documents equal to the code they describe.
+* **One HTTP Seam, Contract-Tested**: The HTTP interface is the only seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) holds the parameter tables, endpoint lists, CLI reference, and enum values in these documents equal to the code they describe. It reads the source as text; `frontend/surface.py` is the check against a running phone.
 
-**There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Require an Access Token](#require-an-access-token)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
+**There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network and to every app on the phone, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Require an Access Token](#require-an-access-token)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
 
-There is no signed release, checksum, or reproducible build. You build the APK yourself from source with the SDK tools listed below, and the build script signs it with a debug keystore it generates on first run.
+There is no signed release, checksum, or reproducible build. You build the APK yourself from source with the SDK tools listed below, and the build script signs it with a debug keystore it generates on first run. The keystore is `backend/deskcam.keystore`, gitignored, password `deskcam`. Keep it: `git clean -x` deletes it, and an APK signed with a new key will not install over the old one until you uninstall the app, which clears its settings.
 
 | Component | Runs On | Technology | Purpose |
 |---|---|---|---|
@@ -82,7 +82,7 @@ Set up DeskCam and capture your first bench image in under three minutes.
 
 ### Prerequisites
 
-* **Workstation**: Linux or macOS with Go 1.22+ and JDK 17+.
+* **Workstation**: Linux or macOS with Go 1.22+, JDK 17+, and `zip`.
 * **Android SDK**: `platforms/android-37.0` and `build-tools/37.0.0` (or set `$ANDROID_HOME`, `$PLATFORM`, and `$BT_VER`).
 * **Android Phone**: Pixel 6a (or Android 13+ device with Camera2 `LEVEL_FULL` support) connected via USB with USB debugging enabled.
 
@@ -98,6 +98,8 @@ cd frontend/go && go build -o deskcam . && cd ../..
 # 3. Put deskcam on your PATH (optional)
 mkdir -p ~/.local/bin && ln -sf "$PWD/frontend/go/deskcam" ~/.local/bin/deskcam
 ```
+
+Neither step needs a phone. `./backend/build.sh` runs the backend unit tests on the workstation JVM before it packages the APK, and `cd frontend/go && go test ./...` runs the CLI tests against a stub server.
 
 ### 2. Install and Start the App
 
@@ -136,9 +138,9 @@ Capture your first still image:
 deskcam snap
 ```
 
-The command saves the full-resolution still to disk and prints its absolute path:
+The command saves the full-resolution still and prints the path it wrote. Without `-o` the file goes in `DESKCAM_SHOTS`, or the current directory when that is unset:
 ```
-deskcam-20260911-061500.jpg
+/home/you/bench/deskcam-20260911-061500.jpg
 ```
 
 Beside the image, DeskCam creates `deskcam-20260911-061500.json`: the settings that were asked for, what the sensor measured for that frame (exposure, ISO, focus, white balance gains), what the image pipeline applied, and the phone's orientation. The same record is in the JPEG's EXIF `UserComment`.
@@ -158,7 +160,7 @@ DeskCam is designed from first principles as an instrument for autonomous coding
 5. **R5**: Unknown or malformed parameters are rejected immediately (HTTP 400).
 6. **R6**: The API describes its complete parameter surface at `/api/help`.
 7. **R7**: Physical units match engineering datasheets (`1/120`, `8ms`, `250us`, `0.12`).
-8. **R8**: All capture and inspection operations are idempotent.
+8. **R8**: Setting a value is idempotent: `zoom=4` sent twice leaves the camera where sending it once did. The relative moves `dx`, `dy`, `zoomby` and `deskcam pan` are the exception, because each one moves from where the camera is.
 
 Link the agent skill into Claude Code:
 
@@ -327,9 +329,13 @@ Connecting over USB via `deskcam usb` bypasses this mechanism entirely by tunnel
 
 By default the camera is open: any client on the network can control it and take captures. The token is for the days that is not acceptable:
 1. Run `deskcam token new` on the workstation to generate a secure random token stored at `~/.config/deskcam/token` (mode 0600).
-2. Start the workstation console via `deskcam open`. It generates a pairing QR code containing `deskcam://pair?cb=...`.
+2. Run `deskcam serve` and open `http://127.0.0.1:9000` on the workstation. The page shows a pairing QR code holding `deskcam://pair?cb=...&token=...`.
 3. Scan the QR code with the phone camera to pair the token with the Android service in real time, with no manual keyboard entry.
 4. Subsequent API calls require `?token=...` or an `Authorization: Bearer <token>` header.
+
+**Scan only a code your own console shows.** The phone applies a pairing link without asking: a link from anywhere else can change or clear the key and make the phone report its address to the link's callback.
+
+`deskcam serve` listens on port 9000 on every interface, because the phone has to reach it to finish pairing. Only that callback answers from off the machine. The page, the capture roll and the key answer on `127.0.0.1` alone.
 
 ---
 

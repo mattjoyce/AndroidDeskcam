@@ -23,7 +23,7 @@
     <!-- The pairing callback is a plain HTTP request to the workstation. Android blocks
          outbound cleartext by default from targetSdk 28, so the call fails with
          "Cleartext HTTP traffic not permitted". This whole tool is HTTP on a trusted LAN
-         by design; refer to the non-goals in docs/SPEC.md. -->
+         by design; refer to the non-goals in docs/DECISIONS.md. -->
     <application
         android:usesCleartextTraffic="true"
         android:label="DeskCam"
