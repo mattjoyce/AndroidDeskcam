@@ -466,9 +466,25 @@ silently focus somewhere other than where the caller said, and the caller has as
 camera to focus on something the capture will not contain, which is a mistake and not a
 preference.
 
-Measured on this bench, three hunts at an unchanged `zoom=1`: the whole frame peaked at
-20.92, a box on a detailed part at 47.33, and a box on a near-empty part at 0.70. The
-framing did not move between them.
+Measured on 2026-09-11, five hunts per region, interleaved, at an unchanged `zoom=1` with
+`exposure=1/33 iso=250` fixed so the hunt climbs the lens and not the exposure loop. The
+subject was a white disc carrying graph paper, a pen-hatched square, and a black watch:
+
+| Region measured | Peak sharpness, mean of 5 | Spread | Lens position chosen |
+|---|---|---|---|
+| The whole frame | 70.7 (95% 70.6 to 70.8) | 70.58 to 70.86 | 7.015 d four times, 7.653 d once |
+| A box on the hatched square | 435.7 (95% 433.8 to 437.7) | 433.7 to 438.0 | 7.653 d every time |
+| A box on plain white paper | 85.4 (95% 80.6 to 90.2) | 81.5 to 90.6 | 7.653 d every time |
+| A box on the black watch face | refused all five times as flat: the curve moved 15% to 22% across the range | 1.6 to 2.1 at every position | none |
+
+The box on the detail scores six times the whole frame, and the two intervals are far
+apart, so the difference is real and not hunt-to-hunt noise. Plain white paper is not
+empty at 30 micrometres per pixel: the hunt found the fibre and chose the same lens
+position as the hatched square. Only the glossy black face was flat enough to refuse, and
+that refusal is the contrast test of card 56 doing its job. The first version of this
+paragraph gave one hunt per region, 20.92, 47.33 and 0.70, against a known hunt-to-hunt
+spread of 34.9 to 64.5 on an unchanged subject, which made the first two numbers
+indistinguishable from noise. They are withdrawn.
 
 ## Non-goals
 
