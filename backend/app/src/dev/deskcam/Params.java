@@ -20,7 +20,7 @@ public final class Params {
 
     private Params() { }
 
-    /** Where a parameter takes effect. This is decision D9 in the specification. */
+    /** Where a parameter takes effect. This is decision D9. */
     public enum Kind {
         /** Camera state. Persists until something changes it again. */
         CAMERA,

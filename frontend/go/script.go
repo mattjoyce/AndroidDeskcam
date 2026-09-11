@@ -17,7 +17,7 @@ import (
 //
 // The answer is one multipart/mixed stream: a JSON event per step, and each capture's
 // pixels as the part after its own event. That shape is what keeps the phone free of
-// storage, which SPEC 4.1 says it has none of. The alternative, an events-only stream
+// storage, which the phone deliberately has none of. The alternative, an events-only stream
 // naming files on the phone, would have needed a working directory, a cleanup policy, a
 // listing endpoint and a download endpoint before the first script ran. Card 57.
 func scriptCommand(in *invocation) int {

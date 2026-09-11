@@ -1,28 +1,26 @@
-# DeskCam specification
+# DeskCam — decisions, and the reasoning behind them
 
-Status: retrospective. This document describes a system that exists and runs. It gives
-the reasons for the design. It defines the contract between the two halves.
+**This is not a specification.** It was one, and a specification for a thing that already
+exists is a second copy of the thing: the parts of the old document that described the
+surface went stale, and a review before the first public release found them stale in
+exactly the places a hand-written copy of generated output always goes stale. Those parts
+are gone. `/api/help` describes the surface, `deskcam help` describes the commands, and the
+code is the reference for both.
 
-Version 0.1. The target device is a Pixel 6a (`bluejay`). The device runs GrapheneOS,
-Android 17, API 37.
+What is left is the part neither the code nor `/api/help` can tell you: **why it is like
+this.** A decision, a measurement that forced it, a thing deliberately not built. Code
+records what was chosen. It cannot record what was rejected, or what was measured on a
+bench at a particular hour to settle an argument, and a reader who does not have those
+re-litigates every one of them.
 
-Language: ASD-STE100 Simplified Technical English.
+The rules are `R1` to `R8` and the decisions are `D1` to `D17`. Both are referred to by
+number throughout the repository, in the code comments, in the kanban cards and in the
+commit messages, so the numbers are stable and are never reused.
 
-## 1. Purpose
+*(Previously `docs/SPEC.md`. The full prior document, including the reference sections, is
+in git history.)*
 
-DeskCam makes a spare Android phone into an instrument for desk work. Three jobs control
-each decision in this document.
-
-1. OLED design work. The camera must report the light that the panel emits. It must not
-   report an image that looks good.
-2. Circuit debug work. The camera must show small parts. It must focus at a short
-   distance.
-3. General desk capture. The camera must be quick. It must need no set-up steps.
-
-The camera is first an instrument. It is second a camera. If the two aims disagree, the
-instrument aim wins.
-
-## 2. Primary consumer
+## The primary consumer, and the eight rules it gives
 
 **The primary consumer is Claude Code. The primary consumer is not a person.** A person
 who uses the browser panel is a secondary consumer. That case must continue to work. The
@@ -55,45 +53,7 @@ come from the `TotalCaptureResult` of the sensor. A request for 1/60 comes back 
 ms at ISO 199. A requested value and a measured value are different things. The API gives
 both.
 
-## 3. Architecture
-
-The contract in section 4.5 is the only connection between the two halves. Nothing else
-crosses it. You can rewrite one half and not touch the other half.
-
-```
-  WORKSTATION (frontend)                 |   PHONE (backend)
-                                         |
-  Claude Code ──┐                        |
-                ├─→ deskcam, one file ─┐ |
-  person shell ─┘                      │ |
-                                       ├─┼──→ HTTP :8080 ──→ HttpServer
-  browser ─────────────────────────────┘ |                      │
-     ↑ (the backend sends the page)       |                     ↓
-                                         |                 CameraEngine
-  desktop processing (planned)           |                      │
-   stack / merge / rectify / compare     |                      ↓
-                                         |                  Camera2 HAL
-```
-
-**Split rule. The backend makes true pixels. The backend reports its own state. The
-frontend decides what to do with the pixels.**
-
-Work that needs more than one frame belongs on the workstation. Work that needs floating
-point maths belongs on the workstation. Work that needs a library belongs on the
-workstation. The workstation has the processor power and the software. The phone is a
-sensor with an HTTP socket.
-
-There is one intended exception. The browser panel is frontend code. It is inside the
-backend in `WebUi.java`. The backend sends it from `/`. This gives a human interface on
-any device on the network with no installation. The panel is a client of the same public
-contract. It gets no special access. Thus it does not break the split.
-
-## 4. Backend
-
-The backend runs on the phone. It is Java. It has no external dependencies. It does not
-use AndroidX. It does not use Gradle.
-
-### 4.1 Responsibilities
+## What the backend is responsible for
 
 The backend holds the camera device and the capture session. It applies the controls. It
 makes JPEG stills, preview frames, and an MJPEG stream. It reports the settings, the
@@ -116,27 +76,7 @@ comes back is the position chosen, the sharpness there, and the curve that found
 hunt is allowed to answer that there is no peak, and does so rather than name the largest
 reading it happened to see.
 
-### 4.2 Components
-
-| File | Responsibility |
-|---|---|
-| `CameraEngine.java` | The Camera2 device, the session, the images, and the status |
-| `CamSettings.java` | The control state, the ROI maths, the parameters, and the JSON |
-| `HttpServer.java` | HTTP/1.1 on a `ServerSocket`, the routes, and the MJPEG parts |
-| `WebUi.java` | The browser panel and the `/api/help` document |
-| `Sensors.java` | Gravity and ambient light, giving the angle between the optical axis and gravity, averaged over 32 samples |
-| `Sharp.java` | The variance of the Laplacian over a region, which is the sharpness of a frame as one number |
-| `Health.java` | What the device says about its own condition: the platform's thermal level, and the battery |
-| `Thermal.java` | How much a stream gives up at each thermal level, and what each level means |
-| `Hunt.java` | What a focus curve says: the peak, the contrast, and the two shapes that are a refusal |
-| `Tape.java` | Reads a script: the verbs, their parameters, and the refusals that cost nothing |
-| `Answer.java` | What an endpoint produced, before anything decides whether it is an HTTP response or a part of a script's stream |
-| `Tar.java` | A small USTAR writer, for a burst in one response |
-| `CamService.java` | The foreground service, the life cycle, the notice, and the address |
-| `MainActivity.java` | The permissions, start and stop, and the headless start |
-| `BootReceiver.java` | The restart attempt after a reboot. Refer to section 4.4. |
-
-### 4.3 Hardware facts that control the design
+## Hardware facts that control the design
 
 These values come from `dumpsys media.camera` on the target device.
 
@@ -177,7 +117,7 @@ empty result. Measure a flat field. Do not depend on the map.
 This is a general lesson for this device. A mode list says that a control is settable. It
 does not say that the result arrives.
 
-### 4.4 Platform facts
+## Platform facts
 
 Two Android 17 behaviours cost much debug time. This section records them. Do not find
 them again.
@@ -205,88 +145,7 @@ a reboot, use `deskcam start`. You can also touch the app one time.
 `SYSTEM_ALERT_WINDOW` would remove the activity launch limit. That permission is too wide.
 The app does not ask for it.
 
-### 4.5 The contract
-
-This is the connection between the halves. It is HTTP/1.1. All operations are GET. There
-is no session. There are no cookies. The server sends `Access-Control-Allow-Origin: *`.
-The server also accepts POST with a query string or a flat JSON body.
-
-| Endpoint | Result | Notes |
-|---|---|---|
-| `/api/status` | JSON | The settings, the limits, the geometry, the `measured` block, a `device` block for heat and battery, and a `sharpness` block when a preview frame has been converted. `sharpness=1` converts a fresh one first. |
-| `/api/still` | `image/jpeg` | Full resolution. Cropped to the ROI. |
-| `/api/raw` | `image/x-adobe-dng` | The full sensor array. The ROI does NOT apply. The header `X-DeskCam-ROI` gives the framing. |
-| `/api/burst` | `application/x-tar` | `n` frames with identical settings. The headers give the frame count, the time, and the rate. |
-| `/api/orientation` | JSON | The angle between the optical axis and gravity, averaged over 32 samples, and the ambient light. It equals the angle to a flat subject only on a level surface. |
-| `/api/shadingmap` | JSON | The lens shading map, if the device delivers one. Refer to section 4.3. |
-| `/api/frame` | `image/jpeg` | Preview resolution. Much quicker. |
-| `/api/stream` | `multipart/x-mixed-replace` | MJPEG. Use `fps` and `n`. Each part carries `X-DeskCam-Fps` and `X-DeskCam-Thermal`, and `X-DeskCam-Shedding` while the rate is below what was asked for. Refer to decision D15. |
-| `/api/set` | JSON | Apply the parameters. Give the result. |
-| `/api/reset` | JSON | Set all values to the default. |
-| `/api/af` | JSON | Do one autofocus sweep. |
-| `/api/walk` | `application/x-tar` | One still at each of `values`, walking the camera parameter named by `vary`. Only camera state can be walked. No step rule is implied: the caller gives the values. |
-| `/api/bracket` | `application/x-tar` | `stops` stills at doubling exposures from `base`, so every frame is one stop apart and a whole multiple of the base period. The archive holds `walk.json`, which records the exposure asked for and reached at every frame. |
-| `/api/focussweep` | `application/x-tar` | `steps` stills as the lens walks from `from` to `to`, spread equally in dioptres. The archive holds `walk.json`, which records the lens position asked for and reached at every frame. |
-| `POST /api/script` | `multipart/mixed` | A tape of verbs, one per line, run as one operation. One JSON event per step, each capture's pixels following its own event as the next part. The phone stores nothing. A script holds the camera: a second script, or any request that would change the camera, is refused with 409 while one runs. Refer to decision D14. |
-| `/api/focushunt` | JSON | Walks the lens between `from` and `to`, measures the sharpness of a frame at each position, and stops at the peak. A coarse pass of `coarse` readings over the range, then a fine pass of `fine` around the best of it. No frame crosses the network. It answers the chosen position, the peak, and the whole curve. It refuses, with `ok: false`, when the curve is flat or its peak is at an end of the range, and then puts the focus back. Refer to section 4.1. |
-| `/api/cameras` | JSON | List the cameras and the capabilities. |
-| `/api/help` | JSON | The self description. Refer to R6. |
-| `/api/nettest` | JSON | An outbound test. It finds the fault in section 4.4. It connects only to the address the request came from. |
-| `/` | `text/html` | The browser panel |
-
-Rule R3 applies to each endpoint. The server applies the control parameters before it
-makes the image. `/api/stream` is the one exception, and it is decision D10.
-
-`/api/burst` answers **206 Partial Content**, not 200, when it produced fewer frames than
-were asked for. The headers `X-DeskCam-Frames` and `X-DeskCam-Frames-Requested` give both
-numbers. Each capture endpoint also returns `X-DeskCam-Provenance`, which holds the record
-of that frame as JSON, so a client never has to ask a second question about a picture it
-already has.
-
-**A change meant to alter nothing is checked, not asserted.** `frontend/surface.py` asks a
-running phone for every endpoint in this table, refusals included, and compares two
-recordings: the status line, the header names, and the type of every field of every JSON
-body. Not the values, because two captures of one scene differ in every byte. It fixes the
-camera state before recording, since several fields are present only in some states, and
-it refuses to pass while `/api/help` advertises an endpoint it does not visit. Run it
-across any refactor of the router or the handlers. It was written for the one in D14.
-
-**The parameters live in one place.** `Params.java` declares every name, its group, and
-its help text. The parser reads that list and `/api/help` is printed from it, so this
-document and the README describe it rather than repeat it. `deskcam api` prints the
-current list; if it disagrees with anything written here, it is right and this is stale.
-
-The groups are decision D9:
-
-| Group | Parameters | Life |
-|---|---|---|
-| Camera state | `camera` (`cam`), `zoom`, `zoomby`, `cx`, `cy`, `dx`, `dy`, `af`, `focus`, `focusm`, `focusbox`, `ae`, `exposure` (`shutter`), `iso` (`sensitivity`), `ev`, `aelock`, `awb`, `awblock`, `awbgains`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`, `stillsize` | persists |
-| Presentation | `w`, `h`, `jpegq` (`quality`) | one request |
-| Router | `reset`, `settle`, `timeout`, `fresh`, `n`, `fps`, `format`, `wait`, `port`, `sharpness`, `from`, `to`, `steps`, `coarse`, `fine`, `base`, `stops`, `vary`, `values`, `t` | one request |
-
-**The coordinate model.** `zoom` is a scale. The value 1.0 is the full sensor. `cx` and
-`cy` give the centre of the ROI from 0 to 1. `dx` and `dy` are relative. They use
-fractions of the **current** ROI width. Thus one step moves the same visible distance at
-each zoom value. The server keeps the ROI inside the frame.
-
-**Errors.** The server rejects an unknown parameter. The server rejects a parameter that
-it cannot read. The result is HTTP 400 with `{"ok": false, "error": "..."}`. The server
-changes nothing. Refer to R5. This holds on **every** endpoint, including `/api/status`,
-`/api/reset`, `/api/af`, `/api/cameras`, `/api/orientation` and `/api/nettest`, which used
-to ignore both the parameters and the check. A router parameter with a value the server
-cannot read is a 400 as well; nothing falls back to a default in silence.
-
-**Limits.** Each numeric parameter has a range, and `/api/status` reports the ones that
-depend on the device under `limits`: `max_output_edge`, `max_output_pixels` and
-`burst_max`. They come from the heap this process was given, so a request that cannot fit
-in memory is refused before the capture instead of raising an `OutOfMemoryError` during
-it. `OutOfMemoryError` is an `Error` and not an `Exception`, so it used to walk past every
-handler and stop the service; the handlers now catch `Throwable`.
-
-**Access control.** There is an optional shared token. Send it as `?token=` or as
-`Authorization: Bearer`. The token is off by default. There is no TLS. Refer to section 7.
-
-### 4.6 How the backend makes images
+## How the backend makes images
 
 There are two paths. They have different costs and different purposes.
 
@@ -321,7 +180,7 @@ service costs almost nothing.
 The engine maps the ROI onto sensor coordinates. It then sets the focus rectangle and the
 metering rectangle. Thus a zoom onto a part makes the camera focus and meter on that part.
 
-### 4.7 Life cycle
+## Life cycle
 
 The service is a foreground service of type `camera`. It holds a partial wake lock. This
 permits camera access when the screen is off.
@@ -334,57 +193,7 @@ satisfies this rule.
 adb shell am start -n dev.deskcam/.MainActivity -a dev.deskcam.START --ez finish true
 ```
 
-### 4.8 Build
-
-`backend/build.sh` runs `aapt2`, then `javac`, then `d8`, then `zipalign`, then
-`apksigner`. It does not use Gradle. It does not use AGP. This is possible because the app
-has no external dependencies.
-
-A clean build takes about two seconds. The build needs `platforms/android-37.0` and
-`build-tools/37.0.0`.
-
-## 5. Frontend
-
-The frontend runs on the workstation. At this time it is one Bash script. The processing
-layer is planned work.
-
-### 5.1 Responsibilities
-
-The frontend shows the contract as commands. It finds and stores the target address. It
-controls the device with adb. In the future it does all work on many frames and all
-numerical work.
-
-### 5.2 The CLI
-
-The CLI is one static Go binary, built from `frontend/go/`. It finds the target in this
-order: the `--url` option, then `$DESKCAM_URL`, then `~/.config/deskcam/url`, then
-localhost. Taking a photograph needs no runtime behind it; measuring what is in one needs
-`pip install -e '.[analysis]'`, and the binary says so when a tool is missing. Decision D13.
-
-These commands map to the contract: `snap`, `frame`, `stream`, `status`, `show`, `set`,
-`reset`, `zoom`, `pan`, `center`, `af`, `focus`, `exposure`, `iso`, `auto`, `torch`,
-`cameras`, `api`, `open`.
-
-These commands have no equivalent in the contract. They control the target and the device.
-They are workstation work: `use`, `usb`, `wifi`, `which`, `start`, `stop`.
-
-Two behaviours exist only for R1 and R2. A capture command prints the path and nothing
-else. Thus `img=$(deskcam snap zoom=4)` is the correct method. And `show` makes the status
-into one line. An agent that reads the state must not pay for a full JSON document.
-
-Note the `usb` command. It runs `adb forward`. It then points the target at loopback. This
-method does not use the local network permission. Use it when Wi-Fi fails.
-
-### 5.3 The browser panel
-
-The backend sends the panel from `/`. The panel shows live MJPEG. Touch the image to move
-the centre. Turn the wheel to zoom. The panel maps a touch through the current ROI. Thus a
-touch has the same result at each zoom value.
-
-The panel has controls for the focus, the exposure, the white balance, and the torch. It
-exists to aim the camera. A pointer is easier than coordinates for this task.
-
-### 5.4 Desktop processing
+## What the workstation does
 
 `frontend/analysis/` holds the measurement tools: the noise floor of the instrument, the
 linearity of the response, the reduction of noise by averaging a burst, and the scale in
@@ -409,13 +218,13 @@ it can be argued with. See `scale.PEAK_LIMIT` for the clearest case.
 Exit codes are 0 for a measurement, 2 for a refusal, 1 for a tool that could not run, and
 `--json` gives the full record. That is what a caller acts on, rather than parsing English.
 
-The rest of the roadmap in section 8, the merging and stacking work, still does not exist.
+The merging and stacking work still does not exist.
 The plan for it remains Python with OpenCV, rawpy and NumPy.
 
-## 6. Decisions
+## Decisions
 
 **D1. The software makes the ROI. The hardware does not.** `CENTER_ONLY` makes this
-necessary. It is also better, because it keeps true sensor pixels. Refer to section 4.3.
+necessary. It is also better, because it keeps true sensor pixels. Refer to the hardware facts above.
 
 **D2. The backend has no dependencies.** This makes the build without Gradle possible. The
 build is then repeatable in seconds from a shell. A written HTTP server is about 400 lines.
@@ -544,7 +353,7 @@ avoid that by doing a whole sequence inside one request. A script generalises it
 a tape runs, a second script and any request that would change the camera are refused with
 **409**. Reads are not: watching a tape run does not interfere with it.
 
-The answer is `multipart/mixed`, not server-sent events, and that follows from section 4.1.
+The answer is `multipart/mixed`, not server-sent events, and that follows from what the backend is responsible for, above.
 An events-only stream would have to name a file on the phone for each capture, which means
 storage, a cleanup policy, disk-full behaviour, a listing endpoint and a download endpoint.
 Instead the JSON events and the pixels travel in one ordered stream on the machinery the
@@ -661,7 +470,7 @@ Measured on this bench, three hunts at an unchanged `zoom=1`: the whole frame pe
 20.92, a box on a detailed part at 47.33, and a box on a near-empty part at 0.70. The
 framing did not move between them.
 
-## 7. Non-goals
+## Non-goals
 
 **No TLS.** The service is for a trusted LAN. A self-signed certificate would make `-k`
 necessary on each request. It would make each agent more complex. It would give no real
@@ -670,9 +479,9 @@ WireGuard or Tailscale if the stream needs encryption, or if you need access fro
 the LAN.
 
 **No image processing on the device**, except crop, rotate, and resize. Refer to the split
-rule in section 3.
+split rule.
 
-**No automatic start after a reboot.** The platform prevents it. Refer to section 4.4.
+**No automatic start after a reboot.** The platform prevents it. Refer to the platform facts above.
 
 **No photographic features.** No portrait mode. No scene modes. No tone maps for a display.
 These features damage a measurement.
@@ -680,85 +489,7 @@ These features damage a measurement.
 **No Super Res Zoom.** It needs hand movement to get sub-pixel data. Camera2 cannot command
 the OIS position. Thus the method does not work on a fixed mount.
 
-## 8. Roadmap
-
-The list is in order of value against work. Items 1 to 3 give most of the benefit. The
-kanban board holds these items as cards 1 to 11.
-
-**1. RAW and DNG capture (backend). DONE.** All measurement work needs linear data. The
-sensor is 10 bit. The black level is 64. The white level is 1023. `DngCreator` writes the
-file. The engine adds a RAW_SENSOR output to the session. If a device refuses that stream
-combination, the engine configures the session again without RAW. Then the camera still
-works.
-
-**2. Measurement mode (backend). DONE.** The parameter `measure=1` stops the pipeline from
-changing the image. It sets noise reduction off, edge enhancement off, hot pixel correction
-off, lens shading correction off, and chromatic aberration correction off. It sets the tone
-map to a linear `CONTRAST_CURVE`. It sets OIS off and locks the white balance.
-
-One test on the device, on 2026-09-09, is consistent with the design. The exposure was
-doubled four times. In measurement mode the pixel value rose by 2.02x for each doubling,
-which is linear. With the default pipeline it rose by 1.30x, near the 1.37x of an sRGB
-curve. At 1/120 s the default curve read 69.6 where the linear curve read 6.9.
-
-**These numbers are unconfirmed and should not be quoted.** They are one point estimate
-from one run with no interval; the 2.02x is the mean of four ratios with the variation
-dropped, and the lowest of those samples sits at the floor of the 8 bit range, which alone
-covers the difference between 2.02 and 2.00. The code that produced them is not in this
-repository. What the test does support is the shape: the default pipeline lifts the shadows
-by roughly an order of magnitude, and that is the error a measurement must not contain.
-Card 34 puts the method in `frontend/analysis/`; card 35 adds the same-against-same test
-that says how large a difference has to be before it means anything.
-
-`/api/status` gives a `pipeline` block. The block reports what the HAL applied, not what
-the request asked for. Rule R4 applies to the pipeline as much as to the exposure.
-
-**3. Burst capture (backend). DONE. Average (frontend) is card 4.** `/api/burst` sends the
-frames to the camera as one submission, so the HAL runs them back to back. The result is a
-tar archive. One test gave 12 full resolution frames in 642 ms. The 18.7 frames per second
-that was reported counts 12 frames across 11 intervals; 11/0.642 is 17.1. Either way it is
-one run with no interval. **Unconfirmed.**
-
-Two changes were necessary. The still reader now holds 6 buffers, so the HAL can run ahead
-of the server. And the reader takes each image with `acquireNextImage`. The old code used
-`acquireLatestImage`, which discards frames and is correct for a preview and wrong for a
-burst.
-
-One result from 12 frames: an average of 6 frames had 2.25 times less noise than one frame,
-against a prediction of 2.45. **Unconfirmed.** One run, and the split of the 12 frames into
-two groups was one of several possible splits; which one was chosen was not recorded. The
-mechanism holds regardless: JPEG compression makes the noise of neighbouring frames a
-little alike, and fixed pattern noise is equal in each frame, so an average never removes
-it. Card 10 removes that part with a dark frame.
-
-**4. Focus sweep (backend) and focus stack (frontend).** At 98 mm the depth of field is
-one or two millimetres. Move the lens in **dioptre steps**. The depth of field is almost
-equal for each dioptre. The calibration is `APPROXIMATE`, so use only the order of the
-steps.
-
-**5. Exposure bracket (backend) and merge (frontend).** For a panel, step the exposure in
-**whole multiples of the PWM period**. Do not use arbitrary stops. Powers of two from one
-period (1/240, 1/120, 1/60, 1/30) stay one stop apart and stay in phase. An arbitrary stop
-reads a different part of the duty cycle. The merge is then wrong.
-
-**6. A sharpness value in `/api/status` (backend).** Use the variance of the Laplacian. It
-is cheap. The frontend can then close the focus loop. It does not send candidate frames
-over the network. This is one of only two calculations that belong on the device.
-
-**7. Calibration frames (frontend).** Subtract a dark frame. Divide by a flat field. Use a
-grey card for the white balance. The flat field is necessary for panel work. Lens
-vignetting looks the same as panel non-uniformity. The flat field must be measured, because
-this device does not deliver a lens shading map. Refer to section 4.3.
-
-**8. Display rectification (frontend).** Find the panel corners. Correct the perspective
-with a homography. Give an image of a constant size. This lets you compare two design
-iterations pixel by pixel. Without it, a small movement of the phone changes the image.
-
-**Rejected work.** ISO brackets are not useful. The max analog sensitivity is 444. Above
-that value the gain is digital, so apply it to RAW data later. White point brackets are
-not useful. RAW makes the white balance free and lossless later.
-
-## 9. Known limits
+## Known limits
 
 **Macro is an optical limit. Software cannot correct it.** At the 98 mm minimum focus
 distance the main camera gives 0.047x magnification. The field of view is then 120.7 mm
@@ -774,3 +505,4 @@ solder fillet. A clip-on macro lens is the correction. The physical ultrawide ca
 
 **The phone gets a new DHCP address after a reboot.** The command `deskcam wifi` finds the
 new address. A fixed address on the router is better.
+

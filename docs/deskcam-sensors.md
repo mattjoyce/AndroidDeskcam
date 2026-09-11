@@ -85,7 +85,7 @@ about; batching is how this stays compatible with that.
 
 The fused sensors, gravity and linear acceleration and the three rotation vectors, are the
 phone doing arithmetic you cannot check. Expose them, and **label them derived**, or the
-split rule in section 3 of the specification is broken quietly.
+split rule is broken quietly.
 
 ### 2.3 Audio
 

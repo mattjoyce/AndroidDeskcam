@@ -266,7 +266,7 @@ split rule holds.
 - DigitaOS, Wikipedia
   https://en.wikipedia.org/wiki/DigitaOS
 - DeskCam spec
-  docs/SPEC.md, in this repository
+  docs/DECISIONS.md, in this repository
 
 ## 9. Review, 2026-09-10
 
@@ -276,7 +276,7 @@ worst first. Card 57 carries them as work.
 ### 9.1 Section 4.4 contradicts a committed boundary
 
 "The phone stores captures in a working directory on the phone" is the one part
-of this design that is not a detail. SPEC section 4.1 lists what the backend
+of this design that is not a detail. the decisions document lists what the backend
 does not do and ends with "storage of old captures". The phone writes exactly
 one file today, a temp file in the cache directory for EXIF injection, consumed
 immediately. There is no storage to build on, and adding it brings permissions,

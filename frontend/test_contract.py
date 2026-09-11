@@ -28,7 +28,7 @@ SERVER = BACKEND / "HttpServer.java"
 HELP = BACKEND / "WebUi.java"
 PARAMS = BACKEND / "Params.java"
 README = ROOT / "README.md"
-SPEC = ROOT / "docs" / "SPEC.md"
+DECISIONS = ROOT / "docs" / "DECISIONS.md"
 
 # The names of one declaration: the run of string literals just before its closing `);`.
 TRAILING_NAMES = re.compile(r'((?:"[a-z_]{1,16}"\s*,\s*)*"[a-z_]{1,16}")\s*\);')
@@ -78,8 +78,15 @@ def test_every_parameter_has_help_text() -> None:
         assert after.startswith('"'), f"a declaration with no help text: {after[:60]!r}"
 
 
-@pytest.mark.parametrize("doc", [README, SPEC], ids=["README", "SPEC"])
+@pytest.mark.parametrize("doc", [README], ids=["README"])
 def test_the_documents_name_every_parameter(doc: Path, declared: dict[str, list[str]]) -> None:
+    """The README is the only prose that has to name every parameter.
+
+    docs/SPEC.md used to be checked here too. It was deleted: a specification for a thing
+    that already exists is a second copy of it, and this assertion was part of what kept
+    that copy alive. What replaced it, docs/DECISIONS.md, records why things are the way
+    they are and deliberately lists no parameters, so there is nothing here to check.
+    """
     text = doc.read_text()
     missing = [
         name

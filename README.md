@@ -10,7 +10,7 @@ Each camera control is an HTTP GET or POST request. You can control the instrume
 deskcam snap zoom=6 cx=0.32 cy=0.68 torch=25 focusm=0.12
 ```
 
-For the formal machine specification, refer to [docs/SPEC.md](docs/SPEC.md). For an interactive visual walk-through of sensor physics, software ROI cropping, and dioptric focus curves, open [explainer/index.html](explainer/index.html).
+For why it is built this way, refer to [docs/DECISIONS.md](docs/DECISIONS.md). For an interactive visual walk-through of sensor physics, software ROI cropping, and dioptric focus curves, open [explainer/index.html](explainer/index.html).
 
 ---
 
@@ -30,7 +30,7 @@ A developer or agent cloning this repository can verify its security and integri
 | `frontend/analysis/` | Workstation | Python 3.11 (`numpy`, `pillow`) | Optional measurement tools (linearity, scale, HDR, focus stacking) |
 | `explainer/` | Browser | Static HTML / CSS / JS | Interactive visual guide to optics, PWM synchronization, and API mechanics |
 | `skill/` | Workstation | Claude Code Skill | Agent integration definition and tool calling instructions |
-| `docs/` | Workstation | Markdown | Architecture decisions, formal specification, and DSL documentation |
+| `docs/` | Workstation | Markdown | Architecture decisions, the decisions and their reasoning, and DSL documentation |
 
 ---
 

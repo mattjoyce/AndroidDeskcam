@@ -779,7 +779,7 @@ public class HttpServer implements Runnable {
      * own sequences and what this generalises.
      *
      * The answer is multipart/mixed rather than server-sent events, and that follows from
-     * a boundary the specification already draws: SPEC 4.1 says the backend does not store
+     * a boundary this project already drew: the backend does not store
      * old captures, and it stores none. An events-only stream would have to name a file on
      * the phone for each capture, which means storage, a cleanup policy, a listing and a
      * download endpoint. Instead the JSON events and the pixels travel in the same ordered

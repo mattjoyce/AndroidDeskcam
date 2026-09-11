@@ -1,6 +1,6 @@
 package main
 
-// Kind is where a parameter takes effect. This is decision D9 in the specification.
+// Kind is where a parameter takes effect. This is decision D9.
 type Kind int
 
 const (

@@ -22,7 +22,7 @@ import java.util.Map;
  *
  * An instance is a value. The engine keeps one as the camera state and hands a clone to
  * every caller; a request that carries presentation parameters gets its own clone and
- * that clone dies with the request. See decision D9 in the specification.
+ * that clone dies with the request. See decision D9.
  */
 public class CamSettings implements Cloneable {
 
