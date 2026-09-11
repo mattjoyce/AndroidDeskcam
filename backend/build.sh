@@ -40,6 +40,7 @@ echo ">> aapt2 link"
     -o "$OUT/base.apk" \
     -I "$ANDROID_JAR" \
     --manifest "$ROOT/app/AndroidManifest.xml" \
+    -A "$ROOT/app/assets" \
     --java "$OUT/gen" \
     --min-sdk-version "$MIN_SDK" \
     --target-sdk-version "$TARGET_SDK" \
@@ -65,6 +66,14 @@ javac -Xlint:all -Werror -encoding UTF-8 --release 17 \
     "$ROOT/app/src/dev/deskcam/Pairing.java" \
     "$ROOT/test/dev/deskcam/Tests.java"
 java -cp "$OUT/testclasses" dev.deskcam.Tests "$OUT/testwork"
+
+# Development-only checks. The APK has no Node dependency and still builds without it.
+if command -v node >/dev/null 2>&1; then
+    echo ">> panel tests"
+    node --test "$ROOT/test/webui/"*.test.mjs
+else
+    echo ">> panel tests (skipped, no Node.js; run with Node.js 18+ before merging)"
+fi
 
 echo ">> javac"
 # Warnings are on and fatal. They were off, with -nowarn, for the whole life of the

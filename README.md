@@ -1256,6 +1256,22 @@ The backend includes pure Java unit tests (`backend/test/dev/deskcam/Tests.java`
 ./backend/build.sh
 ```
 
+### Phone Panel Regression Tests
+
+The APK serves `backend/app/assets/panel.html`. Edit its HTML, CSS and JavaScript directly;
+`backend/build.sh` packages that file as an asset. `WebUi.java` keeps the API help and asset
+loader. There is no frontend bundler or production JavaScript dependency.
+
+With Node.js 18 or newer, the build also runs deterministic tests of the panel script:
+
+```sh
+node --test backend/test/webui/*.test.mjs
+```
+
+These exercise authentication, command ordering, timeouts and delayed responses with a
+controlled DOM and network. They do not replace a browser or phone check. Builds without
+Node.js print an explicit skip; run these tests before merging panel changes.
+
 ### End-to-End Surface Parity Check
 
 To verify that an internal refactoring introduces zero behavioral drift against a live camera:

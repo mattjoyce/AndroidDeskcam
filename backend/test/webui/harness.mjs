@@ -1,27 +1,9 @@
 // Run the shipped script, with only the DOM, network and clock supplied by the test.
 // This checks request ordering and state; it does not claim browser layout coverage.
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-function servedPage() {
-  const java = readFileSync(new URL('../../app/src/dev/deskcam/WebUi.java', import.meta.url), 'utf8');
-  const block = java.slice(java.indexOf('private static final String PAGE ='));
-  const dir = mkdtempSync(join(tmpdir(), 'deskcam-page-'));
-  try {
-    const file = join(dir, 'PageFixture.java');
-    // Let Java interpret its own text block, just as it does in the APK.
-    writeFileSync(file, 'class PageFixture { public static void main(String[] args) {'
-      + 'System.out.print(PAGE); } ' + block);
-    return execFileSync('java', [file], { encoding: 'utf8' });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-export const html = servedPage();
+export const html = readFileSync(new URL('../../app/assets/panel.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 class Element {

@@ -70,3 +70,19 @@ known framing, but leave controls alone until the pending input has been sent.
 
 Ten page regressions pass, including a delayed pre-command status response, a later
 external change that must still arrive, and a slider with unsent final input.
+
+### Page asset extraction
+
+The panel is now `backend/app/assets/panel.html`. Before comment cleanup, its bytes were
+compared with the Java-interpreted page and were identical. The build packages it with
+`aapt2 -A`; the service loads it once and the HTTP server serves the resulting string.
+The API-help implementation stays in `WebUi.java`. No production dependency was added.
+
+The Node harness now reads the asset directly. The obsolete Python Java-escape check
+was removed; the existing hidden-overlay check now reads the asset. Builds run the
+Node regressions when Node is installed and print an explicit skip otherwise.
+
+Validation: the APK builds with 462 Java checks and ten panel regressions passing;
+`assets/panel.html` in the built APK matches the source byte for byte. The full
+workstation gate also passes: ruff, formatting, mypy, bandit, 79 Python tests, Go vet,
+Go build and Go tests. The original checkout's virtualenv supplied Python tooling.
