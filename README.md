@@ -61,6 +61,12 @@ There is no signed release, checksum, or reproducible build. You build the APK y
    - [Why Software Region-of-Interest (ROI) Cropping?](#why-software-region-of-interest-roi-cropping)
    - [Dioptres vs. Millimetres in Optical Focus](#dioptres-vs-millimetres-in-optical-focus)
    - [Sensor Linearity and Radiometric Mode](#sensor-linearity-and-radiometric-mode)
+   - [Focus by number, without sending a picture](#focus-by-number-without-sending-a-picture)
+   - [Hunting the focus](#hunting-the-focus)
+   - [Running a sequence as one operation](#running-a-sequence-as-one-operation)
+   - [Measuring, and knowing when not to](#measuring-and-knowing-when-not-to)
+   - [What the tilt reading is](#what-the-tilt-reading-is)
+   - [Limits, and the camera idling](#limits-and-the-camera-idling)
    - [Android 17 Local Network Permission Isolation](#android-17-local-network-permission-isolation)
    - [Thermal Rate Shedding and Battery Care](#thermal-rate-shedding-and-battery-care)
    - [Console Security, QR Pairing, and Access Tokens](#console-security-qr-pairing-and-access-tokens)
@@ -671,6 +677,416 @@ deskcam analyse linearity lin/ --region 0.5,0.68,0.30,0.12
 
 Your numbers will differ. The pedestal and the floor belong to your scene and your camera, and the region is the patch of the frame that was neither dark nor clipped in this one.
 
+### Focus by number, without sending a picture
+
+`/api/status` reports a `sharpness` block: the variance of the Laplacian over the region of
+interest of a preview frame. It is one of the two calculations that belong on the device,
+because it lets an agent close a focus loop by moving the lens and reading a number instead
+of pulling frames across the network.
+
+```sh
+deskcam set focus=4.25 && deskcam show sharpness=1
+zoom 1x  at 0.5,0.5  af off  ae manual  29.97ms (1/33)  iso 100  MEASURE  sharp 33.6
+```
+
+A real sweep of a rule 235 mm from the lens, exposure and ISO held fixed, one reading a
+step:
+
+| dioptres | 1.0 | 3.0 | 3.5 | 4.0 | **4.25** | 4.5 | 5.0 | 5.5 | 6.0 | 9.0 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| sharpness | 3.5 | 11.4 | 20.3 | 30.8 | **33.6** | 31.0 | 18.0 | 9.4 | 5.8 | 2.9 |
+
+One maximum, monotone either side of it, at the distance the phone's own autofocus picks.
+
+Three things about the number. It is a **comparison and never a measurement**: it moves
+with the subject, with how much of the frame the region of interest holds, and with the
+noise, which at high ISO is itself high-frequency detail. Only compare readings taken with
+everything but the focus held still.
+
+It **describes the last preview frame that was converted**, which may be old, so its age is
+reported beside it and `deskcam show` prints the age once it is over half a second.
+Without `sharpness=1` nothing new is converted, because a status poll that demanded a frame
+would have an open console page converting every frame at thirty a second for a page that
+is not showing video (decision D7).
+
+It costs about **9 ms** on a Pixel 6a and the cost is reported with the value. The sample
+count is capped for that: rows are skipped, never columns and never the kernel's
+neighbours, because a kernel over subsampled pixels measures a blurrier image than the one
+in front of the camera and would put the peak in the wrong place.
+
+### Hunting the focus
+
+That loop is fourteen round trips: a set, a settle, a fresh frame and a status for every
+reading. `/api/focushunt` is the same loop on the phone, where each step costs none of
+that, and it is the one loop in this project that has to live there, because every step
+depends on the frame the last step produced.
+
+```sh
+deskcam set measure=on exposure=1/33 iso=200
+deskcam focus hunt
+```
+
+```
+   0.000 d       3.4  ##
+   1.276 d       4.3  ###
+   2.551 d      11.3  #######
+   3.827 d      62.5  #######################################
+   5.102 d      28.9  ##################
+   6.378 d       5.6  ###
+   7.653 d       3.4  ##
+   8.929 d       3.1  ##
+  10.204 d       2.7  ##
+  the fine pass, around the best of the coarse one
+   2.551 d      11.5  #######
+   3.189 d      29.8  ##################
+   3.827 d      64.4  ######################################## <-
+   4.464 d      61.7  ######################################
+   5.102 d      29.8  ###################
+chosen 3.827 d (about 261 mm), sharpness 64.38, contrast 0.959, 14 readings in 4.0 s
+```
+
+A coarse pass over the range, then a fine pass around the best of it. `coarse=9` cannot
+step over a peak that is several dioptres wide at half height, and `fine=5` inside one
+coarse step lands within about a sixth of a dioptre of the best the coarse pass found.
+Fourteen readings over the whole ten-dioptre range of this lens take about four seconds,
+which the answer reports rather than asks you to remember. The curve comes back with the
+answer, and the CLI draws it, because both of the ways this can fail are shapes.
+
+**The position repeats; the peak value does not.** Twelve hunts of one subject on this
+bench, started from both ends of the lens travel: eleven chose 3.827 d and one chose the
+next fine step at 4.464 d, whose sharpness was within a few percent of it. The peak value
+across those same twelve runs ran from 34.9 to 64.5, nearly two to one. That is the point
+about the metric being a comparison, made in the strongest way available: two hunts of the
+same subject agree about where the lens goes and disagree about the number, so use
+`diopters` and never compare `sharpness` between hunts.
+
+**It is allowed to refuse**, which is the difference between this and `/api/af`. A flat
+curve means nothing in the region of interest came into focus anywhere in the range:
+
+```
+$ deskcam focus hunt exposure=1/4000 iso=56
+   0.000 d       0.0
+   ... every reading the same ...
+deskcam: no focus chosen (flat): the sharpness moved by 0% across 0.00 to 10.20 dioptres,
+and a peak moves it by far more.
+```
+
+A peak sitting on an end of the range means the search stopped while the curve was still
+climbing, so the real peak is outside it:
+
+```
+$ deskcam focus hunt from=0 to=3
+   ... climbing all the way to the last reading ...
+       3 d      20.3  ######################################## <-
+deskcam: no focus chosen (peak_at_edge): the sharpest reading, 3.00 dioptres, is the near
+end of the range that was searched ... Widen the range and hunt again, e.g. to=6.00
+```
+
+Both answer `ok: false` with the reason and the curve, put the focus back where they found
+it, and exit non-zero. `af_state: focused` on a low-contrast board at 98 mm is not always
+an answer; this says so.
+
+When it does choose, the lens stays there. A hunt is a decision and not an excursion,
+which is the opposite of `/api/focussweep`, and it is the only walk in this project that
+behaves that way.
+
+**Fix the exposure first.** Sharpness is a comparison, so everything except the focus has
+to be held still for the duration. With `ae=auto` the exposure moves between readings and
+the metric moves with it, and the hunt climbs the auto-exposure loop rather than the lens.
+It warns when it sees `ae=auto`, but the fix is `exposure=` and `iso=`.
+
+### Running a sequence as one operation
+
+`POST /api/script` takes a tape of verbs, one per line, and runs the whole thing as one
+request.
+
+```sh
+cat inspect.dcl
+```
+
+```
+# inspect the part, lit and unlit
+SET zoom=2 cx=0.5 cy=0.5 exposure=1/33 iso=200 awbgains=neutral
+FOCUSHUNT
+SET torch=25
+WAIT 500
+SNAP
+SET torch=0
+SNAP
+```
+
+```sh
+deskcam script run inspect.dcl
+```
+
+```
+7 steps: SET FOCUSHUNT SET WAIT SNAP SET SNAP
+   0 SET        zoom 2x  at 0.5,0.5  af continuous  ae manual  30.02ms (1/33)  iso 163
+   1 FOCUSHUNT  chose 4.464 d, sharpness 1107.46, contrast 0.992, 14 readings
+   2 SET        zoom 2x  at 0.5,0.5  af off  focus 0.224m  ae manual  30.27ms  torch 25
+   3 WAIT       500 ms
+   4 SNAP       004-still.jpg
+   5 SET        zoom 2x  at 0.5,0.5  af off  focus 0.224m  ae manual  30.27ms (1/33)
+   6 SNAP       006-still.jpg
+done: 7 of 7 steps in 7.2 s
+```
+
+The verbs are `SNAP`, `FRAME`, `RAW`, `BURST`, `BRACKET`, `FOCUSSWEEP`, `WALK`,
+`FOCUSHUNT`, `SET`, `RESET`, `AF`, `STATUS` and `WAIT`. Each one is an endpoint that
+already exists and takes the same `k=v` words that endpoint takes, so a line of a tape and
+a URL cannot come to mean different things. `#` starts a comment line. `WAIT` is the only
+verb that is not an endpoint, and it is for waiting on something that is not a capture,
+such as an LED reaching a steady temperature: every capture verb has `settle` for its own
+waiting.
+
+**The reason for this is atomicity, not speed.** A round trip on this LAN is about 100 ms
+against a settle and a capture of several hundred, so a seven step sweep run from the shell
+loses well under a second to the network. What it does lose is the guarantee that nothing
+moved. The browser panel polls the state every two seconds and can change the camera, and
+so can a second agent, so **every multi-step sequence driven from the shell is racy between
+one step and the next.** While a tape runs it holds the camera, and a second script or any
+request that would change the camera is refused:
+
+```
+$ deskcam set zoom=3
+deskcam: HTTP 409
+  a script is running and holds the camera. It will finish or fail on its own; this
+  request would have changed the camera underneath it. Read /api/status while you wait.
+```
+
+Reading is still allowed, because watching a tape run does not interfere with it.
+
+**The pixels come back inside the same request.** The answer is one `multipart/mixed`
+stream: a JSON event per step, and each capture's file as the part after its own event.
+The phone stores nothing, which is what the specification says of it, and an events-only
+stream would have needed a working directory on the phone, a cleanup policy, a listing
+endpoint and a download endpoint before the first script ran. `deskcam script run` writes
+each part as it arrives, with that step's own record beside it, exactly as `deskcam walk`
+unpacks an archive.
+
+**A tape is not a language and will not become one.** No branching, no variables, no
+labels, no arithmetic. You are the intelligence; the tape is the execution record. That is
+what keeps it from being the thing worth refusing: a language with ranges and steps would
+make a wrong step rule as easy to write as a right one, and `BRACKET base=1/240 stops=4`
+leaves that knowledge in `/api/bracket`, where the reasoning about PWM periods lives.
+
+**A whole tape is read before any of it runs**, so a typo costs nothing:
+
+```
+$ deskcam script run inspect.dcl
+deskcam: HTTP 400
+  line 2: 'SNPA' is not a verb. The verbs are SNAP, FRAME, RAW, BURST, BRACKET,
+  FOCUSSWEEP, WALK, FOCUSHUNT, SET, RESET, AF, STATUS, WAIT.
+```
+
+**A step that fails ends the tape and the camera goes back.** `SET torch=45`, a capture
+that fails, and the `SET torch=0` that never runs would otherwise leave the LED on until
+somebody noticed. The last event says what failed and what the camera was put back to, and
+`deskcam script run` exits non-zero. A tape that finishes is left where it put the camera,
+because a `SET` in a finished tape is a change you asked for.
+
+A verb whose own answer says `ok: false` is a failed step. Today that is only `FOCUSHUNT`
+finding no peak, and it matters: carrying on to the next `SNAP` would take it out of focus
+and report it as a success.
+
+### Measuring, and knowing when not to
+
+`frontend/analysis/` holds the measurement tools. They read captures and sidecars off disk
+and never talk to the camera, so they work on anything you photographed last month. They
+need `numpy` and `pillow`, which taking a picture does not:
+
+```sh
+pip install -e '.[analysis]'
+```
+
+**Start with the noise floor.** Two captures of the same subject with the same settings
+differ by the noise of the instrument, and a measurement smaller than that difference is
+the camera talking to itself:
+
+```sh
+deskcam aatest measure=1 iso=56 exposure=200ms
+```
+
+```
+aa-test: 1.415 DN, n=68252, fraction of pixels not pinned 1.000
+  a measurement of this scene must differ by more than 1.42 DN (1.38% of the level)
+  before it is a difference and not this camera
+```
+
+That figure is recorded next to your captures as `deskcam-noisefloor.json`, and the other
+tools read it and **refuse** a result that sits inside it.
+
+Every tool returns its value, its interval, its sample count and its confidence together,
+and refuses below a stated limit rather than printing a number with a caveat next to it. A
+caveat beside a number does not travel with the number.
+
+| Tool | Confidence is | Limit | Why that limit |
+|---|---|---|---|
+| `scale` | autocorrelation peak height | 0.60 | correct strips measured 0.76 to 0.96, harmonic misreads about 0.33 |
+| `linearity` | power-law fit R squared | 0.980 | both a linear response and an sRGB curve fit above 0.99 |
+| `burst-noise` | interval tightness | 0.85 | the question turns on an 8% difference, so a wider interval decides nothing |
+| `aatest` | fraction of pixels not pinned | 0.99 | a pixel at 0 or 255 records no difference and flatters the floor |
+
+Exit codes are 0 for a measurement, 2 for a refusal, 1 for a tool that could not run. Add
+`--json` for the full record.
+
+#### Scale is not a property of this camera
+
+`deskcam scale` measures pixels per millimetre from a regular reference in the frame, a
+steel rule or graph paper. **It changes every time the stand moves**, so it is never quoted
+as a camera specification. Measure it in the picture you care about:
+
+```sh
+deskcam scale shot.jpg --pitch-mm 1.0 --region 0.365,0.41,0.66,0.05
+deskcam measure shot.jpg 412,308 1190,306      # 47.4 mm (95% 47.3 to 47.5)
+```
+
+`deskcam scale` writes `deskcam-scale.json` beside the captures, and every capture taken
+after it carries the number in its own sidecar for as long as the framing holds. Change the
+zoom, the pan, the rotation or the camera, and the sidecar says which one changed and that
+the scale no longer describes it, rather than going quiet:
+
+```json
+"scale": {"applies": false, "measured_from": "deskcam-20260910-124151.jpg",
+          "why": "the scale was measured at zoom 2 and this capture is at zoom 4"}
+```
+
+A still and a preview frame of the same view are the same field of view sampled into a
+different number of pixels, so the scale converts between them by the width ratio and says
+so. What none of it can check is the distance: nothing in this system can see the stand
+move, and a sidecar that carries a scale is making a claim about the settings and never
+about the bench. `deskcam analyse scale` is the same measurement without recording it.
+
+On one setup on 2026-09-10 the rule gave 16.42 px/mm (95% 16.38 to 16.46, 40 strips) and
+the graph paper in the same frame gave 16.54 px/mm (95% 16.52 to 16.57, 37 strips). Note
+that those two intervals do not overlap. Two references 0.7% apart, each with an internal
+spread far tighter than that, is a useful reminder that **the interval a method reports is
+its precision, not its accuracy**.
+
+The tool also says when more than one regular pattern is in the frame, because a bench
+usually has several and only you know which one is the reference. The first run of it here
+locked onto graph paper, was told it was looking at millimetres, and reported a scale five
+times too large with 107 strips agreeing and a healthy correlation. Nothing about the fit
+was wrong.
+
+#### Making one image out of many
+
+Three tools that turn a set of frames into a single image. Each writes the picture and then
+says what it can prove about it, and each refuses rather than handing back something that
+looks like a result and is not.
+
+```sh
+deskcam burst 16 && deskcam analyse average DIR   # one clean image, 16-bit
+deskcam focussweep from=3 to=6 steps=7 && deskcam analyse stack DIR
+deskcam bracket base=1/240 stops=6 && deskcam analyse hdr DIR
+```
+
+**Average** is the useful half of HDR+. It writes 16-bit, because averaging sixteen frames
+lowers the noise by a factor of four and 8 bits would throw away the two bits that bought.
+The improvement is measured rather than predicted: `before / sqrt(N)` is arithmetic, so the
+figure comes from `burst-noise`, which splits the burst many ways and measures both ends of
+the ratio the same way. Measured on twelve frames here: 1.757x less noise, 95% interval
+1.689 to 1.807, against a prediction of sqrt(3) = 1.732.
+
+**Stack** takes the sharp part of every frame of a focus sweep. It corrects focus breathing,
+measured between neighbouring frames and chained rather than taken against one reference,
+because frames from opposite ends of a sweep are sharp in different places and correlate at
+-0.38. It refuses when one frame is sharpest over most of the picture: that subject fits
+inside one depth of field, its best frame is already the answer, and blending can only blur
+it.
+
+**Hdr** merges a bracket into radiance, in DN per second, as 32-bit float with a 16-bit
+linear view beside it. No tone map, ever; that is a separate step. It merges on each frame's
+**measured** exposure and refuses a bracket taken without `measure=1`, because
+`value / exposure` is only radiance when the response is linear. It also checks that the
+frames agree with each other: neighbouring exposures of one scene should give the same
+radiance, and on this camera they differ by 1 to 3%, which is a small negative offset in the
+pipeline that a dark frame would measure.
+
+### What the tilt reading is
+
+The record beside every capture holds the tilt of the camera, from the gravity sensor:
+
+```
+tilt 1.57 deg, nearly straight down (1.57 degrees from gravity), 32 samples
+gravity {x: 0.22, y: 0.16, z: 9.81}   ambient 85 lux
+```
+
+**Read what this quantity is.** It is the angle between the optical axis and **gravity**.
+Skew of a flat subject comes from the angle between the camera and the **plane of the
+subject**, and the two are equal only when the subject lies on a level surface. On a
+tilted jig they differ by the tilt of the jig, so a small reading is evidence of square
+framing only when you know the bench is level.
+
+The angle is averaged over the last 32 samples rather than taken from one reading, because
+one unfiltered accelerometer sample carries the noise of the sensor and of the bench, and
+three figures from one sample claim a precision that is not there. The count comes back
+with the angle. The words that go with it carry the number, so a reading near a band
+boundary reads as what it is rather than as a different state.
+
+A tilted camera stretches one side of a flat subject, which corrupts a measurement of
+size. The angle belongs with the picture. `deskcam status` and `/api/orientation` report
+it live.
+
+**The sensors give the angle only.** They give no distance and no position, so a picture
+still needs a scale reference in the frame, such as a ruler or graph paper, before you can
+measure real sizes.
+
+### Limits, and the camera idling
+
+The zoom stops where a crop is no longer useful. On this sensor the limit is about 63x.
+Above about 6x you see very few pixels. It is better to move the phone closer. Then use
+`focusm` down to 0.098 m.
+
+Macro is an optical limit. At the 98 mm minimum focus distance the camera gives about 33
+pixels for each millimetre, roughly 30 micrometres for each pixel. That figure is
+arithmetic from the sensor size and the stated minimum focus distance, not a measurement,
+and `focusDistanceCalibration` on this device is `APPROXIMATE`. It is enough to read
+silkscreen and find a part. It is not enough to see a solder fillet. A clip-on macro lens
+is the correction. **The scale of an actual picture depends on where the stand is**, so
+measure it from a reference in the frame rather than trusting a stored number.
+
+`/api/still` sends the JPEG of the camera without a change when the zoom is at or below
+1.0001, and there is no rotation, and there is no resize. This is the quickest path and the
+best quality. Any crop, rotation, or resize costs a decode and a new encode.
+`BitmapRegionDecoder` reads only the necessary tile. Thus a large zoom costs less than a
+small zoom.
+
+**The limit of 1.0001 puts a still on one of two pipelines**, so each capture records which
+one it took in `settings.capture_path`, as `camera_jpeg` or `decoded_and_reencoded`. Two
+captures on opposite sides of the limit are different kinds of image, and comparing them
+measures the pipeline rather than the subject.
+
+**The camera stops reading the sensor when nobody is asking.** After 20 seconds with no
+stream client and nothing requesting a frame, the repeating preview request is stopped.
+The next request that needs a frame starts it again and waits for the exposure loop to
+settle before answering, so the first capture after a quiet period is not quietly worse
+than one taken during a busy one. `/api/status` carries a `preview` block saying whether
+it is idle, for how long, and what the last wake cost.
+
+This sentence used to read "the app converts a preview frame only when a client asks for
+one; an idle service costs almost nothing." The first half is decision D7 and is true. The
+second half was not: the conversion stopped, and the sensor, the ISP and the HAL carried on
+at 29 frames a second for the life of the service. A bench phone left running overnight was
+found at the platform's `severe` thermal level for that reason.
+
+Measured on a Pixel 6a, three runs each:
+
+| | |
+|---|---|
+| Frames while idle | **0 in 10 s**, against 29 a second awake |
+| Wake, exposure fixed | 305 to 348 ms |
+| Wake, exposure automatic | 377 to 803 ms |
+| A still taken against a sleeping camera | 764 to 822 ms, about 320 ms of it the wake |
+
+The exposure of the first frame after a wake was **identical** to one taken two seconds
+later in every automatic run, and the ISO agreed to within 5 of 200. The cost of idling is
+a slower first capture, never a worse one.
+
+A stream client stops it idling, which is why a browser tab left open on the panel used to
+hold the camera awake all night. Both panels now stop their stream while their tab is
+hidden.
+
 ### Android 17 Local Network Permission Isolation
 
 Android 17 introduces a strict architectural division between `INTERNET` and `ACCESS_LOCAL_NETWORK`:
@@ -686,20 +1102,81 @@ Connecting over USB via `deskcam usb` bypasses this mechanism entirely by tunnel
 
 ### Thermal Rate Shedding and Battery Care
 
-A smartphone bolted to an inspection arm running a camera sensor and holding an active wake lock generates substantial heat.
+A phone bolted to a stand, holding a camera and a wake lock for hours with nobody looking
+at it, gets hot. `/api/status` carries a `device` block:
 
-DeskCam incorporates an automated load shedding architecture:
+```json
+"device": {
+  "thermal": "severe",
+  "thermal_level": 3,
+  "throttling": true,
+  "stream_slowdown": 4,
+  "battery_percent": 100,
+  "battery_celsius": 36.3,
+  "plugged_in": true,
+  "charging": true,
+  "battery_status": "charging",
+  "power_source": "ac"
+}
+```
 
-1. **Stream Throttling, Capture Priority**: Video streaming (`/api/stream`) is a continuous workload. When platform thermals rise, stream frame rates are automatically throttled:
-   * `none` / `light`: Full requested rate (up to 30 fps). The platform defines `light` as throttling nobody can feel.
-   * `moderate`: 50% rate.
-   * `severe`: 25% rate.
-   * `critical`: 12.5% rate.
-   * `emergency` / `shutdown`: 5% rate. The stream is kept open at a trickle so the reason still reaches you. Stop the session.
-   * `unknown` (not reported yet) and any level this build does not know: full rate, and the level reported as given.
-   The table is `Thermal.slowdown` in `Thermal.java`, and the backend unit tests check it is monotone and never below 1. Discrete captures (`snap`, `burst`, `raw`) are **never slowed down or dropped**. A measurement capture takes the exact exposure requested.
-2. **Automatic Preview Idling**: If no client requests a frame or connects to a stream for 20 seconds, DeskCam halts repeating preview requests to allow the image sensor and processor to cool. The next incoming capture wakes the sensor, allows the exposure loop to converge, and captures seamlessly.
-3. **Battery Charge Thresholding**: Running continuously at 100% battery while plugged into USB degrades lithium-ion cells and generates heat. GrapheneOS and modern Android builds support stopping charging at 80%. DeskCam's `/api/status` distinguishes between `plugged_in: true` and `charging: false` to avoid false alerts about broken cables.
+**`plugged_in` and `charging` are two different facts.** A phone told to stop at 80 percent,
+which is a sensible way to run one that lives on a stand, has the cable in and is not
+charging: `plugged_in` stays true, `charging` goes false and `battery_status` says
+`not_charging`. The block says so in a note, because the alternative is somebody going to
+look for a bad cable.
+
+**`thermal` and `battery_celsius` are different quantities and it matters.** `thermal` is
+the platform's own level, the same one it throttles by, and it is what a stream reacts to.
+`battery_celsius` is a real temperature from the only thermometer an ordinary app may
+read, and it is neither the sensor nor the processor.
+
+This bench phone after an afternoon of bursts, walks and streams, from
+`dumpsys thermalservice` beside what the app reports:
+
+| | reading |
+|---|---|
+| Platform thermal status | **3, severe** |
+| Battery | 29.5 °C |
+| Skin | 34.1 and 35.0 °C |
+| Display | 29.6 °C |
+| TPU | **53.0 °C** |
+
+Every thermometer an app can reach says the phone is comfortable. The platform is
+throttling severely because of a part none of them measures. That is the whole reason
+`thermal` is the number this reacts to and `battery_celsius` is only there for context.
+
+**A stream gives way; a capture never does.** A stream is the continuous load, so its rate
+is cut: half at `moderate`, a quarter at `severe`, an eighth at `critical`, a twentieth at
+`emergency` and `shutdown`, and not at all at `none` or `light`. Each part of the stream
+says so, so a client that sees its rate fall can tell heat from a network fault:
+
+```
+Content-Type: image/jpeg
+X-DeskCam-Fps: 2.50
+X-DeskCam-Thermal: severe
+X-DeskCam-Shedding: throttling severely, and the platform says the experience is largely
+  affected. The stream rate is a quarter of what was asked for. Captures are not slowed.
+```
+
+Six frames at a requested 10 fps took 2.46 s rather than 0.6 s on a severe phone, which is
+the quarter rate the table promises. Nothing is slowed at `light`, which the platform
+defines as throttling nobody can feel. The stream is never stopped, even at `shutdown`,
+because it is the channel carrying the reason.
+
+`deskcam show` ends with `HOT severe` once the platform is acting, and says nothing while
+the phone is merely warm. **Take it seriously for measurement work**: a throttled phone has
+a hot sensor, and a hot sensor is a noisier one.
+
+The same bench after the camera was given the idling of the section above, an open panel
+tab was closed, and the phone was set to stop charging at 80 percent:
+
+| | after an afternoon of captures | a quiet hour later |
+|---|---|---|
+| Thermal status | severe | **none** |
+| Battery | 38.1 °C | **27.2 °C** |
+
+Nothing about the hardware changed between those two columns.
 
 ### Console Security, QR Pairing, and Access Tokens
 
