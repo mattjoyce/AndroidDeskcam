@@ -60,7 +60,7 @@
         <a href="#command-playground" class="nav-link">Command Builder <span class="nav-badge">★</span></a>
         <a href="#http-contract" class="nav-link">HTTP API Contract <span class="nav-badge">08</span></a>
         <a href="#metrology-refusal" class="nav-link">Metrology & Refusal <span class="nav-badge">09</span></a>
-        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D16) <span class="nav-badge">10</span></a>
+        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D17) <span class="nav-badge">10</span></a>
       </div>
     </aside>
 
@@ -812,6 +812,31 @@ SNAP</textarea>
                 <td>Returns full camera state, sensor limits, thermal throttling levels, and preview exposure metrics. <code>sharpness=1</code> triggers fresh Laplacian evaluation.</td>
               </tr>
               <tr>
+                <td><code>GET /api/cameras</code></td>
+                <td><code>application/json</code></td>
+                <td>Lists cameras with facing, resolution, closest focus and capabilities.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/help</code></td>
+                <td><code>application/json</code></td>
+                <td>Machine-readable schema and documentation generated directly from <code>Params.java</code>.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/set</code></td>
+                <td><code>application/json</code></td>
+                <td>Applies control parameters and returns the resulting state. An unknown parameter is an error, not ignored (D5).</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/reset</code></td>
+                <td><code>application/json</code></td>
+                <td>Restores every setting to its default.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/af</code></td>
+                <td><code>application/json</code></td>
+                <td>Runs one autofocus sweep. Optional <code>wait=ms</code> (default 700).</td>
+              </tr>
+              <tr>
                 <td><code>GET /api/still</code></td>
                 <td><code>image/jpeg</code></td>
                 <td>Full 12MP resolution crop to ROI. If <code>zoom &le; 1.0001</code> and no rotation, returns untouched camera JPEG; otherwise tiled decode/encode.</td>
@@ -822,9 +847,19 @@ SNAP</textarea>
                 <td>10-bit linear Bayer RAW DNG containing full uncropped 4032&times;3024 array. Header <code>X-DeskCam-ROI</code> carries active framing.</td>
               </tr>
               <tr>
+                <td><code>GET /api/frame</code></td>
+                <td><code>image/jpeg</code></td>
+                <td>One preview-resolution JPEG cropped to the ROI. Much faster than <code>/api/still</code>, and it describes the preview, not a capture.</td>
+              </tr>
+              <tr>
                 <td><code>GET /api/burst</code></td>
                 <td><code>application/x-tar</code></td>
                 <td>Burst of <code>n</code> frames submitted back-to-back in a single HAL request. Returns <strong>HTTP 206 Partial Content</strong> if fewer frames delivered.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/focussweep</code></td>
+                <td><code>application/x-tar</code></td>
+                <td>Steps lens equally in dioptres from <code>from</code> to <code>to</code>. Archive contains all JPEGs plus <code>walk.json</code> manifest.</td>
               </tr>
               <tr>
                 <td><code>GET /api/focushunt</code></td>
@@ -832,9 +867,9 @@ SNAP</textarea>
                 <td>Coarse (9 steps) + Fine (5 steps) search on phone. Returns chosen dioptres and full sharpness curve. Returns <code>ok: false</code> on flat/edge curve.</td>
               </tr>
               <tr>
-                <td><code>GET /api/focussweep</code></td>
+                <td><code>GET /api/walk</code></td>
                 <td><code>application/x-tar</code></td>
-                <td>Steps lens equally in dioptres from <code>from</code> to <code>to</code>. Archive contains all JPEGs plus <code>walk.json</code> manifest.</td>
+                <td>One still at each value given: <code>vary=NAME&amp;values=A,B,C</code>. Only camera state can be walked. It knows no step rule, which is why focus and exposure have their own endpoints. For torch levels, ISO, dark and flat frames. Not for zoom.</td>
               </tr>
               <tr>
                 <td><code>GET /api/bracket</code></td>
@@ -857,9 +892,14 @@ SNAP</textarea>
                 <td>Average angle between optical axis and gravity vector over 32 samples, plus ambient lux.</td>
               </tr>
               <tr>
-                <td><code>GET /api/help</code></td>
+                <td><code>GET /api/shadingmap</code></td>
                 <td><code>application/json</code></td>
-                <td>Machine-readable schema and documentation generated directly from <code>Params.java</code>.</td>
+                <td>The lens shading map of a frame taken with the map on.</td>
+              </tr>
+              <tr>
+                <td><code>GET /api/nettest</code></td>
+                <td><code>application/json</code></td>
+                <td>Diagnostic. Opens a TCP connection back to the caller to prove the app has outbound network access.</td>
               </tr>
             </tbody>
           </table>
@@ -927,18 +967,18 @@ SNAP</textarea>
               <tr>
                 <td><code>hdr</code></td>
                 <td>Absolute Radiance (DN/s)</td>
-                <td>Inter-frame consistency</td>
-                <td>Residual &gt; 3%</td>
-                <td>Adjacent exposure brackets must report equal radiance; rejects frames corrupted by PWM phase beating.</td>
+                <td>Fraction of the frame seen well by at least one exposure</td>
+                <td>Covered &lt; 0.98</td>
+                <td>A pixel on the floor in the longest exposure and on the ceiling in the shortest was never measured by any frame, so the merge can only guess at it. Below 98% covered the bracket does not span its own subject and wants another stop. Neighbouring exposures that disagree about the light by more than 2% raise a warning in the notes, not a refusal (<code>hdr.py</code>).</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D16) -->
+      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D17) -->
       <section id="architectural-decisions">
-        <h2>Architectural Decisions (D1–D16)</h2>
+        <h2>Architectural Decisions (D1–D17)</h2>
         <div class="card-grid">
           <div class="info-card">
             <div class="card-header">
@@ -951,11 +991,56 @@ SNAP</textarea>
 
           <div class="info-card">
             <div class="card-header">
+              <span class="card-badge badge-decision">Decision D2</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Toolchain</span>
+            </div>
+            <div class="card-title">The Backend Has No Dependencies</div>
+            <div class="card-desc">This is what makes a build without Gradle possible, repeatable in seconds from a shell. A hand-written HTTP server is about 400 lines and gives direct control of the MJPEG parts.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
               <span class="card-badge badge-decision">Decision D3</span>
               <span style="font-family:var(--font-mono); font-size:0.72rem;">Protocol</span>
             </div>
             <div class="card-title">All Operations are GET</div>
             <div class="card-desc">Optimizes for the primary consumer: shell scripts and agent tools. Any action is callable via a single curl or URL without JSON wrapping.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D4</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Metrology</span>
+            </div>
+            <div class="card-title">Status Reports the Preview</div>
+            <div class="card-desc"><code>/api/status</code> reports what the repeating preview request measured and says so in <code>measured_from</code>, because that is the only thing it can describe. A capture describes itself (D8).</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D5</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Protocol</span>
+            </div>
+            <div class="card-title">An Unknown Parameter Is an Error</div>
+            <div class="card-desc">If the server ignored it, the agent would get an unchanged image and believe the setting had applied.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D6</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Optics</span>
+            </div>
+            <div class="card-title">Pan Steps in ROI Widths</div>
+            <div class="card-desc"><code>pan left</code> moves one ROI width, not a fraction of the frame, so it does the same thing at 1x and at 8x. A person and an agent both expect this.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D7</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Power</span>
+            </div>
+            <div class="card-title">Preview Frames Convert on Demand</div>
+            <div class="card-desc">The engine encodes a preview frame only while someone is watching. The watcher count is an atomic counter, because a lost update on a plain field would leave it above zero for ever and defeat the decision quietly.</div>
           </div>
 
           <div class="info-card">
@@ -974,6 +1059,33 @@ SNAP</textarea>
             </div>
             <div class="card-title">Tri-Partite Parameters</div>
             <div class="card-desc">Divides parameters into: <strong>Camera State</strong> (persists: zoom, focus, exposure, rotate), <strong>Presentation</strong> (one request: w, h, jpegq), and <strong>Router</strong> (settle, fresh, timeout).</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D10</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Concurrency</span>
+            </div>
+            <div class="card-title">A Stream Is a View</div>
+            <div class="card-desc"><code>/api/stream</code> takes <code>fps</code>, <code>n</code>, <code>w</code>, <code>h</code>, <code>jpegq</code> and nothing that changes the camera; such a parameter is refused with 400 naming <code>/api/set</code>. Before this, opening the console wrote its rotation into shared state and changed an agent's next capture.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D11</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Lifecycle</span>
+            </div>
+            <div class="card-title">The Server Starts Before the Camera</div>
+            <div class="card-desc">The part that reports a fault must not stop with the part that has the fault. <code>/api/status</code> carries <code>state</code> and <code>last_error</code> and the engine keeps trying. The watchdog checks that frames are arriving, not that a handle is non-null, because an open camera delivering nothing is what heat throttling looks like.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D12</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Metrology</span>
+            </div>
+            <div class="card-title">A Measurement Refuses Rather Than Guesses</div>
+            <div class="card-desc">Three wrong measurements in one session had the same shape: a number with nothing to say how large a difference had to be. Every tool in <code>frontend/analysis/</code> returns a confidence, refuses below a stated limit, and enforces the same-against-same floor recorded beside the captures.</div>
           </div>
 
           <div class="info-card">
@@ -1000,7 +1112,7 @@ SNAP</textarea>
               <span style="font-family:var(--font-mono); font-size:0.72rem;">Thermal</span>
             </div>
             <div class="card-title">Stream Sheds, Capture Never Does</div>
-            <div class="card-desc">When phone hits severe thermal status, MJPEG frame rate is dropped to 1/4. Captures are never altered or slowed, preserving scientific exposure timing.</div>
+            <div class="card-desc">The stream interval is multiplied by the platform's thermal level: 2 at <code>moderate</code>, 4 at <code>severe</code>, 8 at <code>critical</code>, 20 at <code>emergency</code> and <code>shutdown</code>. It never closes, so the reason still arrives. Captures are never altered or slowed.</div>
           </div>
 
           <div class="info-card">
@@ -1010,6 +1122,15 @@ SNAP</textarea>
             </div>
             <div class="card-title">Idle Sensor Shutdown</div>
             <div class="card-desc">Halts repeating preview request after 20 seconds of inactivity. Wakes on demand, guaranteeing 4 discarded frames for 3A convergence before taking a picture.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D17</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Optics</span>
+            </div>
+            <div class="card-title">Crop and Focus Region Are Two Rectangles</div>
+            <div class="card-desc"><code>meteringForRoi()</code> used to derive the autofocus, metering and sharpness windows from the crop, so "what I want in the picture" and "what should be sharp" were one statement. They coincide until someone wants a wide frame with one connector sharp.</div>
           </div>
         </div>
       </section>
