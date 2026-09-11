@@ -490,6 +490,39 @@ paragraph gave one hunt per region, 20.92, 47.33 and 0.70, against a known hunt-
 spread of 34.9 to 64.5 on an unchanged subject, which made the first two numbers
 indistinguishable from noise. They are withdrawn.
 
+**D18. A surface sits with what it has to touch.** The phone owns the camera. The
+workstation owns the captures and their sidecars, the access key, and the APK. A tool for a
+person goes to whichever side owns what it touches, so the test for any feature is whether
+it needs the camera or needs the disk and the key.
+
+The page the phone serves is therefore the bench tool, for a person looking at the thing on
+the bench: aiming, framing, focusing and lighting it. It needs nothing but the camera. Any
+browser on the network opens it with nothing installed, and its stream comes straight from
+the phone instead of being relayed through the workstation. It is the only live view.
+
+The Go binary is everything else. The CLI drives the camera for an agent and holds the key.
+`deskcam serve` hosts the APK and the pairing code, because a phone installing without adb
+needs something to download from. It has no live view, no relay and no framing controls.
+Whether it keeps showing a person the captures on disk is open. If it does, that is because
+the captures are files on the workstation and the phone stores nothing (D14).
+
+Before this, both pages carried a live view with gestures of their own, drag to frame on one
+and click to centre on the other, and they drifted apart. Card 63 then added one overlay to
+both, with the same defect in both, and it hid both live views from the first paint. Nobody
+saw it until the phone's page was opened in a browser on 2026-09-12. Two copies of one tool
+is how that happens.
+
+This does not reorder the consumers. The agent is still the primary consumer and R1 to R8
+still hold; this decides where the secondary consumer's tools live. A person at the bench
+and an agent can both change the camera, and D14 keeps an agent's sequence whole while they
+do, so the bench tool has to say so when a tape holds the camera rather than drop the
+person's click.
+
+One consequence comes first. The access check covers every path, the page included, and the
+page's own requests carry no key, so with a key set the bench tool fails. The console's relay
+exists to get around that. The fix belongs on the phone, and until it lands the console keeps
+its live view.
+
 ## Non-goals
 
 **No TLS.** The service is for a trusted LAN. A self-signed certificate would make `-k`

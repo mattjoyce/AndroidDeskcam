@@ -77,6 +77,35 @@ public final class Geom {
         return new int[]{left, top, rw, rh};
     }
 
+    /**
+     * A point in the picture the caller SEES, mapped onto the sensor.
+     *
+     * {@link #roi} and {@link #box} do this inline for a rectangle they are about to place.
+     * A mark needs it on its own, because a mark is kept rather than used and thrown away:
+     * it names a part of the thing on the bench, so it is stored on the sensor and mapped
+     * back into the seen picture every time it is read. Keep it the way it was named and
+     * the day somebody remounts the phone and sets rotate=180, every mark slides off the
+     * part it names. Card 71.
+     */
+    public static float[] toSensor(float cx, float cy, int rotate) {
+        switch (rotate) {
+            case 90:  return new float[]{cy, 1f - cx};
+            case 180: return new float[]{1f - cx, 1f - cy};
+            case 270: return new float[]{1f - cy, cx};
+            default:  return new float[]{cx, cy};
+        }
+    }
+
+    /** The inverse of {@link #toSensor}: a point on the sensor, in the picture as seen. */
+    public static float[] toSeen(float sx, float sy, int rotate) {
+        switch (rotate) {
+            case 90:  return new float[]{1f - sy, sx};
+            case 180: return new float[]{1f - sx, 1f - sy};
+            case 270: return new float[]{sy, 1f - sx};
+            default:  return new float[]{sx, sy};
+        }
+    }
+
     /** Whether two rectangles, each as left, top, width, height, share any pixel. */
     public static boolean overlap(int[] a, int[] b) {
         return a[0] < b[0] + b[2] && b[0] < a[0] + a[2]

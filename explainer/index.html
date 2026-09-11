@@ -56,7 +56,7 @@
         <a href="#command-playground" class="nav-link">Command Builder <span class="nav-badge">★</span></a>
         <a href="#http-contract" class="nav-link">HTTP API Contract <span class="nav-badge">08</span></a>
         <a href="#metrology-refusal" class="nav-link">Metrology & Refusal <span class="nav-badge">09</span></a>
-        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D17) <span class="nav-badge">10</span></a>
+        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D18) <span class="nav-badge">10</span></a>
       </div>
     </aside>
 
@@ -899,6 +899,11 @@ SNAP</textarea>
                 <td>Executes plain-text tape of verbs atomically. Rejects concurrent camera writers with <strong>HTTP 409 Conflict</strong>.</td>
               </tr>
               <tr>
+                <td><code>GET /api/marks</code></td>
+                <td><code>application/json</code></td>
+                <td>What a person or an agent is pointing at. Stored in sensor coordinates and served in the coordinates of the seen picture, so a mark stays on its part through any zoom, pan or remount.</td>
+              </tr>
+              <tr>
                 <td><code>GET /api/orientation</code></td>
                 <td><code>application/json</code></td>
                 <td>Average angle between optical axis and gravity vector over 32 samples, plus ambient lux.</td>
@@ -988,9 +993,9 @@ SNAP</textarea>
         </div>
       </section>
 
-      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D17) -->
+      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D18) -->
       <section id="architectural-decisions">
-        <h2>Architectural Decisions (D1–D17)</h2>
+        <h2>Architectural Decisions (D1–D18)</h2>
         <div class="card-grid">
           <div class="info-card">
             <div class="card-header">
@@ -1143,6 +1148,15 @@ SNAP</textarea>
             </div>
             <div class="card-title">Crop and Focus Region Are Two Rectangles</div>
             <div class="card-desc"><code>meteringForRoi()</code> used to derive the autofocus, metering and sharpness windows from the crop, so "what I want in the picture" and "what should be sharp" were one statement. They coincide until someone wants a wide frame with one connector sharp.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D18</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Surfaces</span>
+            </div>
+            <div class="card-title">A Surface Sits With What It Touches</div>
+            <div class="card-desc">The phone owns the camera, so the page it serves is the bench tool and the only live view. The workstation owns the captures, the key and the APK, so the Go binary does everything else. Two live views with gestures of their own had drifted apart.</div>
           </div>
         </div>
       </section>

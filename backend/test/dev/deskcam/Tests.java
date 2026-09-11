@@ -57,6 +57,9 @@ public final class Tests {
         anUnknownThermalLevelChangesNothing();
         aFocusBoxSitsWhereItWasNamed();
         aFocusBoxTurnsWithTheFrame();
+        aMarkSurvivesTheRoundTripToTheSensor();
+        aMarkStaysOnItsPartWhenTheFrameTurns();
+        aLabelIsCleanedAndCapped();
         aFocusBoxIsClampedAndNeverInsideOut();
         boxesOverlapOrTheyDoNot();
         aVpnDoesNotHideTheWifiAddress();
@@ -668,6 +671,50 @@ public final class Tests {
      * at 180 degrees a point a quarter across and a quarter down must land three quarters
      * across and three quarters down in the sensor.
      */
+    /**
+     * Card 71. Everything about a mark rests on these two being inverses: a mark is named
+     * in the picture somebody sees, stored on the sensor, and read back into whatever
+     * picture is being shown when somebody asks.
+     */
+    private static void aMarkSurvivesTheRoundTripToTheSensor() {
+        for (int rotate : new int[]{0, 90, 180, 270}) {
+            float[] sensor = Geom.toSensor(0.25f, 0.4f, rotate);
+            float[] back = Geom.toSeen(sensor[0], sensor[1], rotate);
+            eq("round trip across at " + rotate, 250, Math.round(back[0] * 1000));
+            eq("round trip down at " + rotate, 400, Math.round(back[1] * 1000));
+        }
+    }
+
+    /**
+     * The reason marks are not kept the way they were named. A mark made while the phone
+     * stood upright must be drawn on the same physical part after somebody bolts the phone
+     * on upside down, which means its seen coordinates have to change.
+     */
+    private static void aMarkStaysOnItsPartWhenTheFrameTurns() {
+        float[] sensor = Geom.toSensor(0.2f, 0.3f, 0);
+
+        float[] half = Geom.toSeen(sensor[0], sensor[1], 180);
+        eq("a half turn mirrors across", 800, Math.round(half[0] * 1000));
+        eq("a half turn mirrors down", 700, Math.round(half[1] * 1000));
+
+        float[] quarter = Geom.toSeen(sensor[0], sensor[1], 90);
+        eq("a quarter turn across", 700, Math.round(quarter[0] * 1000));
+        eq("a quarter turn down", 200, Math.round(quarter[1] * 1000));
+    }
+
+    /**
+     * A label is the only text here that one client writes and another reads, so the
+     * length and the control characters are settled before it is stored.
+     */
+    private static void aLabelIsCleanedAndCapped() {
+        eq("nothing becomes empty", "", Parse.label(null));
+        eq("a tab becomes a space", "a b", Parse.label("a\tb"));
+        eq("trimmed", "pin 1", Parse.label("  pin 1  "));
+        eq("capped", Parse.LABEL_MAX, Parse.label("x".repeat(200)).length());
+        eq("markup is kept as text, the page draws it as text",
+                "<script>x</script>", Parse.label("<script>x</script>"));
+    }
+
     private static void aFocusBoxTurnsWithTheFrame() {
         int[] none = Geom.box(1000, 1000, 0.25f, 0.25f, 0.1f, 0.1f, 0);
         eq("upright, left", 200, none[0]);
@@ -848,6 +895,13 @@ public final class Tests {
     private static void eq(String what, long expected, long actual) {
         checks++;
         if (expected != actual) fail(what + ": expected " + expected + ", got " + actual);
+    }
+
+    private static void eq(String what, String expected, String actual) {
+        checks++;
+        if (!expected.equals(actual)) {
+            fail(what + ": expected '" + expected + "', got '" + actual + "'");
+        }
     }
 
     private static void eq(String what, float expected, float actual) {

@@ -96,6 +96,55 @@ public final class Parse {
      * camera did before card 60 and is right whenever the thing you framed is the thing
      * you want sharp.
      */
+    /**
+     * A mark as cx,cy for a point or cx,cy,w,h for a box.
+     *
+     * The same coordinates and the same spelling as a focus box, because a second way to
+     * write a rectangle in one API is how a measurement comes out wrong. Card 71.
+     */
+    public static float[] mark(String v) {
+        String t = v.trim().toLowerCase(Locale.US);
+        String[] parts = t.split("[,: ]+");
+        if (parts.length != 2 && parts.length != 4) {
+            throw new NumberFormatException("a mark is cx,cy for a point or cx,cy,w,h for a "
+                    + "box, in fractions of the frame, e.g. 0.3,0.7 or 0.3,0.7,0.15,0.15; "
+                    + "got '" + v + "'");
+        }
+        float[] out = new float[parts.length];
+        for (int i = 0; i < parts.length; i++) out[i] = number(parts[i]);
+        if (out[0] < 0 || out[0] > 1 || out[1] < 0 || out[1] > 1) {
+            throw new NumberFormatException("the centre of a mark is 0 to 1 across and down "
+                    + "the frame, the same coordinates as cx and cy; got "
+                    + out[0] + "," + out[1]);
+        }
+        if (out.length == 4 && (out[2] <= 0 || out[2] > 1 || out[3] <= 0 || out[3] > 1)) {
+            throw new NumberFormatException("the width and height of a mark are fractions of "
+                    + "the frame, above 0 and at most 1; got " + out[2] + "," + out[3]);
+        }
+        return out;
+    }
+
+    /** How long a mark's label may be. Enough for a sentence about one part. */
+    public static final int LABEL_MAX = 80;
+
+    /**
+     * The words on a mark, made safe to keep and to draw.
+     *
+     * This is the only text in the project that one client writes and another reads, so it
+     * is the only place a control character or a runaway length could arrive from outside
+     * and be handed to somebody else's browser. The page draws it as text and never as
+     * markup, and this is the belt beside that brace.
+     */
+    public static String label(String v) {
+        if (v == null) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < v.length() && b.length() < LABEL_MAX; i++) {
+            char c = v.charAt(i);
+            b.append(c < 0x20 || c == 0x7f ? ' ' : c);
+        }
+        return b.toString().trim();
+    }
+
     public static float[] focusBox(String v) {
         String t = v.trim().toLowerCase(Locale.US);
         if (t.isEmpty() || t.equals("off") || t.equals("auto") || t.equals("roi")) return null;

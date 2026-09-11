@@ -474,6 +474,7 @@ Every operation is an HTTP GET, except `/api/script` which is POST.
 | `/api/walk` | GET | `application/x-tar` | Stills walking parameter `vary` across list `values` |
 | `/api/script` | POST | `multipart/mixed` | Run atomic action tape; streams JSON step events and capture files |
 | `/api/reset` | GET | `application/json` | Reset camera settings to factory defaults |
+| `/api/marks` | GET | `application/json` | What a person or an agent is pointing at, kept on the sensor so it survives zoom, pan and rotate |
 | `/api/orientation` | GET | `application/json` | Live angle to gravity vector and ambient light (lux) |
 | `/api/cameras` | GET | `application/json` | Enumerate available sensors and hardware capability levels |
 | `/api/shadingmap` | GET | `application/json` | Lens shading correction map (if provided by HAL) |
@@ -537,6 +538,8 @@ These parameters configure execution, pacing, intervals, and sweep ranges.
 | `coarse`, `fine` | The focus hunt: how many readings over the whole range, and how many around the best of them |
 | `base`, `stops` | The exposure bracket: the shortest exposure, and how many frames of twice the one before |
 | `vary`, `values` | The walk: which camera parameter to vary, and the list to vary it over |
+| `mark`, `unmark` | A mark to add, as `cx,cy` for a point or `cx,cy,w,h` for a box, and the id to remove or `all` |
+| `label`, `by` | The words on the mark being added, and who is claiming to have made it |
 
 ### Errors
 
