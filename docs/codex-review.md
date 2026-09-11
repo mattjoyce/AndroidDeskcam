@@ -49,3 +49,15 @@ outstanding poll, releasing that guard on success, failure or timeout.
 
 Five page regressions pass, including stalled headers, a stalled JSON body, recovery
 with a later command, and duplicate polls while an earlier request is pending.
+
+### Ordered control delivery
+
+Controls and pan now share one queue. Adjacent unsent absolute values for the same
+control are replaced by the latest value; autofocus, reset, relative moves and other
+intervening actions retain their order. Up to 64 distinct commands may wait. Failure
+cancels unsent controls with a visible explanation, rather than running them against
+an uncertain camera state. No camera command is automatically retried.
+
+Eight page regressions pass. The new checks reproduced the missing final slider value
+and simultaneous pan/control requests, then verified coalescing, action ordering and
+cancellation after an ambiguous timeout.

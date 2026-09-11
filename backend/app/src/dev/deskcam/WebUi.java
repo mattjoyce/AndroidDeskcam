@@ -501,17 +501,52 @@ async function requestJson(path) {
 }
 
 let busy = false;
+const commands = [];
 
-/* The answer's status code decides what happens. This used to read the body and nothing
-   else, so a 409 from a script holding the camera (D14) parsed as JSON with no settings in
-   it, render() returned early, and the click disappeared with nothing said. Card 69. */
-async function api(url) {
-  if (busy) {
-    // Dropping it in silence is how you end up not knowing whether you pressed anything.
-    roll(url).done(0, 0, 'not sent, the last request has not answered yet');
-    return null;
-  }
+// Only adjacent, unsent absolute values can replace one another. Relative moves and
+// actions keep their order, and coalescing never crosses an autofocus or reset.
+function api(url, coalesce = '') {
+  return new Promise(function (resolve) {
+    const tail = commands[commands.length - 1];
+    if (coalesce && tail && tail.coalesce === coalesce) {
+      tail.url = url;
+      tail.waiters.push(resolve);
+    } else {
+      if (commands.length >= 64) {
+        roll(url).done(0, 0, 'not sent, too many pending controls');
+        say('Too many pending controls. Wait for the camera to answer.', true);
+        resolve(null);
+        return;
+      }
+      commands.push({url: url, coalesce: coalesce, waiters: [resolve]});
+    }
+    if (!busy) drainCommands();
+  });
+}
+
+async function drainCommands() {
   busy = true;
+  try {
+    while (commands.length) {
+      const command = commands.shift();
+      const result = await sendCommand(command.url);
+      command.waiters.forEach(function (resolve) { resolve(result); });
+      if (!result && commands.length) {
+        // A failed command may already have changed the camera. Do not send a sequence
+        // based on its assumed success, and do not retry relative moves automatically.
+        commands.splice(0).forEach(function (pending) {
+          roll(pending.url).done(0, 0, 'not sent, an earlier command failed');
+          pending.waiters.forEach(function (resolve) { resolve(null); });
+        });
+        say(msg.textContent + ' Pending controls were cancelled.', true);
+      }
+    }
+  } finally {
+    busy = false;
+  }
+}
+
+async function sendCommand(url) {
   const entry = roll(url);
   deck.busy = verbOf(url);
   paintDeck();
@@ -533,7 +568,6 @@ async function api(url) {
     working(false);
     deck.busy = '';
     paintDeck();
-    busy = false;
   }
 }
 
@@ -608,7 +642,7 @@ async function copyLog() {
 }
 
 function setv(k, v) {
-  api('/api/set?' + k + '=' + encodeURIComponent(v));
+  return api('/api/set?' + k + '=' + encodeURIComponent(v), 'set:' + k);
 }
 
 function render(j) {
@@ -729,7 +763,6 @@ const msg = document.getElementById('msg');
 var last = {zoom: 1, cx: 0.5, cy: 0.5, box: null};
 var g = null;
 var holdTimer = 0, ringTimer = 0, msgTimer = 0;
-var panSending = false, panQueued = null;
 
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -918,30 +951,10 @@ async function frameBox(gg) {
   ringResult(0.5, 0.5, j);
 }
 
-/* A pan sends absolute coordinates and keeps one request in flight, coalescing whatever
-   arrives while it waits. dx and dy are relative moves (R8), so a dropped answer would
-   compound instead of being overwritten. */
-async function sendPan(cx, cy) {
-  panQueued = [cx, cy];
-  if (panSending) return;
-  panSending = true;
-  // One line for the whole drag, not one per frame of it.
-  const entry = roll('/api/set?pan');
-  const t0 = Date.now();
-  var sends = 0, status = 0;
-  while (panQueued) {
-    const q = panQueued;
-    panQueued = null;
-    try {
-      const {r, j} = await requestJson('/api/set?cx=' + q[0].toFixed(4) + '&cy=' + q[1].toFixed(4));
-      sends++;
-      status = r.status;
-      if (!r.ok) { complain(r.status, j); break; }
-      render(j);
-    } catch (e) { status = 0; say(String(e), true); panQueued = null; break; }
-  }
-  entry.done(status, Date.now() - t0, sends + (sends === 1 ? ' move' : ' moves'));
-  panSending = false;
+/* Pan uses the same queue as every other camera command. Consecutive pending absolute
+   positions can be combined, but a focus or other control between them keeps its place. */
+function sendPan(cx, cy) {
+  return api('/api/set?cx=' + cx.toFixed(4) + '&cy=' + cy.toFixed(4), 'pan');
 }
 
 function drawBox(gg) {

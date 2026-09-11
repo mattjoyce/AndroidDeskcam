@@ -74,3 +74,45 @@ test('the deadline also covers a response whose JSON body never finishes', async
   assert.equal(await command, null);
   assert.match(p.element('msg').textContent, /timed out/i);
 });
+
+test('slider input keeps the final value and coalesces intermediate pending values', async () => {
+  const p = await panel();
+  p.calls.length = 0;
+  p.run("setv('zoom', 2); setv('zoom', 3); setv('zoom', 4); setv('zoom', 5);");
+  await p.flush();
+  assert.equal(p.calls.length, 1);
+  p.calls[0].reply(status(2));
+  await p.flush();
+  assert.equal(p.calls.length, 2);
+  assert.match(p.calls[1].url, /zoom=5/);
+  p.calls[1].reply(status(5));
+  await p.flush();
+  assert.equal(p.run('last.zoom'), 5);
+});
+
+test('coalescing does not cross an autofocus action and pan shares the command queue', async () => {
+  const p = await panel();
+  p.calls.length = 0;
+  p.run("setv('zoom', 2); setv('zoom', 3); api('/api/af'); setv('zoom', 4); sendPan(0.6, 0.7);");
+  await p.flush();
+  const expected = [/zoom=2/, /zoom=3/, /\/api\/af/, /zoom=4/, /cx=0.6000&cy=0.7000/];
+  for (let i = 0; i < expected.length; i++) {
+    assert.equal(p.calls.length, i + 1, 'one command in flight');
+    assert.match(p.calls[i].url, expected[i]);
+    p.calls[i].reply();
+    await p.flush();
+  }
+});
+
+test('an ambiguous timeout cancels queued controls and never replays them', async () => {
+  const p = await panel();
+  p.calls.length = 0;
+  const first = p.run("api('/api/af')");
+  const queued = p.run("api('/api/set?zoom=6')");
+  await p.flush();
+  await p.advance(15001);
+  assert.equal(await first, null);
+  assert.equal(await queued, null);
+  assert.equal(p.calls.length, 1);
+  assert.match(p.element('msg').textContent, /cancelled/i);
+});
