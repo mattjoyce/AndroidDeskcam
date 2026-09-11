@@ -548,11 +548,14 @@ This sidecar was written by `deskcam snap -o board.jpg zoom=4 cx=0.5 cy=0.5` on 
 
 `settings` is what was asked for; `null` means the automatic mode was in charge. `measured` is what the sensor reported for that frame, taken from the capture result and not from a later status call (`from` says so). `focus_metres_approx` is a conversion from the lens position through the calibration in `docs/DECISIONS.md` and is not a measured distance. `pipeline` is what the HAL applied, and with `measure=1` every entry there reads `off` and the tone map is linear. `orientation` is absent when the phone reports no gravity sensor. A `scale` block appears when `deskcam scale` has recorded pixels per millimetre for this framing. There is no thermal or battery block in a sidecar; that state is in `/api/status` and on the stream headers below.
 
-HTTP responses also carry diagnostic headers:
-* `X-DeskCam-ROI`: The normalized crop rectangle applied to the frame.
-* `X-DeskCam-Fps`: The actual preview frame delivery rate.
-* `X-DeskCam-Thermal`: The Android platform thermal state (`none`, `light`, `moderate`, `severe`, `critical`).
-* `X-DeskCam-Shedding`: Explains when and why video stream rates are throttled due to thermal load.
+HTTP responses also carry headers, and which ones depends on the endpoint (`HttpServer.java` is the source of truth):
+* `X-DeskCam-Provenance`: on `/api/still`, the frame's own record as one line of JSON, the same content as the sidecar. Omitted if it would exceed 7000 bytes.
+* `X-DeskCam-ROI`: on `/api/raw`, the framing that was asked for. A DNG carries the whole sensor, so the crop is reported rather than applied.
+* `X-DeskCam-Frames` and `X-DeskCam-Frames-Requested`: on `/api/burst`, how many frames came back against how many were asked for. A short burst answers 206 rather than 200. `/api/focuswalk` sends `X-DeskCam-Frames` alone.
+* `X-DeskCam-Millis`: on `/api/burst` and `/api/focuswalk`, wall-clock time for the whole capture.
+* `X-DeskCam-Fps`: on `/api/burst`, the rate the frames were actually taken at. On each part of `/api/stream`, the rate this part was sent at after shedding.
+* `X-DeskCam-Thermal`: on each part of `/api/stream`, the platform thermal state as one word: `none`, `light`, `moderate`, `severe`, `critical`, `emergency`, `shutdown`. It is `unknown` before the platform has reported, and `level N` for a value this build does not know. Parse for all nine.
+* `X-DeskCam-Shedding`: on a stream part, and only once the rate has been cut, one sentence saying what the level means and what to do. `emergency` and `shutdown` both say to stop the session.
 
 ---
 
@@ -634,11 +637,13 @@ A smartphone bolted to an inspection arm running a camera sensor and holding an 
 DeskCam incorporates an automated load shedding architecture:
 
 1. **Stream Throttling, Capture Priority**: Video streaming (`/api/stream`) is a continuous workload. When platform thermals rise, stream frame rates are automatically throttled:
-   * `none` / `light`: Full requested rate (up to 30 fps).
+   * `none` / `light`: Full requested rate (up to 30 fps). The platform defines `light` as throttling nobody can feel.
    * `moderate`: 50% rate.
    * `severe`: 25% rate.
    * `critical`: 12.5% rate.
-   Discrete captures (`snap`, `burst`, `raw`) are **never slowed down or dropped**. A measurement capture takes the exact exposure requested.
+   * `emergency` / `shutdown`: 5% rate. The stream is kept open at a trickle so the reason still reaches you. Stop the session.
+   * `unknown` (not reported yet) and any level this build does not know: full rate, and the level reported as given.
+   The table is `Thermal.slowdown` in `Thermal.java`, and the backend unit tests check it is monotone and never below 1. Discrete captures (`snap`, `burst`, `raw`) are **never slowed down or dropped**. A measurement capture takes the exact exposure requested.
 2. **Automatic Preview Idling**: If no client requests a frame or connects to a stream for 20 seconds, DeskCam halts repeating preview requests to allow the image sensor and processor to cool. The next incoming capture wakes the sensor, allows the exposure loop to converge, and captures seamlessly.
 3. **Battery Charge Thresholding**: Running continuously at 100% battery while plugged into USB degrades lithium-ion cells and generates heat. GrapheneOS and modern Android builds support stopping charging at 80%. DeskCam's `/api/status` distinguishes between `plugged_in: true` and `charging: false` to avoid false alerts about broken cables.
 
