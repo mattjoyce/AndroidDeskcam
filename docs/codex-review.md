@@ -61,3 +61,12 @@ an uncertain camera state. No camera command is automatically retried.
 Eight page regressions pass. The new checks reproduced the missing final slider value
 and simultaneous pan/control requests, then verified coalescing, action ordering and
 cancellation after an ambiguous timeout.
+
+### Fresh state on the panel
+
+A revision counter now invalidates status and marks polls that overlap a local command.
+Polls do not start while controls are pending. Intermediate command replies still update
+known framing, but leave controls alone until the pending input has been sent.
+
+Ten page regressions pass, including a delayed pre-command status response, a later
+external change that must still arrive, and a slider with unsent final input.

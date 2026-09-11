@@ -502,6 +502,7 @@ async function requestJson(path) {
 
 let busy = false;
 const commands = [];
+let controlRevision = 0;
 
 // Only adjacent, unsent absolute values can replace one another. Relative moves and
 // actions keep their order, and coalescing never crosses an autofocus or reset.
@@ -520,6 +521,7 @@ function api(url, coalesce = '') {
       }
       commands.push({url: url, coalesce: coalesce, waiters: [resolve]});
     }
+    controlRevision++;
     if (!busy) drainCommands();
   });
 }
@@ -557,7 +559,7 @@ async function sendCommand(url) {
     entry.done(r.status, Date.now() - t0, r.ok ? '' : (j.error || ''));
     if (!r.ok) { complain(r.status, j); return null; }
     msg.hidden = true;
-    render(j);
+    render(j, commands.length === 0);
     return j;
   } catch (e) {
     entry.done(0, Date.now() - t0, String(e));
@@ -645,27 +647,30 @@ function setv(k, v) {
   return api('/api/set?' + k + '=' + encodeURIComponent(v), 'set:' + k);
 }
 
-function render(j) {
+function render(j, updateControls = true) {
   const s = j.settings || (j.status && j.status.settings);
   if (!s) return;
   // The crop every gesture measures itself against, kept fresh from whatever answered last.
   last = {zoom: Number(s.zoom), cx: Number(s.cx), cy: Number(s.cy), box: s.focus_box};
   document.getElementById('status').textContent = JSON.stringify(j, null, 1);
-  document.getElementById('zoom').value = s.zoom;
-  document.getElementById('zoomv').textContent = Number(s.zoom).toFixed(1) + 'x';
-  document.getElementById('evv').textContent = s.ev;
-  document.getElementById('ev').value = s.ev;
-  document.getElementById('torch').value = s.torch;
-  document.getElementById('torchv').textContent = s.torch ? s.torch : 'off';
-  document.getElementById('af').value = s.af;
-  document.getElementById('ae').value = (s.ae === 'auto') ? 'on' : 'off';
-  document.getElementById('awb').value = s.awb;
-  if (s.focus_diopters === null) {
-    document.getElementById('focusv').textContent = 'auto';
-  } else {
-    document.getElementById('focus').value = s.focus_diopters;
-    document.getElementById('focusv').textContent =
-      s.focus_diopters < 0.05 ? 'inf' : (1 / s.focus_diopters).toFixed(2) + 'm';
+  // Intermediate acknowledgements update known framing, not unsent slider input.
+  if (updateControls) {
+    document.getElementById('zoom').value = s.zoom;
+    document.getElementById('zoomv').textContent = Number(s.zoom).toFixed(1) + 'x';
+    document.getElementById('evv').textContent = s.ev;
+    document.getElementById('ev').value = s.ev;
+    document.getElementById('torch').value = s.torch;
+    document.getElementById('torchv').textContent = s.torch ? s.torch : 'off';
+    document.getElementById('af').value = s.af;
+    document.getElementById('ae').value = (s.ae === 'auto') ? 'on' : 'off';
+    document.getElementById('awb').value = s.awb;
+    if (s.focus_diopters === null) {
+      document.getElementById('focusv').textContent = 'auto';
+    } else {
+      document.getElementById('focus').value = s.focus_diopters;
+      document.getElementById('focusv').textContent =
+        s.focus_diopters < 0.05 ? 'inf' : (1 / s.focus_diopters).toFixed(2) + 'm';
+    }
   }
   const m = j.measured || {};
   document.getElementById('meta').textContent =
@@ -722,16 +727,19 @@ function paintDeck() {
 
 var statusPending = false;
 async function refresh() {
-  if (statusPending) return;
+  if (statusPending || busy) return;
   statusPending = true;
+  const revision = controlRevision;
   try {
     const {r, j} = await requestJson('/api/status');
+    // A response captured before a local command cannot describe its result.
+    if (revision !== controlRevision || busy) return;
     deck.answered = r.ok;
     if (r.ok) deck.status = j;
     render(j);
   } catch (e) {
     // Keep the last good settings on a hiccup, but never keep claiming it is live.
-    deck.answered = false;
+    if (revision === controlRevision && !busy) deck.answered = false;
   } finally {
     statusPending = false;
   }
@@ -1050,11 +1058,12 @@ var MARKS = [];
 
 var marksPending = false;
 async function loadMarks() {
-  if (marksPending) return;
+  if (marksPending || busy) return;
   marksPending = true;
+  const revision = controlRevision;
   try {
     const {r, j} = await requestJson('/api/marks');
-    if (!r.ok) return;
+    if (!r.ok || revision !== controlRevision || busy) return;
     MARKS = j.marks || [];
     drawMarks();
     listMarks();

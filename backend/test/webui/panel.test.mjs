@@ -116,3 +116,37 @@ test('an ambiguous timeout cancels queued controls and never replays them', asyn
   assert.equal(p.calls.length, 1);
   assert.match(p.element('msg').textContent, /cancelled/i);
 });
+
+test('a status response started before a control cannot restore old framing', async () => {
+  const p = await panel();
+  p.run('refresh()');
+  const oldPoll = p.calls.at(-1);
+  const change = p.run("api('/api/set?zoom=5')");
+  await p.flush();
+  p.calls.at(-1).reply(status(5));
+  await change;
+  oldPoll.reply(status(1));
+  await p.flush();
+  assert.equal(p.run('last.zoom'), 5);
+  assert.equal(Number(p.element('zoom').value), 5);
+  p.run('refresh()');
+  p.calls.at(-1).reply(status(6));
+  await p.flush();
+  assert.equal(p.run('last.zoom'), 6, 'later external changes still arrive');
+});
+
+test('polls wait while controls are pending and intermediate replies leave slider input alone', async () => {
+  const p = await panel();
+  p.calls.length = 0;
+  p.run("setv('zoom', 2); setv('zoom', 5);");
+  p.element('zoom').value = '5';
+  p.run('refresh(); loadMarks();');
+  await p.flush();
+  assert.equal(p.calls.length, 1);
+  p.calls[0].reply(status(2));
+  await p.flush();
+  assert.equal(Number(p.element('zoom').value), 5);
+  p.calls[1].reply(status(5));
+  await p.flush();
+  assert.equal(Number(p.element('zoom').value), 5);
+});
