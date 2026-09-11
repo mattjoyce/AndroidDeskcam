@@ -29,3 +29,13 @@ are. No phone installation or live camera operation is part of this review.
 The snapshot builds successfully with `./backend/build.sh`: 462 Java checks pass.
 The browser regressions will exercise the shipped page script with controlled network
 responses and time. Device/browser visual validation remains a separate check.
+
+### Token propagation
+
+A token on the page URL was never inherited by its relative API URLs. The panel now
+adds the encoded token at the transport boundary, including the initial stream,
+restarts, pan and still-image links. Request logs retain credential-free URLs.
+
+`node --test backend/test/webui/panel.test.mjs` reproduced the missing token on
+`/api/status`, then passed both authenticated and open-panel checks after the fix.
+The harness executes the Java-interpreted page script with a controlled DOM/network.

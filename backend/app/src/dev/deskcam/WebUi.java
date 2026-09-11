@@ -348,7 +348,7 @@ public class WebUi {
 <main>
   <div class="left">
     <div class="viewport">
-      <img id="view" src="/api/stream?fps=12" alt="live view">
+      <img id="view" alt="live view">
       <div class="asleep" id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
       <div class="marks" id="marks"></div>
       <div class="offview" id="offview" hidden></div>
@@ -473,6 +473,14 @@ public class WebUi {
 </div>
 
 <script>
+// The server authenticates each request, including images. A query on the page URL is
+// not inherited by relative URLs. Add it at the transport boundary so logs stay key-free.
+const accessToken = new URLSearchParams(window.location.search).get('token');
+function requestUrl(path) {
+  if (!accessToken) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(accessToken);
+}
+
 let busy = false;
 
 /* The answer's status code decides what happens. This used to read the body and nothing
@@ -491,7 +499,7 @@ async function api(url) {
   working(true, verbOf(url));
   const t0 = Date.now();
   try {
-    const r = await fetch(url);
+    const r = await fetch(requestUrl(url));
     const j = await r.json();
     entry.done(r.status, Date.now() - t0, r.ok ? '' : (j.error || ''));
     if (!r.ok) { complain(r.status, j); return null; }
@@ -661,7 +669,7 @@ function paintDeck() {
 
 async function refresh() {
   try {
-    const r = await fetch('/api/status');
+    const r = await fetch(requestUrl('/api/status'));
     const j = await r.json();
     deck.answered = r.ok;
     if (r.ok) deck.status = j;
@@ -902,7 +910,7 @@ async function sendPan(cx, cy) {
     const q = panQueued;
     panQueued = null;
     try {
-      const r = await fetch('/api/set?cx=' + q[0].toFixed(4) + '&cy=' + q[1].toFixed(4));
+      const r = await fetch(requestUrl('/api/set?cx=' + q[0].toFixed(4) + '&cy=' + q[1].toFixed(4)));
       const j = await r.json();
       sends++;
       status = r.status;
@@ -1007,7 +1015,7 @@ var MARKS = [];
 
 async function loadMarks() {
   try {
-    const r = await fetch('/api/marks');
+    const r = await fetch(requestUrl('/api/marks'));
     if (!r.ok) return;
     const j = await r.json();
     MARKS = j.marks || [];
@@ -1133,12 +1141,12 @@ async function clearMarks() {
 }
 
 function still() {
-  window.open('/api/still?t=' + Date.now(), '_blank');
+  window.open(requestUrl('/api/still?t=' + Date.now()), '_blank');
 }
 
 function restream() {
   streamStartedAt = Date.now();
-  view.src = '/api/stream?fps=12&t=' + Date.now();
+  view.src = requestUrl('/api/stream?fps=12&t=' + Date.now());
 }
 
 /* The page has to notice when its own picture has stopped.
@@ -1153,9 +1161,7 @@ function restream() {
 
    The frozen case cannot be seen from the element, so the phone's own count of who is
    watching is the one that settles it. */
-/* streamStartedAt begins at load and not at zero, because the first stream never goes
-   through restream(): the img carries its src in the HTML. Starting at zero denied the
-   opening stream the grace period and let the watchdog call it dead on its first tick. */
+/* Every stream, including startup, gets its URL and grace period from restream(). */
 var streamDead = false, streamRetryAt = 0, streamStartedAt = Date.now();
 
 function streamLooksDead() {
@@ -1237,6 +1243,7 @@ document.addEventListener('visibilitychange', function () {
 });
 window.addEventListener('pagehide', stopView);
 
+if (!document.hidden) restream();
 refresh();
 loadMarks();
 setInterval(refresh, 2000);
