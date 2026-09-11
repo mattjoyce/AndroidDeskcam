@@ -265,7 +265,9 @@ def test_linearity_reports_the_exponent_with_the_pedestal_removed(tmp_path: Path
     rng = np.random.default_rng(7)
     for i, ms in enumerate([50, 71, 100, 141, 200, 283]):
         level = 0.5 * ms - 2.4
-        write_capture(d / f"e{i}.jpg", rng.normal(level, 0.3, size=(300, 400)), exposure_ns=int(ms * 1e6))
+        write_capture(
+            d / f"e{i}.jpg", rng.normal(level, 0.3, size=(300, 400)), exposure_ns=int(ms * 1e6)
+        )
     m = linearity.measure(d)
     assert m.ok, m.reason
     assert m.value is not None

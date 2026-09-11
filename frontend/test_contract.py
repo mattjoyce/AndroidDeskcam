@@ -141,3 +141,139 @@ def test_api_help_names_every_endpoint() -> None:
     assert not missing, f"/api/help does not mention {missing}"
     invented = sorted(advertised - routes)
     assert not invented, f"/api/help offers {invented}, which the server does not answer"
+
+
+# ------------------------------------------------------------------ the other copies
+#
+# The parameter contract was held to one copy above, and then everything else drifted
+# instead: one measurement acquired three published values, a seven-value enum was
+# documented with five, the CLI reference lost eleven commands, and the explainer's
+# "complete" endpoint list was eleven of nineteen. All of it while these tests were green.
+# The checks below read the same sources the documents were written from.
+
+USAGE = ROOT / "frontend" / "go" / "usage.go"
+THERMAL = BACKEND / "Thermal.java"
+EXPLAINER = ROOT / "explainer" / "index.html"
+SKILL = ROOT / "skill" / "SKILL.md"
+ANALYSIS = ROOT / "frontend" / "analysis"
+
+
+def fenced_block_after(text: str, heading: str) -> str:
+    """The first fenced code block after a Markdown heading."""
+    start = text.index(heading)
+    open_ = text.index("```\n", start) + 4
+    close = text.index("```\n", open_)
+    return text[open_:close]
+
+
+def routes() -> set[str]:
+    return set(re.findall(r'case "(/api/[a-z]+)"', SERVER.read_text()))
+
+
+def test_the_readme_cli_reference_is_the_usage_text() -> None:
+    """The CLI reference is a copy of what the binary prints, so it is held to be identical."""
+    src = USAGE.read_text()
+    printed = src[src.index("fmt.Print(`") + len("fmt.Print(`") : src.rindex("`)")]
+    assert fenced_block_after(README.read_text(), "### CLI Reference") == printed
+
+
+def test_the_readme_endpoint_table_is_the_router() -> None:
+    text = README.read_text()
+    table = text[text.index("### HTTP REST API Endpoints") : text.index("### Camera state")]
+    named = set(re.findall(r"^\| `(/api/[a-z]+)`", table, re.MULTILINE))
+    assert named == routes(), (
+        f"missing {sorted(routes() - named)}, invented {sorted(named - routes())}"
+    )
+
+
+def test_the_explainer_endpoint_table_is_the_router() -> None:
+    named = set(
+        re.findall(r"<td><code>(?:GET|POST) (/api/[a-z]+)</code></td>", EXPLAINER.read_text())
+    )
+    assert named == routes(), (
+        f"missing {sorted(routes() - named)}, invented {sorted(named - routes())}"
+    )
+
+
+def thermal_words() -> list[str]:
+    src = THERMAL.read_text()
+    body = src[src.index("static String word(") : src.index("static String means(")]
+    return re.findall(r'return "([a-z]+)";', body)
+
+
+def test_the_readme_lists_every_thermal_word() -> None:
+    """A parser built from the README must not fall through when the phone is in trouble."""
+    words = thermal_words()
+    assert "emergency" in words and "shutdown" in words, "the reader above has lost the enum"
+    text = README.read_text()
+    line = next(row for row in text.splitlines() if "`X-DeskCam-Thermal`" in row)
+    for word in words:
+        assert f"`{word}`" in line, f"the X-DeskCam-Thermal line does not list `{word}`"
+    ladder = text[text.index("### Thermal Rate Shedding") : text.index("### Console Security")]
+    for word in words:
+        if word != "unknown":
+            assert f"`{word}`" in ladder, f"the shedding ladder does not list `{word}`"
+
+
+def test_the_readme_lists_every_response_header() -> None:
+    emitted = set(re.findall(r"X-DeskCam-[A-Za-z-]+", SERVER.read_text()))
+    documented = set(re.findall(r"`(X-DeskCam-[A-Za-z-]+)`", README.read_text()))
+    assert emitted <= documented, f"the README does not list {sorted(emitted - documented)}"
+    assert documented <= emitted, (
+        f"the README lists {sorted(documented - emitted)}, which nothing sends"
+    )
+
+
+def test_the_explainer_refusal_limits_are_the_tools_constants() -> None:
+    """The page about refusal discipline once invented a gate; its numbers come from here."""
+    limits = {}
+    for tool, const in [
+        ("linearity", "FIT_LIMIT"),
+        ("scale", "PEAK_LIMIT"),
+        ("burstnoise", "TIGHTNESS_LIMIT"),
+        ("hdr", "COVERAGE_LIMIT"),
+    ]:
+        src = (ANALYSIS / f"{tool}.py").read_text()
+        found = re.search(rf"^{const} = ([\d.]+)", src, re.MULTILINE)
+        assert found, f"{tool}.py no longer declares {const}"
+        limits[tool] = float(found.group(1))
+    html = EXPLAINER.read_text()
+    start = html.index("Philosophy of Refusal")
+    table = html[start : html.index('id="architectural-decisions"', start)]
+    for name, tool in [
+        ("linearity", "linearity"),
+        ("scale", "scale"),
+        ("burst-noise", "burstnoise"),
+        ("hdr", "hdr"),
+    ]:
+        row = table[table.index(f"<code>{name}</code>") :]
+        row = row[: row.index("</tr>")]
+        shown = re.search(r"&lt; ([\d.]+)</td>", row)
+        assert shown, f"no limit shown for {name}"
+        assert float(shown.group(1)) == pytest.approx(limits[tool]), (
+            f"{name}: page says {shown.group(1)}, tool says {limits[tool]}"
+        )
+
+
+def test_the_explainer_lists_every_decision() -> None:
+    decided = set(re.findall(r"^\*\*D(\d+)\.", DECISIONS.read_text(), re.MULTILINE))
+    shown = set(re.findall(r"Decision D(\d+)</span>", EXPLAINER.read_text()))
+    assert decided, "DECISIONS.md has no numbered decisions"
+    assert shown == decided, (
+        f"missing {sorted(decided - shown, key=int)}, invented {sorted(shown - decided, key=int)}"
+    )
+
+
+def test_the_documents_quote_one_linearity_figure() -> None:
+    """One measurement was published as 2.062x, 2.004x and 2.02x at once. Never again."""
+    figure = re.compile(r"\b(\d\.\d{3})x\b")
+    readme_text = README.read_text()
+    readme_section = readme_text[readme_text.index("### Sensor Linearity") :]
+    readme_section = readme_section[: readme_section.index("\n### ", 10)]
+    skill_text = SKILL.read_text()
+    skill_section = skill_text[skill_text.index("## Measuring, not photographing") :]
+    skill_section = skill_section[: skill_section.index("\n## ", 10)]
+    readme = set(figure.findall(readme_section))
+    skill = set(figure.findall(skill_section))
+    assert readme, "the README no longer states the linearity result"
+    assert readme == skill, f"README says {sorted(readme)}, skill says {sorted(skill)}"
