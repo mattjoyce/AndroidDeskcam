@@ -19,8 +19,8 @@ For why it is built this way, refer to [docs/DECISIONS.md](docs/DECISIONS.md). F
 What you are trusting when you run this, and where to check each claim:
 
 * **Zero Gradle, Zero Android Studio, Zero AGP**: The phone app compiles directly with Android SDK build tools (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`) in under 5 seconds. No Gradle daemon, no downloading unknown Maven plugins or transitive dependencies.
-* **Zero Go Dependencies**: The workstation CLI compiles to a single, static binary with zero external packages.
-* **Zero Cloud Calls or Telemetry**: The Android app does not contact external internet services. It operates strictly on your trusted local Wi-Fi LAN or over an `adb reverse` USB loopback cable.
+* **One Go Dependency**: The workstation CLI compiles to a single static binary. Its only module outside the standard library is `rsc.io/qr` v0.2.0, for the pairing QR code, pinned in `go.sum`.
+* **Zero Cloud Calls or Telemetry**: Nothing in this repository contacts the internet. The Android app talks only to your LAN or to an `adb forward` USB loopback; the CLI talks only to the phone; the explainer page loads no remote fonts or scripts.
 * **Stateless & Contract-Tested**: The HTTP interface is the single, clean seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) guards the parameter surface against documentation or code drift.
 
 **There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Console Security](#console-security-qr-pairing-and-access-tokens)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
@@ -546,7 +546,7 @@ This sidecar was written by `deskcam snap -o board.jpg zoom=4 cx=0.5 cy=0.5` on 
 }
 ```
 
-`settings` is what was asked for; `null` means the automatic mode was in charge. `measured` is what the sensor reported for that frame, taken from the capture result and not from a later status call (`from` says so). `focus_metres_approx` is a conversion from the lens position through the calibration in `docs/DECISIONS.md` and is not a measured distance. `pipeline` is what the HAL applied, and with `measure=1` every entry there reads `off` and the tone map is linear. `orientation` is absent when the phone reports no gravity sensor. A `scale` block appears when `deskcam scale` has recorded pixels per millimetre for this framing. There is no thermal or battery block in a sidecar; that state is in `/api/status` and on the stream headers below.
+`settings` is what was asked for; `null` means the automatic mode was in charge. `measured` is what the sensor reported for that frame, taken from the capture result and not from a later status call (`from` says so). `focus_metres_approx` is one divided by the lens position in dioptres; the camera reports its focus calibration as `APPROXIMATE`, so it is not a measured distance and the word stays in the key. `pipeline` is what the HAL applied, and with `measure=1` every entry there reads `off` and the tone map is linear. `orientation` carries `"available": false` and nothing else when the phone has no gravity sensor. A `scale` block appears when `deskcam scale` has recorded pixels per millimetre for this framing. There is no thermal or battery block in a sidecar; that state is in `/api/status` and on the stream headers below.
 
 HTTP responses also carry headers, and which ones depends on the endpoint (`HttpServer.java` is the source of truth):
 * `X-DeskCam-Provenance`: on `/api/still`, the frame's own record as one line of JSON, the same content as the sidecar. Omitted if it would exceed 7000 bytes.
