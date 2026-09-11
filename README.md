@@ -134,7 +134,7 @@ The command saves the full-resolution still to disk and prints its absolute path
 deskcam-20260911-061500.jpg
 ```
 
-Beside the image, DeskCam creates `deskcam-20260911-061500.json` containing the complete optical state, sensor exposure, ISO, focus dioptres, and device thermal telemetry.
+Beside the image, DeskCam creates `deskcam-20260911-061500.json`: the settings that were asked for, what the sensor measured for that frame (exposure, ISO, focus, white balance gains), what the image pipeline applied, and the phone's orientation. The same record is in the JPEG's EXIF `UserComment`.
 
 ---
 
@@ -451,37 +451,102 @@ Device-specific physical limits (`max_output_edge`, `max_output_pixels`, `burst_
 
 Every capture writes an adjacent `NAME.json` sidecar on disk and embeds the identical telemetry inside EXIF `UserComment` (for JPEG) or `ImageDescription` (for DNG).
 
-Example sidecar summary:
+This sidecar was written by `deskcam snap -o board.jpg zoom=4 cx=0.5 cy=0.5` on 2026-09-11, with the camera on automatic exposure and focus. Every key is as the tool wrote it:
 ```json
 {
-  "camera": 0,
-  "zoom": 4.0,
-  "roi": {"cx": 0.32, "cy": 0.68, "w": 0.25, "h": 0.25},
-  "settings": {
-    "exposure_ns": 30270000,
-    "iso": 163,
-    "focus_diopters": 4.464,
-    "focus_metres": 0.224,
-    "torch_level": 25,
-    "capture_path": "decoded_and_reencoded"
-  },
+  "bytes": 123051,
+  "capture_path": "decoded_and_reencoded",
+  "captured_at": "2026-09-11T22:19:49.565922+10:00",
+  "from": "the capture itself",
+  "height_px": 756,
+  "image": "board.jpg",
   "measured": {
-    "exposure_ns": 30268500,
-    "iso": 163,
-    "awb_gains": [1.99, 1.00, 1.00, 2.07]
+    "ae_state": 2,
+    "af_state": "focused",
+    "awb_gains": [
+      2.001,
+      1,
+      1,
+      1.769
+    ],
+    "colour_transform": [
+      1.574,
+      -0.441,
+      -0.129,
+      -0.16,
+      1.438,
+      -0.273,
+      0.035,
+      -0.605,
+      1.57
+    ],
+    "exposure_human": "30.02ms (1/33)",
+    "exposure_ns": 30016818,
+    "focus_diopters": 7.81,
+    "focus_metres_approx": 0.128,
+    "iso": 276,
+    "sensor_timestamp": 190042114712799
   },
   "orientation": {
-    "tilt_deg": 1.57,
-    "gravity": {"x": 0.22, "y": 0.16, "z": 9.81},
-    "ambient_lux": 85
+    "aim": "tilted; a flat subject on a level surface will be measurably skewed (16.18 degrees from gravity)",
+    "ambient_lux": 94.76,
+    "available": true,
+    "gravity": {
+      "x": -2.73,
+      "y": 0.12,
+      "z": 9.42
+    },
+    "measures": "the angle between the optical axis and gravity, averaged over 32 samples. It equals the angle to a flat subject only when the subject lies on a level surface.",
+    "pitch_degrees": 0.74,
+    "roll_degrees": -16.17,
+    "samples": 32,
+    "tilt_degrees": 16.18
   },
-  "device": {
-    "thermal": "none",
-    "battery_celsius": 28.4,
-    "battery_percent": 80
-  }
+  "pipeline": {
+    "aberration": "off",
+    "edge": "high_quality",
+    "hot_pixel": "fast",
+    "noise_reduction": "high_quality",
+    "ois": "on",
+    "shading": "fast",
+    "tonemap": "fast",
+    "tonemap_points": 64
+  },
+  "settings": {
+    "ae": "auto",
+    "ae_lock": false,
+    "af": "continuous",
+    "awb": "auto",
+    "awb_gains_set": null,
+    "awb_lock": false,
+    "camera": "0",
+    "capture_path": "decoded_and_reencoded",
+    "cx": 0.5,
+    "cy": 0.5,
+    "ev": 0,
+    "exposure_ns": null,
+    "focus_box": null,
+    "focus_diopters": null,
+    "iso": null,
+    "jpeg_quality": 92,
+    "measure": false,
+    "out_h": null,
+    "out_w": null,
+    "preview_size": "1280x960",
+    "preview_size_requested": "1280x960",
+    "rotate": 0,
+    "shading_map": false,
+    "still_size": "max",
+    "torch": 0,
+    "zoom": 4
+  },
+  "target": "http://192.168.86.191:8080",
+  "tool": "DeskCam",
+  "width_px": 1008
 }
 ```
+
+`settings` is what was asked for; `null` means the automatic mode was in charge. `measured` is what the sensor reported for that frame, taken from the capture result and not from a later status call (`from` says so). `focus_metres_approx` is a conversion from the lens position through the calibration in `docs/DECISIONS.md` and is not a measured distance. `pipeline` is what the HAL applied, and with `measure=1` every entry there reads `off` and the tone map is linear. `orientation` is absent when the phone reports no gravity sensor. A `scale` block appears when `deskcam scale` has recorded pixels per millimetre for this framing. There is no thermal or battery block in a sidecar; that state is in `/api/status` and on the stream headers below.
 
 HTTP responses also carry diagnostic headers:
 * `X-DeskCam-ROI`: The normalized crop rectangle applied to the frame.
