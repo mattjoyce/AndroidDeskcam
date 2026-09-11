@@ -381,80 +381,89 @@ deskcam analyse stack sweep/</code></pre>
       <section id="technical-components">
         <h2>Technical Architecture & Software Components</h2>
         <p>
-          DeskCam strictly enforces a three-tier separation of concerns (<strong>Decision D13</strong>).
-          Each language is selected for technical necessity rather than convenience:
+          <strong>The phone is the server.</strong> One Android app holds the camera and answers HTTP on port 8080.
+          Everything else is a client of it: the <code>deskcam</code> CLI, run by a person, a script or a coding agent;
+          the optional console that <code>deskcam serve</code> starts, which exists only while it runs; or plain <code>curl</code>.
+          The analysis tools are not clients at all: they read captures from disk and never talk to the phone.
+          Each language sits where it has to (<strong>Decision D13</strong>):
         </p>
 
         <div class="arch-diagram-wrap">
-          <svg class="arch-svg" viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg">
+          <svg class="arch-svg" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The phone is an HTTP server on port 8080; the deskcam CLI, the optional console and any HTTP client are its clients; the analysis tools read files offline.">
             <defs>
               <linearGradient id="boxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stop-color="#0c0e12"/>
                 <stop offset="100%" stop-color="#050608"/>
               </linearGradient>
+              <marker id="arrowHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#818cf8"/>
+              </marker>
             </defs>
 
-            <!-- Phone Backend Box -->
-            <rect x="20" y="20" width="340" height="320" rx="10" fill="url(#boxGrad)" stroke="#38bdf8" stroke-width="1.5"/>
-            <text x="40" y="50" fill="#38bdf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">PHONE RUNTIME (backend/)</text>
-            <text x="40" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Android 17 • Zero External Libraries • Java 17</text>
+            <!-- The server -->
+            <rect x="20" y="20" width="340" height="340" rx="10" fill="url(#boxGrad)" stroke="#38bdf8" stroke-width="1.5"/>
+            <text x="40" y="50" fill="#38bdf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">SERVER · THE PHONE (backend/)</text>
+            <text x="40" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Android 13+ • Java • no libraries • :8080 on every interface</text>
 
             <rect x="40" y="85" width="300" height="42" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="55" y="110" fill="#f8fafc" font-family="var(--font-mono)" font-size="12">HttpServer.java (Daemon :8080)</text>
+            <text x="55" y="110" fill="#f8fafc" font-family="var(--font-mono)" font-size="12">HttpServer.java (answers :8080)</text>
 
             <rect x="40" y="135" width="300" height="42" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
             <text x="55" y="160" fill="#f8fafc" font-family="var(--font-mono)" font-size="12">CameraEngine.java (Camera2 HAL)</text>
 
             <rect x="40" y="185" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="50" y="208" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Sharp.java (Laplacian)</text>
+            <text x="50" y="208" fill="#38bdf8" font-family="var(--font-mono)" font-size="10">Sharp.java (Laplacian)</text>
 
             <rect x="195" y="185" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="205" y="208" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Hunt.java (In-Cam AF)</text>
+            <text x="205" y="208" fill="#38bdf8" font-family="var(--font-mono)" font-size="10">Hunt.java (focus hunt)</text>
 
             <rect x="40" y="230" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="50" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Health.java (Thermals)</text>
+            <text x="50" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="10">Health.java (heat)</text>
 
             <rect x="195" y="230" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="205" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Tape.java (Lock 409)</text>
+            <text x="205" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="10">Tape.java (holds 409)</text>
 
-            <rect x="40" y="278" width="300" height="44" rx="6" fill="#07080b" stroke="rgba(255,255,255,0.05)"/>
-            <text x="55" y="298" fill="#10b981" font-family="var(--font-mono)" font-size="11">Physical Silicon: Sony IMX363 Bayer Sensor</text>
-            <text x="55" y="313" fill="#64748b" font-family="var(--font-sans)" font-size="10">4032x3024 • 10-bit RAW • VCM AF Lens • LED Ring</text>
+            <rect x="40" y="278" width="300" height="64" rx="6" fill="#07080b" stroke="rgba(255,255,255,0.05)"/>
+            <text x="55" y="302" fill="#10b981" font-family="var(--font-mono)" font-size="11">Sensor: Sony IMX363, 12.2 MP Bayer</text>
+            <text x="55" y="320" fill="#64748b" font-family="var(--font-sans)" font-size="10">4032x3024 • 10-bit RAW • voice-coil focus • LED torch</text>
+            <text x="55" y="334" fill="#64748b" font-family="var(--font-sans)" font-size="10">The phone's own status page is served at /</text>
 
-            <!-- Network Conduit -->
-            <path d="M 360 106 L 530 106" stroke="#818cf8" stroke-width="2.5" stroke-dasharray="6 4"/>
-            <rect x="395" y="88" width="100" height="36" rx="6" fill="#0c0e12" stroke="#818cf8"/>
-            <text x="415" y="104" fill="#38bdf8" font-family="var(--font-mono)" font-size="10" font-weight="bold">HTTP/1.1</text>
-            <text x="405" y="117" fill="#94a3b8" font-family="var(--font-mono)" font-size="9">Wi-Fi / ADB :8080</text>
+            <!-- The wire -->
+            <text x="450" y="46" text-anchor="middle" fill="#38bdf8" font-family="var(--font-mono)" font-size="11" font-weight="bold">HTTP :8080</text>
+            <text x="450" y="61" text-anchor="middle" fill="#94a3b8" font-family="var(--font-mono)" font-size="9">Wi-Fi • VPN • adb forward</text>
+            <path d="M 538 122 L 364 122" stroke="#818cf8" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowHead)"/>
+            <path d="M 538 202 L 364 202" stroke="#818cf8" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowHead)"/>
+            <path d="M 538 272 L 364 272" stroke="#818cf8" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowHead)"/>
+            <text x="450" y="115" text-anchor="middle" fill="#64748b" font-family="var(--font-sans)" font-size="9">requests</text>
 
-            <!-- Workstation Box -->
-            <rect x="540" y="20" width="340" height="320" rx="10" fill="url(#boxGrad)" stroke="#818cf8" stroke-width="1.5"/>
-            <text x="560" y="50" fill="#818cf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">WORKSTATION (frontend/)</text>
-            <text x="560" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Linux / macOS • Go Static CLI + Python Metrology</text>
+            <!-- The clients -->
+            <text x="540" y="50" fill="#818cf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">CLIENTS</text>
+            <text x="540" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">anything that speaks HTTP; none of them is required</text>
 
-            <!-- Go CLI -->
-            <rect x="560" y="85" width="300" height="75" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="575" y="108" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">deskcam (Go Static Binary)</text>
-            <text x="575" y="128" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">CLI Command Dispatcher • ADB loopback bridge</text>
-            <text x="575" y="145" fill="#64748b" font-family="var(--font-sans)" font-size="10">Local Web Console (:9000) • Film Roll Viewfinder</text>
+            <rect x="540" y="85" width="340" height="72" rx="6" fill="#10141c" stroke="#38bdf8"/>
+            <text x="555" y="107" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">deskcam CLI (frontend/go/)</text>
+            <text x="555" y="126" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">Run by a person, a script or a coding agent.</text>
+            <text x="555" y="143" fill="#64748b" font-family="var(--font-sans)" font-size="10">One command per request • prints file paths • exit codes</text>
 
-            <!-- Python Analysis -->
-            <rect x="560" y="170" width="300" height="75" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
-            <text x="575" y="193" fill="#c084fc" font-family="var(--font-mono)" font-size="12" font-weight="bold">frontend/analysis/ (Python / NumPy)</text>
-            <text x="575" y="213" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">aatest (noise floor) • linearity fit • scale (autocorr)</text>
-            <text x="575" y="230" fill="#64748b" font-family="var(--font-sans)" font-size="10">burst-noise (Monte Carlo) • 16-bit stack • hdr merge</text>
+            <rect x="540" y="167" width="340" height="72" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="555" y="189" fill="#f8fafc" font-family="var(--font-mono)" font-size="12" font-weight="bold">Console: deskcam serve (optional)</text>
+            <text x="555" y="208" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">A page on the workstation at :9000, only while it runs.</text>
+            <text x="555" y="225" fill="#64748b" font-family="var(--font-sans)" font-size="10">Pairs the phone by QR • live view • forwards to the phone</text>
 
-            <!-- Agent Box -->
-            <rect x="560" y="255" width="300" height="65" rx="6" fill="#10141c" stroke="#38bdf8"/>
-            <text x="575" y="278" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">Shell, Scripts & Coding Agents</text>
-            <text x="575" y="298" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">Dispatches shell captures, receives file paths,</text>
-            <text x="575" y="312" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">executes atomic action tapes, evaluates exit codes.</text>
+            <rect x="540" y="249" width="340" height="46" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
+            <text x="555" y="269" fill="#f8fafc" font-family="var(--font-mono)" font-size="12" font-weight="bold">curl, scripts, any browser</text>
+            <text x="555" y="285" fill="#64748b" font-family="var(--font-sans)" font-size="10">Every control is a GET; /api/help describes them all</text>
+
+            <!-- Offline -->
+            <rect x="540" y="307" width="340" height="53" rx="6" fill="none" stroke="#c084fc" stroke-dasharray="4 3"/>
+            <text x="555" y="328" fill="#c084fc" font-family="var(--font-mono)" font-size="12" font-weight="bold">frontend/analysis/ (Python, offline)</text>
+            <text x="555" y="346" fill="#64748b" font-family="var(--font-sans)" font-size="10">Reads captures and sidecars from disk; never talks to the phone</text>
           </svg>
         </div>
 
-        <h3>Deep Dive: The Backend Java Daemon</h3>
+        <h3>The Server: the Phone App (backend/)</h3>
         <p>
-          The phone runtime is built from scratch without standard Android app bloat:
+          The server is one Android app, built with no libraries:
         </p>
         <ul>
           <li><code>HttpServer.java</code> (about 1,340 lines, most of it the endpoints): A lean, multithreaded HTTP/1.1 server running on a raw <code>ServerSocket</code>. It closes the connection after every response, serves MJPEG multipart streams, and dynamically formats USTAR tar archives in memory.</li>
@@ -462,15 +471,15 @@ deskcam analyse stack sweep/</code></pre>
           <li><code>TotalCaptureResult</code> Correlation (Decision D8): Every frame request is paired with its hardware capture result using the sensor's hardware timestamp clock, guaranteeing that EXIF metadata and sidecars reflect the true physical capture.</li>
         </ul>
 
-        <h3>Deep Dive: The Static Go Binary (frontend/go/)</h3>
+        <h3>A Client: the deskcam CLI (frontend/go/)</h3>
         <p>
-          Taking a photograph or checking camera status requires zero runtime dependencies.
-          The Go CLI is compiled into a single static binary:
+          The CLI is one static Go binary, and each command is one request to the phone.
+          A person runs it, or a script, or a coding agent through its shell:
         </p>
         <ul>
           <li><strong>Zero-Config URL Discovery:</strong> Automatically resolves the camera target in priority order: <code>--url</code> flag &rarr; <code>$DESKCAM_URL</code> environment variable &rarr; <code>~/.config/deskcam/url</code> &rarr; localhost:8080.</li>
           <li><strong>Automated USB Forwarding:</strong> <code>deskcam usb</code> executes <code>adb forward tcp:8080 tcp:8080</code>, making camera control 100% reliable even in air-gapped or restricted Wi-Fi environments.</li>
-          <li><strong>Integrated Web Console:</strong> <code>deskcam serve</code> runs a local web viewfinder with live MJPEG streaming, touch-to-center pan/zoom, and thumbnail rolls.</li>
+          <li><strong>A second client, the console:</strong> <code>deskcam serve</code> starts a page at <code>http://127.0.0.1:9000</code> with a live view, touch-to-centre pan and zoom, a capture roll and QR pairing. It forwards to the phone like any other client, and it exists only while <code>deskcam serve</code> is running.</li>
         </ul>
       </section>
 

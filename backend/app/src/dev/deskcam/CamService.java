@@ -9,10 +9,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
-import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
@@ -36,8 +36,13 @@ public class CamService extends Service {
     public static final String PREF_PORT = "port";
     public static final String PREF_TOKEN = "token";
     public static final String PREF_AUTOSTART = "autostart";
+    /** The interface whose address the app shows and reports, or Nets.AUTO. */
+    public static final String PREF_NET = "net";
+    /** Sent by the screen when the person picks another network, to redo the notice. */
+    public static final String ACTION_ADDRESS = "dev.deskcam.ADDRESS";
 
     private static volatile boolean running = false;
+    private static volatile int boundPort = 0;
     private static volatile String statusLine = "stopped";
 
     private CameraEngine engine;
@@ -48,6 +53,9 @@ public class CamService extends Service {
     private PowerManager.WakeLock wakeLock;
 
     public static boolean isRunning() { return running; }
+
+    /** The port the server is bound to, or 0 when it is not serving. */
+    public static int boundPort() { return boundPort; }
     public static String statusLine() { return statusLine; }
 
     /** The running engine, for the activity to read. Null when stopped. */
@@ -59,6 +67,17 @@ public class CamService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_ADDRESS.equals(intent.getAction())) {
+            // The address is only words on the notice; the server listens on every
+            // interface whatever is chosen, so nothing restarts.
+            if (running) {
+                statusLine = url(boundPort);
+                updateNotification(statusLine);
+                return START_STICKY;
+            }
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -119,6 +138,7 @@ public class CamService extends Service {
             engine.start();
 
             running = true;
+            boundPort = port;
             statusLine = url(port);
             updateNotification(statusLine);
             Log.i(TAG, "service up at " + statusLine);
@@ -135,6 +155,7 @@ public class CamService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        boundPort = 0;
         statusLine = "stopped";
         if (http != null) { http.stop(); http = null; }
         liveEngine = null;
@@ -182,34 +203,70 @@ public class CamService extends Service {
         return "http://" + (ip == null ? "<device-ip>" : ip) + ":" + port;
     }
 
-    /** The address a desktop on the same network should actually connect to. */
+    /**
+     * The address a workstation should connect to: the interface the person chose, or the
+     * best one when they have not. See Nets for the order and why a VPN no longer wins.
+     */
     public static String localIpv4(Context ctx) {
+        Nets.Choice c = Nets.pick(networks(ctx), preferredNet(ctx));
+        return c == null ? null : c.ip;
+    }
+
+    public static String preferredNet(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PREF_NET, Nets.AUTO);
+    }
+
+    /**
+     * Every IPv4 address the phone holds, with the kind of network each is on.
+     *
+     * The interfaces are listed from the system, which sees them all, a hotspot included.
+     * The kind comes from the interface name, except for the active network, where the
+     * platform's own capabilities are asked, because that is the one it can describe
+     * without the call to list every network that API 31 deprecated.
+     */
+    public static java.util.List<Nets.Choice> networks(Context ctx) {
+        java.util.List<Nets.Choice> out = new java.util.ArrayList<>();
+        String activeIface = null;
+        Nets.Kind activeKind = Nets.Kind.OTHER;
         try {
             ConnectivityManager cm = ctx.getSystemService(ConnectivityManager.class);
             Network active = cm.getActiveNetwork();
             if (active != null) {
                 LinkProperties lp = cm.getLinkProperties(active);
-                if (lp != null) {
-                    for (LinkAddress la : lp.getLinkAddresses()) {
-                        if (la.getAddress() instanceof Inet4Address && !la.getAddress().isLoopbackAddress()) {
-                            return la.getAddress().getHostAddress();
-                        }
+                if (lp != null) activeIface = lp.getInterfaceName();
+                activeKind = kindOf(cm.getNetworkCapabilities(active));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "active network", e);
+        }
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> e = java.net.NetworkInterface.getNetworkInterfaces();
+            while (e != null && e.hasMoreElements()) {
+                java.net.NetworkInterface ni = e.nextElement();
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                String name = ni.getName();
+                Nets.Kind kind = name.equals(activeIface) && activeKind != Nets.Kind.OTHER
+                        ? activeKind : Nets.kindFromName(name);
+                for (java.util.Enumeration<java.net.InetAddress> a = ni.getInetAddresses(); a.hasMoreElements(); ) {
+                    java.net.InetAddress addr = a.nextElement();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress() && !addr.isLinkLocalAddress()) {
+                        out.add(new Nets.Choice(name, addr.getHostAddress(), kind));
                     }
                 }
             }
-            // Fall back to scanning interfaces when there is no active default network.
-            for (java.util.Enumeration<java.net.NetworkInterface> e = java.net.NetworkInterface.getNetworkInterfaces();
-                 e.hasMoreElements(); ) {
-                java.net.NetworkInterface ni = e.nextElement();
-                if (!ni.isUp() || ni.isLoopback()) continue;
-                for (java.util.Enumeration<java.net.InetAddress> a = ni.getInetAddresses(); a.hasMoreElements(); ) {
-                    java.net.InetAddress addr = a.nextElement();
-                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) return addr.getHostAddress();
-                }
-            }
         } catch (Exception e) {
-            Log.w(TAG, "ip lookup", e);
+            Log.w(TAG, "interfaces", e);
         }
-        return null;
+        return out;
+    }
+
+    private static Nets.Kind kindOf(NetworkCapabilities nc) {
+        if (nc == null) return Nets.Kind.OTHER;
+        // A VPN also reports the transport underneath it, so it is asked first.
+        if (nc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return Nets.Kind.VPN;
+        if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return Nets.Kind.WIFI;
+        if (nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return Nets.Kind.ETHERNET;
+        if (nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return Nets.Kind.MOBILE;
+        return Nets.Kind.OTHER;
     }
 }

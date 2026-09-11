@@ -59,6 +59,12 @@ public final class Tests {
         aFocusBoxTurnsWithTheFrame();
         aFocusBoxIsClampedAndNeverInsideOut();
         boxesOverlapOrTheyDoNot();
+        aVpnDoesNotHideTheWifiAddress();
+        aChosenInterfaceIsHonoured();
+        aChosenInterfaceThatIsDownFallsBack();
+        mobileIsTheLastResort();
+        noAddressMeansNoAnswer();
+        interfaceNamesGiveAKindWhenThePlatformWillNot();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -746,6 +752,57 @@ public final class Tests {
         no("the old key stops working", Access.allowed(now, was, null));
         yes("the new key works at once", Access.allowed(now, now, null));
         yes("removing the key opens the camera again", Access.allowed("", was, null));
+    }
+
+    // ---------------------------------------------------------- the address
+
+    private static java.util.List<Nets.Choice> pixelOnTailscale() {
+        // The order Android handed them over on a Pixel 9 with Tailscale up: the VPN is
+        // the active network, so it came first, and it is the one the app used to show.
+        return java.util.Arrays.asList(
+                new Nets.Choice("tun0", "100.106.227.29", Nets.Kind.VPN),
+                new Nets.Choice("wlan0", "192.168.86.218", Nets.Kind.WIFI));
+    }
+
+    private static void aVpnDoesNotHideTheWifiAddress() {
+        Nets.Choice c = Nets.pick(pixelOnTailscale(), Nets.AUTO);
+        yes("auto reports the Wi-Fi address with a VPN up", c != null && "192.168.86.218".equals(c.ip));
+        yes("no preference at all is auto too", "wlan0".equals(Nets.pick(pixelOnTailscale(), null).iface));
+    }
+
+    private static void aChosenInterfaceIsHonoured() {
+        Nets.Choice c = Nets.pick(pixelOnTailscale(), "tun0");
+        yes("a person who chose the VPN gets the VPN", c != null && "100.106.227.29".equals(c.ip));
+    }
+
+    private static void aChosenInterfaceThatIsDownFallsBack() {
+        yes("an interface that is not up is not found", Nets.find(pixelOnTailscale(), "eth0") == null);
+        Nets.Choice c = Nets.pick(pixelOnTailscale(), "eth0");
+        yes("and the best address is reported instead of none", c != null && "wlan0".equals(c.iface));
+    }
+
+    private static void mobileIsTheLastResort() {
+        java.util.List<Nets.Choice> both = java.util.Arrays.asList(
+                new Nets.Choice("rmnet_data0", "10.21.4.7", Nets.Kind.MOBILE),
+                new Nets.Choice("tun0", "100.64.0.9", Nets.Kind.VPN));
+        yes("a VPN beats a carrier address", "tun0".equals(Nets.pick(both, Nets.AUTO).iface));
+        java.util.List<Nets.Choice> only = java.util.Collections.singletonList(
+                new Nets.Choice("rmnet_data0", "10.21.4.7", Nets.Kind.MOBILE));
+        yes("but a carrier address beats nothing", "10.21.4.7".equals(Nets.pick(only, Nets.AUTO).ip));
+        eq("each interface and address is listed once", 2,
+                Nets.ordered(java.util.Arrays.asList(both.get(0), both.get(1), both.get(0))).size());
+    }
+
+    private static void noAddressMeansNoAnswer() {
+        yes("no address, no answer", Nets.pick(java.util.Collections.emptyList(), Nets.AUTO) == null);
+    }
+
+    private static void interfaceNamesGiveAKindWhenThePlatformWillNot() {
+        yes("wlan0 is Wi-Fi", Nets.kindFromName("wlan0") == Nets.Kind.WIFI);
+        yes("tun0 is a VPN", Nets.kindFromName("tun0") == Nets.Kind.VPN);
+        yes("rmnet_data0 is mobile", Nets.kindFromName("rmnet_data0") == Nets.Kind.MOBILE);
+        yes("eth0 is Ethernet", Nets.kindFromName("eth0") == Nets.Kind.ETHERNET);
+        yes("an unknown name is other, not a guess", Nets.kindFromName("dummy0") == Nets.Kind.OTHER);
     }
 
     private static void eq(String what, long expected, long actual) {

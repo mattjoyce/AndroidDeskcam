@@ -2,6 +2,7 @@ package dev.deskcam;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -44,6 +45,8 @@ public class MainActivity extends Activity {
     private ScrollView logScroll;
     private EditText port, token;
     private CheckBox autostart;
+    private Button toggle, net;
+    private Boolean toggleShowsStop = null;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private long lastLogSeq = -1;
@@ -85,9 +88,19 @@ public class MainActivity extends Activity {
         token.setText(p.getString(CamService.PREF_TOKEN, ""));
         autostart.setChecked(p.getBoolean(CamService.PREF_AUTOSTART, false));
 
-        ((Button) findViewById(R.id.start)).setOnClickListener(v -> start());
-        ((Button) findViewById(R.id.stop)).setOnClickListener(v ->
-                startService(new Intent(this, CamService.class).setAction(CamService.ACTION_STOP)));
+        toggle = findViewById(R.id.toggle);
+        net = findViewById(R.id.net);
+        // One button whose label is what pressing it does. The state is the dot and the
+        // words beside it, in the same row, so the two can never be read apart.
+        toggle.setOnClickListener(v -> {
+            if (CamService.isRunning()) {
+                startService(new Intent(this, CamService.class).setAction(CamService.ACTION_STOP));
+                say("stopping");
+            } else {
+                start();
+            }
+        });
+        net.setOnClickListener(v -> chooseNetwork());
         ((Button) findViewById(R.id.settings)).setOnClickListener(v ->
                 setup.setVisibility(setup.getVisibility() == View.GONE ? View.VISIBLE : View.GONE));
 
@@ -119,14 +132,27 @@ public class MainActivity extends Activity {
         if (System.currentTimeMillis() > holdStatusUntil) {
             status.setText(!up ? "stopped" : (healthy ? "running" : camState));
         }
-        dot.getBackground().setTint(!up ? colour(R.color.bad)
+        // Stopped is a state somebody chose, not a fault, so it is grey; red is kept for
+        // the errors counter, where it means something went wrong.
+        dot.getBackground().setTint(!up ? colour(R.color.dim)
                 : (healthy ? colour(R.color.ok) : colour(R.color.warn)));
+        showToggle(up);
 
-        if (up) {
+        List<Nets.Choice> nets = CamService.networks(this);
+        String preferred = CamService.preferredNet(this);
+        Nets.Choice chosen = Nets.pick(nets, preferred);
+        int bound = CamService.boundPort();
+        if (up && bound > 0) {
+            url.setText(chosen == null ? "no network" : "http://" + chosen.ip + ":" + bound);
+        } else if (up) {
             url.setText(CamService.statusLine());
         } else {
-            String ip = CamService.localIpv4(this);
-            url.setText(ip == null ? "no network" : "ready on " + ip);
+            url.setText(chosen == null ? "no network" : "ready on " + chosen.ip);
+        }
+        if (!Nets.AUTO.equals(preferred) && Nets.find(nets, preferred) == null) {
+            net.setText(preferred + " down ▾");
+        } else {
+            net.setText(chosen == null ? "none ▾" : Nets.name(chosen.kind) + " ▾");
         }
 
         statConn.setText(String.format(Locale.US, "clients  %d", HttpServer.liveConnections()));
@@ -195,6 +221,52 @@ public class MainActivity extends Activity {
 
     private int colour(int id) {
         return getResources().getColor(id, getTheme());
+    }
+
+    /** Changes the button only when the state has, not every tick. */
+    private void showToggle(boolean up) {
+        if (toggleShowsStop != null && toggleShowsStop == up) return;
+        toggleShowsStop = up;
+        toggle.setText(up ? "Stop" : "Start");
+        toggle.setBackgroundResource(up ? R.drawable.btn_quiet : R.drawable.btn);
+        toggle.setTextColor(up ? colour(R.color.text) : Color.WHITE);
+    }
+
+    /**
+     * Which address to show and report. The list is every IPv4 address the phone holds,
+     * best first, with Auto on top saying what it would choose right now.
+     */
+    private void chooseNetwork() {
+        List<Nets.Choice> nets = Nets.ordered(CamService.networks(this));
+        String preferred = CamService.preferredNet(this);
+        List<String> labels = new java.util.ArrayList<>();
+        List<String> keys = new java.util.ArrayList<>();
+        Nets.Choice best = nets.isEmpty() ? null : nets.get(0);
+        labels.add("Auto" + (best == null ? "" : "   now " + Nets.name(best.kind) + "   " + best.ip));
+        keys.add(Nets.AUTO);
+        for (Nets.Choice c : nets) {
+            labels.add(c.label());
+            keys.add(c.iface);
+        }
+        if (!Nets.AUTO.equals(preferred) && Nets.find(nets, preferred) == null) {
+            labels.add(preferred + "   not up now");
+            keys.add(preferred);
+        }
+        int checked = Math.max(0, keys.indexOf(preferred));
+        new AlertDialog.Builder(this)
+                .setTitle("Address to show and report")
+                .setSingleChoiceItems(labels.toArray(new String[0]), checked, (d, which) -> {
+                    getSharedPreferences(CamService.PREFS, MODE_PRIVATE).edit()
+                            .putString(CamService.PREF_NET, keys.get(which)).apply();
+                    if (CamService.isRunning()) {
+                        startService(new Intent(this, CamService.class)
+                                .setAction(CamService.ACTION_ADDRESS));
+                    }
+                    d.dismiss();
+                    refresh();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     // ----------------------------------------------------------- permissions
