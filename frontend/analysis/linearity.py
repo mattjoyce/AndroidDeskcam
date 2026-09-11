@@ -169,6 +169,20 @@ def measure(
             f"that pedestal is large enough to push the exponent {direction} 1.0 on its "
             f"own. The response may be linear with an offset rather than non-linear."
         )
+        # Refit with the pedestal taken out, so the reader gets the corrected figure from
+        # the tool and not from arithmetic done by hand in a document. The published
+        # 2.004x was exactly that: a hand correction that nothing could reproduce.
+        corrected_levels = raw_y - pedestal
+        if (corrected_levels > 0).all():
+            c_slope, c_intercept = np.polyfit(x, np.log2(corrected_levels), 1)
+            c_text = f"{c_slope:.4f} ({2**c_slope:.3f}x per doubling"
+            if n > 2:
+                c_y = np.log2(corrected_levels)
+                c_resid = float(((c_y - (c_slope * x + c_intercept)) ** 2).sum())
+                c_se = math.sqrt(c_resid / (n - 2) / float(((x - x.mean()) ** 2).sum()))
+                c_half = t95(n - 2) * c_se
+                c_text += f", 95% {2 ** (c_slope - c_half):.3f} to {2 ** (c_slope + c_half):.3f}"
+            notes.append(f"with the pedestal removed the exponent is {c_text})")
     shortest = min(p[0] for p in points) / 1e6
     longest = max(p[0] for p in points) / 1e6
     notes.append(f"exposures {shortest:.2f} to {longest:.2f} ms")

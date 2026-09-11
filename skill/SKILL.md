@@ -124,10 +124,12 @@ correction. In this mode doubling the exposure doubles the pixel value; with the
 pipeline it does not, and the default lifts the shadows substantially. The default makes a
 photograph look good, which is the opposite of what a comparison needs.
 
-Measured on 2026-09-10, six captures from 50 to 283 ms at ISO 56: **2.062x per doubling**
-(95% 2.041 to 2.083, R squared 1.000), with a black-level pedestal of -2.39 DN. Remove the
-pedestal and the exponent is 1.003, so read this as **linear with an offset of about two
-digits**. Run `deskcam analyse linearity DIR` to measure it again on your own setup.
+Measured on 2026-09-10 with `deskcam analyse linearity`, six captures from 50 to 283 ms at
+ISO 56: **2.062x per doubling** (95% 2.041 to 2.083, R squared 1.000), with a black-level
+pedestal of -2.39 DN. With the pedestal removed the tool reports an exponent of 0.999
+(1.999x per doubling, 95% 1.992 to 2.006), so read this as **linear with an offset of about
+two digits**. Run `deskcam analyse linearity DIR` to measure it again on your own setup;
+the tool prints all three figures.
 
 The image will look dark and flat. That is correct.
 

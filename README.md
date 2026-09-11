@@ -522,9 +522,28 @@ Passing `measure=1` puts the Camera2 pipeline into a calibrated instrument state
 * Optical image stabilization (OIS) is locked, preventing physical lens movement on stationary mounts.
 * White balance gains are locked.
 
-Empirical verification of this camera's linearity using `deskcam analyse linearity` across exposure times from $50\text{ ms}$ to $283\text{ ms}$ at ISO 56 demonstrates:
-* **Linear response fit**: $R^2 = 1.000$
-* **Signal increase per exposure doubling**: $2.004\times$ (after removing a $-2.05\text{ DN}$ black-level pedestal).
+Measured on 2026-09-10 with `deskcam analyse linearity`, from seven captures between 50 ms and 400 ms at ISO 56, zoom 4, white balance locked, on a static bench scene. The tool dropped the 400 ms frame for clipping:
+
+| Quantity | Result |
+|---|---|
+| Value change per doubling, raw fit | **2.062x** (95% 2.041 to 2.083) |
+| Power-law fit | R squared 1.000, n = 6 |
+| Pedestal at zero exposure | **-2.39 DN** |
+| Exponent with the pedestal removed | **0.999** (1.999x per doubling, 95% 1.992 to 2.006) |
+| Same-against-same noise floor for the run | 1.21 DN, smallest step between captures 10.68 DN |
+
+The pedestal is the interesting part. A constant negative offset bends the raw exponent upward, and this one accounts for the whole excess over 2.0. Read the result as **linear with a black-level offset of about two digits**, not as a sensor that responds better than linearly. Every figure in the table comes from one run of the tool; nothing here is corrected by hand. Reproduce it:
+
+```sh
+deskcam set zoom=4 awblock=1 measure=1 iso=56
+deskcam aatest -o lin/ exposure=200ms          # records the noise floor into lin/
+for ms in 50 71 100 141 200 283 400; do
+    deskcam snap -o lin/e$ms.jpg exposure=${ms}ms settle=600
+done
+deskcam analyse linearity lin/ --region 0.5,0.68,0.30,0.12
+```
+
+Your numbers will differ. The pedestal and the floor belong to your scene and your camera, and the region is the patch of the frame that was neither dark nor clipped in this one.
 
 ### Android 17 Local Network Permission Isolation
 

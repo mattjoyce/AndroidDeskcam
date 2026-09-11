@@ -254,6 +254,30 @@ def test_linearity_measures_a_curved_response(tmp_path: Path) -> None:
     assert m.value < 1.5
 
 
+def test_linearity_reports_the_exponent_with_the_pedestal_removed(tmp_path: Path) -> None:
+    """
+    A linear sensor with a black-level offset must not be published as better than linear.
+    The tool reports the raw fit, the pedestal, and the exponent after the pedestal is
+    taken out, so a document can quote all three from one run.
+    """
+    d = tmp_path / "lin"
+    d.mkdir()
+    rng = np.random.default_rng(7)
+    for i, ms in enumerate([50, 71, 100, 141, 200, 283]):
+        level = 0.5 * ms - 2.4
+        write_capture(d / f"e{i}.jpg", rng.normal(level, 0.3, size=(300, 400)), exposure_ns=int(ms * 1e6))
+    m = linearity.measure(d)
+    assert m.ok, m.reason
+    assert m.value is not None
+    assert m.value > 2.03, "the raw fit should show the pedestal's bend"
+    pedestal = next(n for n in m.notes if "pedestal of" in n)
+    assert "-2.4" in pedestal or "-2.3" in pedestal, pedestal
+    corrected = next(n for n in m.notes if "pedestal removed" in n)
+    exponent = float(corrected.split("exponent is ")[1].split(" ")[0])
+    assert exponent == pytest.approx(1.0, abs=0.01), corrected
+    assert "95%" in corrected
+
+
 def test_linearity_drops_a_clipped_sample(tmp_path: Path) -> None:
     d = tmp_path / "lin"
     d.mkdir()
