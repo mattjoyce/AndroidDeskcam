@@ -1,4 +1,4 @@
-// Antigravity Agentic Vision Engine
+// DeskCam explainer: interactive simulators
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initNavScroll();
@@ -9,58 +9,21 @@ document.addEventListener('DOMContentLoaded', () => {
   initCmdBuilder();
 });
 
-// 1. Theme Management (Antigravity Dark Cosmos vs Aurora Light)
+// 1. Theme. The page is dark only; the light theme rendered dark text on dark panels.
 function initTheme() {
-  const toggleBtn = document.getElementById('themeToggle');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const savedTheme = localStorage.getItem('deskcam-theme') || (prefersDark ? 'dark' : 'light');
-  
-  setTheme(savedTheme);
-  
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      const current = document.documentElement.getAttribute('data-theme') || 'dark';
-      const next = current === 'dark' ? 'light' : 'dark';
-      setTheme(next);
-      localStorage.setItem('deskcam-theme', next);
-      window.dispatchEvent(new Event('themechange'));
-    });
-  }
-}
-
-function setTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  const themeLabel = document.getElementById('themeLabel');
-  if (themeLabel) {
-    themeLabel.textContent = theme === 'dark' ? 'THEME: DARK' : 'THEME: LIGHT';
-  }
+  document.documentElement.setAttribute('data-theme', 'dark');
 }
 
 function getThemeColors() {
-  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-  if (isLight) {
-    return {
-      main: '#0284c7',
-      bright: '#6366f1',
-      purple: '#9333ea',
-      dim: '#64748b',
-      dark: '#cbd5e1',
-      bg: '#f8fafc',
-      card: '#ffffff',
-      subtle: '#e2e8f0',
-      accentRed: '#e11d48',
-      accentEmerald: '#059669'
-    };
-  }
   return {
     main: '#38bdf8',
     bright: '#818cf8',
     purple: '#c084fc',
     dim: '#64748b',
     dark: '#1e293b',
-    bg: '#07090e',
-    card: '#101623',
-    subtle: 'rgba(255, 255, 255, 0.08)',
+    bg: '#030405',
+    card: '#0a0c10',
+    subtle: 'rgba(255, 255, 255, 0.06)',
     accentRed: '#f43f5e',
     accentEmerald: '#10b981'
   };
@@ -176,7 +139,7 @@ function initSensorSimulator() {
     ctx.clearRect(0, 0, w, h);
 
     // Background
-    ctx.fillStyle = '#05070c';
+    ctx.fillStyle = '#020304';
     ctx.fillRect(0, 0, w, h);
 
     // Subtle sensor matrix grid
@@ -425,7 +388,7 @@ function initPwmSimulator() {
     ctx.clearRect(0, 0, w, h);
 
     // Background
-    ctx.fillStyle = '#05070c';
+    ctx.fillStyle = '#020304';
     ctx.fillRect(0, 0, w, h);
 
     // Draw PWM square wave at top

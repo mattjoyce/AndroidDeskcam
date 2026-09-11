@@ -3,27 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeskCam — Autonomous Bench Instrument & AI Vision Documentation</title>
-  <meta name="description" content="Technical documentation and interactive explainer for DeskCam: turn a spare Android phone into a high-precision, programmable 12MP bench camera for AI agents and hardware labs.">
+  <title>DeskCam: an Android phone as a bench instrument</title>
+  <meta name="description" content="Technical documentation and interactive explainer for DeskCam: turn a spare Android phone into a high-precision, programmable 12MP bench camera you drive from the shell, a script, or a coding agent.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Ambient Cosmic & Matrix Glows -->
+  <!-- Background glow and grid -->
   <div class="ambient-glow"></div>
   <div class="bg-grid-overlay"></div>
 
   <!-- Top Header -->
   <header class="top-header">
     <a href="#hero" class="brand">
-      <div class="brand-icon">✦</div>
-      <span>ANTIGRAVITY // DESKCAM</span>
+      <div class="brand-icon">◉</div>
+      <span>DESKCAM</span>
       <span class="brand-badge">API 37</span>
     </a>
     <div class="header-actions">
-      <button id="themeToggle" class="theme-toggle" title="Toggle Theme" aria-label="Toggle Theme">
-        <span>◐</span>
-        <span id="themeLabel">THEME: DARK</span>
-      </button>
       <button id="mobileNavToggle" class="mobile-nav-toggle" title="Toggle Menu" aria-label="Toggle Navigation">
         <span>☰</span>
       </button>
@@ -37,7 +33,7 @@
         <div class="nav-heading">1. Introduction</div>
         <a href="#hero" class="nav-link active">Overview <span class="nav-badge">01</span></a>
         <a href="#why-deskcam" class="nav-link">Why DeskCam? <span class="nav-badge">02</span></a>
-        <a href="#agent-vision" class="nav-link">AI Agent Access <span class="nav-badge">03</span></a>
+        <a href="#agent-vision" class="nav-link">Agent Access <span class="nav-badge">03</span></a>
       </div>
 
       <div class="nav-group">
@@ -69,11 +65,11 @@
       
       <!-- HERO SECTION -->
       <section id="hero" class="hero">
-        <div class="hero-tag">✦ ANTIGRAVITY AGENTIC VISION SUBSYSTEM</div>
-        <h1 class="hero-title">High-Precision Vision for AI Agents & Hardware Labs</h1>
+        <div class="hero-tag">ANDROID BENCH CAMERA · HTTP · SHELL</div>
+        <h1 class="hero-title">An Android Phone as a Bench Instrument</h1>
         <p class="hero-subtitle">
           DeskCam repurposes a spare Android smartphone into a programmable 12-megapixel optical bench instrument.
-          Engineered for autonomous coding agents like Claude Code and hardware engineers debugging circuits,
+          You drive it from the shell, from a script, or from a coding agent,
           it provides lossless 1:1 sensor crops, true linear radiometric data, and token-efficient shell tools whose only dependency outside the Go standard library is a QR encoder.
         </p>
 
@@ -139,12 +135,12 @@
 
           <div class="info-card">
             <div class="card-header">
-              <span class="card-badge badge-rule">Autonomous</span>
-              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">AI Eyes</span>
+              <span class="card-badge badge-rule">Agents</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem; color:var(--text-muted);">Shell</span>
             </div>
-            <div class="card-title">AI Coding Agent Vision</div>
+            <div class="card-title">Driven by a Coding Agent</div>
             <div class="card-desc">
-              Give Claude Code, local LLMs, and autonomous agents direct shell access to capture photos of hardware, evaluate physical test equipment, and verify real-world state.
+              A coding agent runs the same shell commands you do, reads the picture from disk, and checks the physical result of its own work.
             </div>
           </div>
 
@@ -172,16 +168,16 @@
         </div>
       </section>
 
-      <!-- SECTION 2: AI AGENT ACCESS -->
+      <!-- SECTION 2: AGENT ACCESS -->
       <section id="agent-vision">
-        <h2>AI Agent Access & Image Capture</h2>
+        <h2>Agent Access & Image Capture</h2>
         <p>
           Traditional camera software is designed for human eyeballs clicking glass buttons.
-          When an AI agent (such as Claude Code or an autonomous coding assistant) interacts with a camera,
+          When a coding agent drives a camera,
           traditional video streams or GUI-based controls fail completely.
         </p>
 
-        <h3>The 8 Agentic Design Rules (R1–R8)</h3>
+        <h3>The Eight Machine-Usability Rules (R1–R8)</h3>
         <p>
           DeskCam's architecture adheres strictly to eight rules designed specifically for language model agents:
         </p>
@@ -192,7 +188,7 @@
               <tr>
                 <th>Rule</th>
                 <th>Design Principle</th>
-                <th>Why It Matters for AI Agents</th>
+                <th>Why It Matters for an Agent</th>
               </tr>
             </thead>
             <tbody>
@@ -204,7 +200,7 @@
               <tr>
                 <td><strong>R2</strong></td>
                 <td>Print paths, never pixels</td>
-                <td>A capture command outputs exactly one file path to stdout (<code>/tmp/deskcam-01.jpg</code>). The agent reads the file with dedicated vision tools, keeping the LLM prompt context clean.</td>
+                <td>A capture command outputs exactly one file path to stdout (<code>/tmp/deskcam-01.jpg</code>). The agent reads the file with dedicated vision tools, keeping the agent's context clean.</td>
               </tr>
               <tr>
                 <td><strong>R3</strong></td>
@@ -251,7 +247,7 @@ img=$(deskcam snap zoom=4 cx=0.32 cy=0.68 torch=25 focusm=0.12)
 echo "Captured inspection image at: $img"
 # The agent now invokes its multimodal view_file / inspect tool on $img</code></pre>
 
-        <h3>Closed-Loop Autonomous Focus Hunting</h3>
+        <h3>Closed-Loop Focus Hunting on the Phone</h3>
         <p>
           Closing an autofocus loop across a Wi-Fi network requires 14 round trips:
           <em>set focus &rarr; wait settle &rarr; request frame &rarr; compute sharpness metric</em>.
@@ -392,14 +388,14 @@ deskcam analyse stack sweep/</code></pre>
         <div class="arch-diagram-wrap">
           <svg class="arch-svg" viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="antigravityBoxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#131926"/>
-                <stop offset="100%" stop-color="#0a0e17"/>
+              <linearGradient id="boxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#0c0e12"/>
+                <stop offset="100%" stop-color="#050608"/>
               </linearGradient>
             </defs>
 
             <!-- Phone Backend Box -->
-            <rect x="20" y="20" width="340" height="320" rx="10" fill="url(#antigravityBoxGrad)" stroke="#38bdf8" stroke-width="1.5"/>
+            <rect x="20" y="20" width="340" height="320" rx="10" fill="url(#boxGrad)" stroke="#38bdf8" stroke-width="1.5"/>
             <text x="40" y="50" fill="#38bdf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">PHONE RUNTIME (backend/)</text>
             <text x="40" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Android 17 • Zero External Libraries • Java 17</text>
 
@@ -421,18 +417,18 @@ deskcam analyse stack sweep/</code></pre>
             <rect x="195" y="230" width="145" height="38" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
             <text x="205" y="253" fill="#38bdf8" font-family="var(--font-mono)" font-size="11">Tape.java (Lock 409)</text>
 
-            <rect x="40" y="278" width="300" height="44" rx="6" fill="#0b0f19" stroke="rgba(255,255,255,0.05)"/>
+            <rect x="40" y="278" width="300" height="44" rx="6" fill="#07080b" stroke="rgba(255,255,255,0.05)"/>
             <text x="55" y="298" fill="#10b981" font-family="var(--font-mono)" font-size="11">Physical Silicon: Sony IMX363 Bayer Sensor</text>
             <text x="55" y="313" fill="#64748b" font-family="var(--font-sans)" font-size="10">4032x3024 • 10-bit RAW • VCM AF Lens • LED Ring</text>
 
             <!-- Network Conduit -->
             <path d="M 360 106 L 530 106" stroke="#818cf8" stroke-width="2.5" stroke-dasharray="6 4"/>
-            <rect x="395" y="88" width="100" height="36" rx="6" fill="#131926" stroke="#818cf8"/>
+            <rect x="395" y="88" width="100" height="36" rx="6" fill="#0c0e12" stroke="#818cf8"/>
             <text x="415" y="104" fill="#38bdf8" font-family="var(--font-mono)" font-size="10" font-weight="bold">HTTP/1.1</text>
             <text x="405" y="117" fill="#94a3b8" font-family="var(--font-mono)" font-size="9">Wi-Fi / ADB :8080</text>
 
             <!-- Workstation Box -->
-            <rect x="540" y="20" width="340" height="320" rx="10" fill="url(#antigravityBoxGrad)" stroke="#818cf8" stroke-width="1.5"/>
+            <rect x="540" y="20" width="340" height="320" rx="10" fill="url(#boxGrad)" stroke="#818cf8" stroke-width="1.5"/>
             <text x="560" y="50" fill="#818cf8" font-family="var(--font-mono)" font-size="13" font-weight="bold">WORKSTATION (frontend/)</text>
             <text x="560" y="68" fill="#64748b" font-family="var(--font-sans)" font-size="11">Linux / macOS • Go Static CLI + Python Metrology</text>
 
@@ -440,7 +436,7 @@ deskcam analyse stack sweep/</code></pre>
             <rect x="560" y="85" width="300" height="75" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
             <text x="575" y="108" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">deskcam (Go Static Binary)</text>
             <text x="575" y="128" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">CLI Command Dispatcher • ADB loopback bridge</text>
-            <text x="575" y="145" fill="#64748b" font-family="var(--font-sans)" font-size="10">Local Web Console (:8081) • Film Roll Viewfinder</text>
+            <text x="575" y="145" fill="#64748b" font-family="var(--font-sans)" font-size="10">Local Web Console (:9000) • Film Roll Viewfinder</text>
 
             <!-- Python Analysis -->
             <rect x="560" y="170" width="300" height="75" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
@@ -449,8 +445,8 @@ deskcam analyse stack sweep/</code></pre>
             <text x="575" y="230" fill="#64748b" font-family="var(--font-sans)" font-size="10">burst-noise (Monte Carlo) • 16-bit stack • hdr merge</text>
 
             <!-- Agent Box -->
-            <rect x="560" y="255" width="300" height="65" rx="6" fill="#182238" stroke="#38bdf8"/>
-            <text x="575" y="278" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">Claude Code & AI Coding Agents</text>
+            <rect x="560" y="255" width="300" height="65" rx="6" fill="#10141c" stroke="#38bdf8"/>
+            <text x="575" y="278" fill="#38bdf8" font-family="var(--font-mono)" font-size="12" font-weight="bold">Shell, Scripts & Coding Agents</text>
             <text x="575" y="298" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">Dispatches shell captures, receives file paths,</text>
             <text x="575" y="312" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">executes atomic action tapes, evaluates exit codes.</text>
           </svg>
@@ -561,7 +557,7 @@ deskcam analyse stack sweep/</code></pre>
         <p>
           When sweeping or stacking focus across close subjects (such as SMD IC leads),
           stepping the lens in millimetres causes non-linear blur discs.
-          Depth of field (DOF) is nearly constant per <strong>dioptre</strong> ($D = 1/f$ in metres),
+          Depth of field (DOF) is nearly constant per <strong>dioptre</strong> (D = 1 / distance in metres),
           whereas in millimetres it changes quadratically:
         </p>
         <ul>
@@ -596,7 +592,7 @@ deskcam analyse stack sweep/</code></pre>
                 <div>Lens Dioptres: <strong id="focusDioptreReadout" class="highlight">4.00 d</strong></div>
                 <div>Estimated Depth of Field: <strong id="focusDofReadout">±6.2 mm</strong></div>
                 <div style="margin-top:0.5rem; font-size:0.75rem; color:var(--text-muted);">
-                  Formula: Dioptres $D = 1 / d_{\text{metres}}$. Stepping in dioptres ensures uniform optical focus slices.
+                  Formula: dioptres D = 1 / distance in metres. Stepping in dioptres ensures uniform optical focus slices.
                 </div>
               </div>
 
@@ -618,8 +614,8 @@ deskcam focussweep from=3 to=6 steps=7</code></pre>
         </p>
         <p>
           <strong>The Power-of-Two Bracketing Rule:</strong> To capture multi-exposure HDR brackets of an illuminated display without banding,
-          DeskCam anchors the base exposure to exactly one PWM period (e.g. $1/240	ext{ s} pprox 4.17	ext{ ms}$)
-          and steps strictly in powers of two ($1/240$, $1/120$, $1/60$, $1/30$).
+          DeskCam anchors the base exposure to exactly one PWM period (for example 1/240 s, about 4.17 ms)
+          and steps strictly in powers of two (1/240, 1/120, 1/60, 1/30).
           Every exposure remains an integer multiple of the PWM cycle, completely neutralizing phase banding.
         </p>
 
@@ -1142,10 +1138,10 @@ SNAP</textarea>
   <footer>
     <div style="max-width: 900px; margin:0 auto;">
       <p style="margin-bottom:0.5rem;">
-        <strong>DeskCam</strong> — Autonomous Optical Bench Instrument for AI Agents & Hardware Labs.
+        <strong>DeskCam</strong>. An Android phone as a bench instrument.
       </p>
       <p style="font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
-        Powered by Antigravity Agentic Architecture • Android app: zero external dependencies • ASD-STE100 English
+        Android app: zero external dependencies • ASD-STE100 English
       </p>
     </div>
   </footer>
