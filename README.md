@@ -16,12 +16,16 @@ For why it is built this way, refer to [docs/DECISIONS.md](docs/DECISIONS.md). F
 
 ## Trust and Architecture at a Glance
 
-A developer or agent cloning this repository can verify its security and integrity immediately:
+What you are trusting when you run this, and where to check each claim:
 
 * **Zero Gradle, Zero Android Studio, Zero AGP**: The phone app compiles directly with Android SDK build tools (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`) in under 5 seconds. No Gradle daemon, no downloading unknown Maven plugins or transitive dependencies.
 * **Zero Go Dependencies**: The workstation CLI compiles to a single, static binary with zero external packages.
 * **Zero Cloud Calls or Telemetry**: The Android app does not contact external internet services. It operates strictly on your trusted local Wi-Fi LAN or over an `adb reverse` USB loopback cable.
 * **Stateless & Contract-Tested**: The HTTP interface is the single, clean seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) guards the parameter surface against documentation or code drift.
+
+**There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Console Security](#console-security-qr-pairing-and-access-tokens)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
+
+There is no signed release, checksum, or reproducible build. You build the APK yourself from source with the SDK tools listed below, and the build script signs it with a debug keystore it generates on first run.
 
 | Component | Runs On | Technology | Purpose |
 |---|---|---|---|
@@ -90,7 +94,7 @@ mkdir -p ~/.local/bin && ln -sf "$PWD/frontend/go/deskcam" ~/.local/bin/deskcam
 
 ### 2. Install and Start the App
 
-Install the APK onto your phone. The `-g` flag grants camera and network permissions immediately:
+Install the APK onto your phone. The `-g` flag grants every runtime permission the manifest declares at install time, so no dialog appears on the phone. For this app that is camera, local network, and notifications:
 
 ```sh
 adb install -r -g backend/build/deskcam.apk
@@ -575,7 +579,9 @@ DeskCam incorporates an automated load shedding architecture:
 
 ### Console Security, QR Pairing, and Access Tokens
 
-By default, DeskCam operates on trusted local laboratory networks over cleartext HTTP without authentication.
+**There is no HTTPS.** The service is for a trusted LAN. A self-signed certificate would make `-k` necessary on each request, for no real gain. If you need encryption, or access from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it.
+
+By default the camera is open: any client on the network can control it and take captures. The token is for the days that is not acceptable.
 
 For shared or untrusted networks, DeskCam supports token authentication:
 1. Run `deskcam token new` on the workstation to generate a secure random token stored at `~/.config/deskcam/token` (mode 0600).
