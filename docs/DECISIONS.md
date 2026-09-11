@@ -310,7 +310,8 @@ one session and every one had the same shape: a method produced a number, nothin
 large a difference had to be before it was a difference, and the number was published. The
 tools in `frontend/analysis/` return a confidence with every value and refuse below a
 stated limit. The same-against-same test measures what the instrument cannot tell apart and
-records it beside the captures, and the other tools enforce it.
+records it beside the captures. `linearity` enforces it today; the other tools do not
+read it yet.
 
 This is not theoretical. The first implementation of the burst noise tool reported 3.18x
 for an average of six frames, which is above the square root of six and therefore

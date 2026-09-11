@@ -166,6 +166,13 @@ def fenced_block_after(text: str, heading: str) -> str:
     return text[open_:close]
 
 
+def section(text: str, heading: str) -> str:
+    """A Markdown section, from its heading to the next heading at level two or three."""
+    start = text.index(heading)
+    after = re.search(r"\n#{2,3} ", text[start + len(heading) :])
+    return text[start : start + len(heading) + after.start()] if after else text[start:]
+
+
 def routes() -> set[str]:
     return set(re.findall(r'case "(/api/[a-z]+)"', SERVER.read_text()))
 
@@ -209,7 +216,7 @@ def test_the_readme_lists_every_thermal_word() -> None:
     line = next(row for row in text.splitlines() if "`X-DeskCam-Thermal`" in row)
     for word in words:
         assert f"`{word}`" in line, f"the X-DeskCam-Thermal line does not list `{word}`"
-    ladder = text[text.index("### Thermal Rate Shedding") : text.index("### Console Security")]
+    ladder = section(text, "### Heat and battery")
     for word in words:
         if word != "unknown":
             assert f"`{word}`" in ladder, f"the shedding ladder does not list `{word}`"
@@ -268,7 +275,7 @@ def test_the_documents_quote_one_linearity_figure() -> None:
     """One measurement was published as 2.062x, 2.004x and 2.02x at once. Never again."""
     figure = re.compile(r"\b(\d\.\d{3})x\b")
     readme_text = README.read_text()
-    readme_section = readme_text[readme_text.index("### Sensor Linearity") :]
+    readme_section = readme_text[readme_text.index("### Sensor linearity") :]
     readme_section = readme_section[: readme_section.index("\n### ", 10)]
     skill_text = SKILL.read_text()
     skill_section = skill_text[skill_text.index("## Measuring, not photographing") :]
@@ -277,3 +284,12 @@ def test_the_documents_quote_one_linearity_figure() -> None:
     skill = set(figure.findall(skill_section))
     assert readme, "the README no longer states the linearity result"
     assert readme == skill, f"README says {sorted(readme)}, skill says {sorted(skill)}"
+
+
+def test_the_documents_name_only_real_endpoints() -> None:
+    """A made-up endpoint in a header list is how /api/focuswalk came to be published."""
+    known = routes()
+    for doc in (README, SKILL, EXPLAINER, DECISIONS):
+        named = set(re.findall(r"/api/[a-z]+", doc.read_text()))
+        invented = sorted(named - known)
+        assert not invented, f"{doc.name} names {invented}, which the server does not answer"

@@ -43,7 +43,7 @@ func usage() {
 
   deskcam aatest [k=v ...]             two captures, same settings. Prints the smallest
                                        difference a measurement can honestly claim, and
-                                       records it for the analysis tools to enforce.
+                                       records it. analyse linearity refuses steps inside it.
   deskcam scale FILE [--pitch-mm N]    px/mm from a rule or graph paper in the frame, and
                                        records it, so later captures with the same framing
                                        carry it in their sidecars

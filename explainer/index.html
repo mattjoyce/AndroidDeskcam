@@ -1085,7 +1085,7 @@ SNAP</textarea>
               <span style="font-family:var(--font-mono); font-size:0.72rem;">Metrology</span>
             </div>
             <div class="card-title">A Measurement Refuses Rather Than Guesses</div>
-            <div class="card-desc">Three wrong measurements in one session had the same shape: a number with nothing to say how large a difference had to be. Every tool in <code>frontend/analysis/</code> returns a confidence, refuses below a stated limit, and enforces the same-against-same floor recorded beside the captures.</div>
+            <div class="card-desc">Three wrong measurements in one session had the same shape: a number with nothing to say how large a difference had to be. Every tool in <code>frontend/analysis/</code> returns a confidence and refuses below a stated limit. The same-against-same floor is recorded beside the captures, and <code>linearity</code> refuses a series whose steps sit inside it.</div>
           </div>
 
           <div class="info-card">

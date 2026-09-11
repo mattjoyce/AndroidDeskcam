@@ -245,8 +245,9 @@ deskcam aatest measure=1 iso=56 exposure=200ms
 # aa-test: 1.415 DN ... must differ by more than 1.42 DN (1.38% of the level)
 ```
 
-It records the floor beside your captures, and the analysis tools then **refuse** any
-result that sits inside it. You do not have to remember the number, only to have run it.
+It records the floor beside your captures. `deskcam analyse linearity` then **refuses** a
+series whose steps sit inside it. The other tools do not read it yet, so hold the
+differences they report against the floor it printed.
 
 The tools live in `frontend/analysis/` and need `pip install -e '.[analysis]'`:
 

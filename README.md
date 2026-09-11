@@ -21,9 +21,9 @@ What you are trusting when you run this, and where to check each claim:
 * **Zero Gradle, Zero Android Studio, Zero AGP**: The phone app compiles directly with Android SDK build tools (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`) in under 5 seconds. No Gradle daemon, no downloading unknown Maven plugins or transitive dependencies.
 * **One Go Dependency**: The workstation CLI compiles to a single static binary. Its only module outside the standard library is `rsc.io/qr` v0.2.0, for the pairing QR code, pinned in `go.sum`.
 * **Zero Cloud Calls or Telemetry**: Nothing in this repository contacts the internet. The Android app talks only to your LAN or to an `adb forward` USB loopback; the CLI talks only to the phone; the explainer page loads no remote fonts or scripts.
-* **Stateless & Contract-Tested**: The HTTP interface is the single, clean seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) guards the parameter surface against documentation or code drift.
+* **Stateless & Contract-Tested**: The HTTP interface is the single, clean seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) holds the parameter tables, endpoint lists, CLI reference, and enum values in these documents equal to the code they describe.
 
-**There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Console Security](#console-security-qr-pairing-and-access-tokens)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
+**There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Require an Access Token](#require-an-access-token)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
 
 There is no signed release, checksum, or reproducible build. You build the APK yourself from source with the SDK tools listed below, and the build script signs it with a debug keystore it generates on first run.
 
@@ -49,6 +49,8 @@ There is no signed release, checksum, or reproducible build. You build the APK y
    - [Calibrate Physical Scale & Measure Distances](#calibrate-physical-scale--measure-distances)
    - [Execute Atomic Action Tapes (Scripts)](#execute-atomic-action-tapes-scripts)
    - [Linear Radiometric Measurement & RAW DNG](#linear-radiometric-measurement--raw-dng)
+   - [Fix a Phone That Listens but Cannot Be Reached (Android 17)](#fix-a-phone-that-listens-but-cannot-be-reached-android-17)
+   - [Require an Access Token](#require-an-access-token)
 3. [Reference (The Contract)](#reference-the-contract)
    - [CLI Reference](#cli-reference)
    - [HTTP REST API Endpoints](#http-rest-api-endpoints)
@@ -58,20 +60,19 @@ There is no signed release, checksum, or reproducible build. You build the APK y
    - [Errors](#errors)
    - [JSON Sidecars and Telemetry Headers](#json-sidecars-and-telemetry-headers)
 4. [Explanation & Engineering Theory](#explanation--engineering-theory)
-   - [Why Software Region-of-Interest (ROI) Cropping?](#why-software-region-of-interest-roi-cropping)
-   - [Dioptres vs. Millimetres in Optical Focus](#dioptres-vs-millimetres-in-optical-focus)
-   - [Sensor Linearity and Radiometric Mode](#sensor-linearity-and-radiometric-mode)
+   - [Why the crop is done in software](#why-the-crop-is-done-in-software)
+   - [Limits, and the camera idling](#limits-and-the-camera-idling)
+   - [Why focus is stepped in dioptres](#why-focus-is-stepped-in-dioptres)
    - [Focus by number, without sending a picture](#focus-by-number-without-sending-a-picture)
    - [Hunting the focus](#hunting-the-focus)
    - [Running a sequence as one operation](#running-a-sequence-as-one-operation)
+   - [Sensor linearity and measurement mode](#sensor-linearity-and-measurement-mode)
    - [Measuring, and knowing when not to](#measuring-and-knowing-when-not-to)
    - [What the tilt reading is](#what-the-tilt-reading-is)
-   - [Limits, and the camera idling](#limits-and-the-camera-idling)
-   - [Android 17 Local Network Permission Isolation](#android-17-local-network-permission-isolation)
-   - [Thermal Rate Shedding and Battery Care](#thermal-rate-shedding-and-battery-care)
-   - [Console Security, QR Pairing, and Access Tokens](#console-security-qr-pairing-and-access-tokens)
-5. [Quality Gates and Verification](#quality-gates-and-verification)
-6. [License](#license)
+   - [Heat and battery](#heat-and-battery)
+5. [Interactive Visual Explainer](#interactive-visual-explainer)
+6. [Quality Gates and Verification](#quality-gates-and-verification)
+7. [License](#license)
 
 ---
 
@@ -189,18 +190,20 @@ If the phone is mounted upside-down on an articulating desk boom arm:
 deskcam set rotate=180
 ```
 
-To focus on a specific IC without changing the overall image framing, use `focusbox`:
+To focus on a specific IC without changing the overall image framing, use `focusbox`. Fix the exposure first: sharpness is a comparison, and with automatic exposure the hunt climbs the exposure loop instead of the lens.
 
 ```sh
-deskcam set focusbox=0.35,0.35,0.15,0.15
+deskcam set exposure=1/33 iso=200 focusbox=0.35,0.35,0.15,0.15
 deskcam focus hunt
 ```
+
+The hunt exits non-zero, and puts the focus back, when the box holds nothing to focus on, such as a glossy black surface.
 
 ### Capture Flicker-Free Displays (PWM Synchronization)
 
 LED and OLED displays cycle power at high pulse-width modulation (PWM) frequencies (e.g., 60 Hz, 120 Hz, 240 Hz, or 480 Hz). If the camera exposure is not an exact integer multiple of the PWM period, rolling shutter capture produces dark horizontal bands across the screen.
 
-1. **Calculate the base period**: For a 60 Hz panel, the period is $1/60\text{ s} \approx 16.67\text{ ms}$. For a 240 Hz panel, it is $1/240\text{ s} \approx 4.17\text{ ms}$.
+1. **Calculate the base period**: For a 60 Hz panel, the period is 1/60 s, about 16.67 ms. For a 240 Hz panel, it is 1/240 s, about 4.17 ms.
 2. **Lock exposure, ISO, and white balance**:
 
 ```sh
@@ -213,8 +216,10 @@ To capture an exposure bracket across multiple stops without introducing PWM pha
 
 ```sh
 # Step in exact powers-of-two multiples of the 240 Hz PWM period:
-deskcam bracket base=1/240 stops=4 iso=56
+deskcam bracket base=1/240 stops=4 iso=56 measure=1
 ```
+
+Take the bracket in measurement mode if you will merge it. `deskcam analyse hdr` refuses frames taken through a tone map, because `value / exposure` is only radiance when the response is linear.
 
 DeskCam verifies the sensor's physical timing and reports the exact period fractions in the response.
 
@@ -226,10 +231,10 @@ To capture a focus stack across a circuit board:
 
 ```sh
 # Sweep the lens over 7 evenly spaced dioptric steps from 3.0 to 6.0 dioptres:
-deskcam focussweep from=3 to=6 steps=7
+deskcam focussweep -o stack/ from=3 to=6 steps=7
 ```
 
-DeskCam captures seven full-resolution stills, bundles them into a `.tar` stream, and writes individual JSON sidecars for each step.
+DeskCam captures seven full-resolution stills and writes each one, with its JSON sidecar, into `stack/`. Without `-o` the directory is named `deskcam-sweep-DATE-TIME` in your shots directory.
 
 To blend the sharp slices into a single deep-focus composite on the workstation:
 
@@ -238,7 +243,7 @@ To blend the sharp slices into a single deep-focus composite on the workstation:
 pip install -e '.[analysis]'
 
 # Blend the stack with focus-breathing correction
-deskcam analyse stack deskcam-sweep-*/
+deskcam analyse stack stack/
 ```
 
 ### Calibrate Physical Scale & Measure Distances
@@ -259,19 +264,15 @@ This writes `deskcam-scale.json`. Subsequent captures at the same zoom, pan, and
 
 ```sh
 deskcam measure shot.jpg 412,308 1190,306
-# Output: 47.4 mm (95% CI: 47.3 to 47.5 mm)
+# 47.4 mm (95% 47.3 to 47.5)
 ```
 
 ### Execute Atomic Action Tapes (Scripts)
 
-When running multi-step inspection sequences (such as unlit capture $\rightarrow$ LED lit capture $\rightarrow$ focus hunt $\rightarrow$ macro capture), network latency and concurrent browser polling can introduce race conditions.
-
-DeskCam solves this with **Action Tapes** via `POST /api/script`. A tape is a series of verbs executed atomically on the phone. While a tape runs, the camera is locked and external modifications are rejected (HTTP 409).
-
-Create a script file `inspect.dcl`:
+Nothing stops the browser panel or a second agent from changing the camera between your `SET` and your `SNAP`. A tape runs a sequence as one request and holds the camera while it runs, so any request that would change the camera gets HTTP 409. Write the steps to a file, one verb per line:
 
 ```
-# Inspect a component under natural light, then with LED torch
+# inspect the part, lit and unlit
 SET zoom=2 cx=0.5 cy=0.5 exposure=1/33 iso=200 awbgains=neutral
 FOCUSHUNT
 SET torch=25
@@ -281,19 +282,17 @@ SET torch=0
 SNAP
 ```
 
-Execute the tape atomically:
-
 ```sh
 deskcam script run inspect.dcl
 ```
 
-All images and step events stream back over a single `multipart/mixed` connection and are saved locally.
+Each capture is written as it arrives, with its sidecar. A failed step ends the tape and puts the camera back where the tape found it. The verbs, the failure rules, and why a tape has no branching are in [Running a sequence as one operation](#running-a-sequence-as-one-operation).
 
 ### Linear Radiometric Measurement & RAW DNG
 
 Consumer smartphone camera pipelines apply aggressive non-linear transformations: tone-mapping curves, dynamic noise reduction, edge sharpening, and vignetting compensation. These corrupt physical light measurements.
 
-For true linear radiometry ($R^2 = 1.000$ with respect to exposure):
+For linear radiometry, where doubling the exposure doubles the pixel value (measured in [Sensor linearity and measurement mode](#sensor-linearity-and-measurement-mode)):
 
 ```sh
 # Set measurement mode (disables tone curves, sharpening, OIS, and NR)
@@ -308,6 +307,29 @@ deskcam raw -o sensor_dump.dng exposure=1/120 iso=56
 ```
 
 The resulting DNG contains the full 12-megapixel Bayer matrix, black and white saturation levels, color calibration matrices, and illuminant metadata. You can process it directly with `rawpy`, `dcraw`, or `darktable`.
+
+### Fix a Phone That Listens but Cannot Be Reached (Android 17)
+
+Android 17 introduces a strict architectural division between `INTERNET` and `ACCESS_LOCAL_NETWORK`:
+
+* An application can hold the traditional `android.permission.INTERNET` permission and successfully reach external public web servers.
+* Simultaneously, the Android operating system drops all inbound and outbound packets to private local network addresses (192.168.x.x, 10.x.x.x).
+
+In this failure mode, the HTTP server appears healthy in `logcat` and `ss` confirms it is listening on port 8080. However, connection attempts from your workstation time out with no response.
+
+DeskCam explicitly declares and requests `android.permission.ACCESS_LOCAL_NETWORK`. If you install the APK manually without `-g`, you must grant this permission in the phone's App Settings.
+
+Connecting over USB via `deskcam usb` bypasses this mechanism entirely by tunneling through `adb forward` onto the phone's loopback interface (`127.0.0.1:8080`).
+
+### Require an Access Token
+
+**There is no HTTPS.** A token decides who may use the camera. It encrypts nothing, and it crosses the network in the clear with every request. For encryption, see [Trust and Architecture at a Glance](#trust-and-architecture-at-a-glance).
+
+By default the camera is open: any client on the network can control it and take captures. The token is for the days that is not acceptable:
+1. Run `deskcam token new` on the workstation to generate a secure random token stored at `~/.config/deskcam/token` (mode 0600).
+2. Start the workstation console via `deskcam open`. It generates a pairing QR code containing `deskcam://pair?cb=...`.
+3. Scan the QR code with the phone camera to pair the token with the Android service in real time, with no manual keyboard entry.
+4. Subsequent API calls require `?token=...` or an `Authorization: Bearer <token>` header.
 
 ---
 
@@ -358,7 +380,7 @@ deskcam - control the bench camera over HTTP
 
   deskcam aatest [k=v ...]             two captures, same settings. Prints the smallest
                                        difference a measurement can honestly claim, and
-                                       records it for the analysis tools to enforce.
+                                       records it. analyse linearity refuses steps inside it.
   deskcam scale FILE [--pitch-mm N]    px/mm from a rule or graph paper in the frame, and
                                        records it, so later captures with the same framing
                                        carry it in their sidecars
@@ -469,7 +491,7 @@ These parameters describe how **one** picture is delivered. They apply only to t
 | `w`, `h` | Change the size after the crop. One value keeps the aspect ratio. |
 | `jpegq`, `quality` | The quality. The default is 92. |
 
-When `w` and `h` persisted, they silently rescaled subsequent captures and permanently bypassed the zero-copy untouched JPEG path. In the current design, presentation parameters are strictly ephemeral. `rotate` remains part of camera state because it reflects physical mounting orientation.
+Presentation parameters apply to the one request that names them and are then forgotten, so a resize never carries into the next capture or pushes it off the untouched JPEG path. `rotate` is camera state, not presentation, because it describes how the phone is mounted.
 
 ### Router
 
@@ -611,8 +633,8 @@ This sidecar was written by `deskcam snap -o board.jpg zoom=4 cx=0.5 cy=0.5` on 
 HTTP responses also carry headers, and which ones depends on the endpoint (`HttpServer.java` is the source of truth):
 * `X-DeskCam-Provenance`: on `/api/still`, the frame's own record as one line of JSON, the same content as the sidecar. Omitted if it would exceed 7000 bytes.
 * `X-DeskCam-ROI`: on `/api/raw`, the framing that was asked for. A DNG carries the whole sensor, so the crop is reported rather than applied.
-* `X-DeskCam-Frames` and `X-DeskCam-Frames-Requested`: on `/api/burst`, how many frames came back against how many were asked for. A short burst answers 206 rather than 200. `/api/focuswalk` sends `X-DeskCam-Frames` alone.
-* `X-DeskCam-Millis`: on `/api/burst` and `/api/focuswalk`, wall-clock time for the whole capture.
+* `X-DeskCam-Frames` and `X-DeskCam-Frames-Requested`: on `/api/burst`, how many frames came back against how many were asked for. A short burst answers 206 rather than 200. `/api/focussweep`, `/api/bracket` and `/api/walk` send `X-DeskCam-Frames` alone.
+* `X-DeskCam-Millis`: on `/api/burst`, `/api/focussweep`, `/api/bracket` and `/api/walk`, wall-clock time for the whole capture.
 * `X-DeskCam-Fps`: on `/api/burst`, the rate the frames were actually taken at. On each part of `/api/stream`, the rate this part was sent at after shedding.
 * `X-DeskCam-Thermal`: on each part of `/api/stream`, the platform thermal state as one word: `none`, `light`, `moderate`, `severe`, `critical`, `emergency`, `shutdown`. It is `unknown` before the platform has reported, and `level N` for a value this build does not know. Parse for all nine.
 * `X-DeskCam-Shedding`: on a stream part, and only once the rate has been cut, one sentence saying what the level means and what to do. `emergency` and `shutdown` both say to stop the session.
@@ -621,61 +643,81 @@ HTTP responses also carry headers, and which ones depends on the endpoint (`Http
 
 ## Explanation & Engineering Theory
 
-### Why Software Region-of-Interest (ROI) Cropping?
+### Why the crop is done in software
 
-The Google Pixel 6a sensor hardware reports `android.scaler.croppingType = CENTER_ONLY`. In hardware zoom, the Camera HAL forces the crop rectangle to remain centered at $(0.5, 0.5)$. The hardware scaler cannot pan.
+The Google Pixel 6a sensor hardware reports `android.scaler.croppingType = CENTER_ONLY`. In hardware zoom, the Camera HAL forces the crop rectangle to remain centered at (0.5, 0.5). The hardware scaler cannot pan.
 
-DeskCam circumvents this hardware limitation. It always commands the camera sensor to deliver the full, uncropped $4032 \times 3024$ image array. It then performs Region-of-Interest cropping in software via `BitmapRegionDecoder`.
+DeskCam circumvents this hardware limitation. It always commands the camera sensor to deliver the full, uncropped 4032 x 3024 image array. It then performs Region-of-Interest cropping in software via `BitmapRegionDecoder`.
 
 This design yields three critical advantages:
-1. **True Panning**: You can center the view on any arbitrary coordinate $(c_x, c_y)$ across the entire sensor field.
-2. **True Sensor Pixels**: Pixels are never interpolated, enlarged, or scaled by digital zoom algorithms. At $4\times$ zoom, you receive an authentic $1008 \times 756$ crop directly from the photosites.
-3. **Synchronized Metering**: When you pan and zoom onto a component, DeskCam maps the 3A metering and autofocus regions directly to that sub-rectangle. The camera meters and focuses strictly on the component of interest.
+1. **True Panning**: You can center the view on any arbitrary coordinate (cx, cy) across the entire sensor field.
+2. **True Sensor Pixels**: Pixels are never interpolated, enlarged, or scaled by digital zoom algorithms. At 4x zoom, you receive an authentic 1008 x 756 crop directly from the photosites.
+3. **Synchronized Metering**: When you pan and zoom onto a component, DeskCam maps the 3A metering and autofocus regions directly to that sub-rectangle. The camera meters and focuses strictly on the component of interest. When what should be sharp is not the whole crop, `focusbox` moves the autofocus region and the sharpness window to a rectangle of their own and leaves the metering on the crop (D17 in [docs/DECISIONS.md](docs/DECISIONS.md)).
 
-### Dioptres vs. Millimetres in Optical Focus
+### Limits, and the camera idling
 
-DeskCam measures and steps manual lens focus in **dioptres** ($d = 1/\text{distance in metres}$), rather than in linear millimetres.
+The zoom stops where a crop is no longer useful. On this sensor the limit is about 63x.
+Above about 6x you see very few pixels. It is better to move the phone closer. Then use
+`focusm` down to 0.098 m.
 
-$$d = \frac{1}{f_{\text{metres}}}$$
+Macro is an optical limit. At the 98 mm minimum focus distance the camera gives about 33
+pixels for each millimetre, roughly 30 micrometres for each pixel. That figure is
+arithmetic from the sensor size and the stated minimum focus distance, not a measurement,
+and `focusDistanceCalibration` on this device is `APPROXIMATE`. It is enough to read
+silkscreen and find a part. It is not enough to see a solder fillet. A clip-on macro lens
+is the correction. **The scale of an actual picture depends on where the stand is**, so
+measure it from a reference in the frame rather than trusting a stored number.
+
+`/api/still` sends the JPEG of the camera without a change when the zoom is at or below
+1.0001, and there is no rotation, and there is no resize. This is the quickest path and the
+best quality. Any crop, rotation, or resize costs a decode and a new encode.
+`BitmapRegionDecoder` reads only the necessary tile. Thus a large zoom costs less than a
+small zoom.
+
+**The limit of 1.0001 puts a still on one of two pipelines**, so each capture records which
+one it took in `settings.capture_path`, as `camera_jpeg` or `decoded_and_reencoded`. Two
+captures on opposite sides of the limit are different kinds of image, and comparing them
+measures the pipeline rather than the subject.
+
+**The camera stops reading the sensor when nobody is asking.** After 20 seconds with no
+stream client and nothing requesting a frame, the repeating preview request is stopped.
+The next request that needs a frame starts it again and waits for the exposure loop to
+settle before answering, so the first capture after a quiet period is not quietly worse
+than one taken during a busy one. `/api/status` carries a `preview` block saying whether
+it is idle, for how long, and what the last wake cost.
+
+This sentence used to read "the app converts a preview frame only when a client asks for
+one; an idle service costs almost nothing." The first half is decision D7 and is true: a preview frame is encoded only while someone is watching. The
+second half was not: the conversion stopped, and the sensor, the ISP and the HAL carried on
+at 29 frames a second for the life of the service. A bench phone left running overnight was
+found at the platform's `severe` thermal level for that reason.
+
+Measured on a Pixel 6a, three runs each:
+
+| | |
+|---|---|
+| Frames while idle | **0 in 10 s**, against 29 a second awake |
+| Wake, exposure fixed | 305 to 348 ms |
+| Wake, exposure automatic | 377 to 803 ms |
+| A still taken against a sleeping camera | 764 to 822 ms, about 320 ms of it the wake |
+
+The exposure of the first frame after a wake was **identical** to one taken two seconds
+later in every automatic run, and the ISO agreed to within 5 of 200. The cost of idling is
+a slower first capture, never a worse one.
+
+A stream client stops it idling, which is why a browser tab left open on the panel used to
+hold the camera awake all night. Both panels now stop their stream while their tab is
+hidden.
+
+### Why focus is stepped in dioptres
+
+DeskCam measures and steps manual lens focus in **dioptres** (d = 1/distance in metres), rather than in linear millimetres.
 
 In geometrical optics, **depth of field is approximately constant per dioptre**, regardless of distance. Conversely, depth of field in millimetres is wildly non-linear:
-* Near the closest focus distance ($98\text{ mm}$), $1\text{ mm}$ corresponds to approximately $0.10\text{ dioptres}$.
-* At a distance of $0.5\text{ metres}$, $1\text{ mm}$ corresponds to only $0.004\text{ dioptres}$.
+* Near the closest focus distance (98 mm), 1 mm corresponds to approximately 0.10 dioptres.
+* At a distance of 0.5 metres, 1 mm corresponds to only 0.004 dioptres.
 
 If a focus sweep were stepped uniformly in millimetres, it would take hundreds of redundant, overlapping frames at close range while stepping completely over the subject at medium range. Stepping uniformly in dioptres produces evenly spaced, optimal depth slices across the entire range.
-
-### Sensor Linearity and Radiometric Mode
-
-Standard Android camera output is tailored for human aesthetic preference rather than scientific measurement. Tone curves compress highlights, edge sharpening introduces ringing artifacts, and dynamic noise reduction eliminates subtle spatial gradients.
-
-Passing `measure=1` puts the Camera2 pipeline into a calibrated instrument state:
-* Noise reduction, edge sharpening, hot pixel correction, and chromatic aberration correction are disabled.
-* The tone curve is forced to a strictly linear response.
-* Optical image stabilization (OIS) is locked, preventing physical lens movement on stationary mounts.
-* White balance gains are locked.
-
-Measured on 2026-09-10 with `deskcam analyse linearity`, from seven captures between 50 ms and 400 ms at ISO 56, zoom 4, white balance locked, on a static bench scene. The tool dropped the 400 ms frame for clipping:
-
-| Quantity | Result |
-|---|---|
-| Value change per doubling, raw fit | **2.062x** (95% 2.041 to 2.083) |
-| Power-law fit | R squared 1.000, n = 6 |
-| Pedestal at zero exposure | **-2.39 DN** |
-| Exponent with the pedestal removed | **0.999** (1.999x per doubling, 95% 1.992 to 2.006) |
-| Same-against-same noise floor for the run | 1.21 DN, smallest step between captures 10.68 DN |
-
-The pedestal is the interesting part. A constant negative offset bends the raw exponent upward, and this one accounts for the whole excess over 2.0. Read the result as **linear with a black-level offset of about two digits**, not as a sensor that responds better than linearly. Every figure in the table comes from one run of the tool; nothing here is corrected by hand. Reproduce it:
-
-```sh
-deskcam set zoom=4 awblock=1 measure=1 iso=56
-deskcam aatest -o lin/ exposure=200ms          # records the noise floor into lin/
-for ms in 50 71 100 141 200 283 400; do
-    deskcam snap -o lin/e$ms.jpg exposure=${ms}ms settle=600
-done
-deskcam analyse linearity lin/ --region 0.5,0.68,0.30,0.12
-```
-
-Your numbers will differ. The pedestal and the floor belong to your scene and your camera, and the region is the patch of the frame that was neither dark nor clipped in this one.
 
 ### Focus by number, without sending a picture
 
@@ -707,7 +749,7 @@ It **describes the last preview frame that was converted**, which may be old, so
 reported beside it and `deskcam show` prints the age once it is over half a second.
 Without `sharpness=1` nothing new is converted, because a status poll that demanded a frame
 would have an open console page converting every frame at thirty a second for a page that
-is not showing video (decision D7).
+is not showing video (decision D7 in [docs/DECISIONS.md](docs/DECISIONS.md)).
 
 It costs about **9 ms** on a Pixel 6a and the cost is reported with the value. The sample
 count is capped for that: rows are skipped, never columns and never the kernel's
@@ -858,7 +900,7 @@ Reading is still allowed, because watching a tape run does not interfere with it
 
 **The pixels come back inside the same request.** The answer is one `multipart/mixed`
 stream: a JSON event per step, and each capture's file as the part after its own event.
-The phone stores nothing, which is what the specification says of it, and an events-only
+The phone stores nothing, and an events-only
 stream would have needed a working directory on the phone, a cleanup policy, a listing
 endpoint and a download endpoint before the first script ran. `deskcam script run` writes
 each part as it arrives, with that step's own record beside it, exactly as `deskcam walk`
@@ -889,6 +931,39 @@ A verb whose own answer says `ok: false` is a failed step. Today that is only `F
 finding no peak, and it matters: carrying on to the next `SNAP` would take it out of focus
 and report it as a success.
 
+### Sensor linearity and measurement mode
+
+Standard Android camera output is tailored for human aesthetic preference rather than scientific measurement. Tone curves compress highlights, edge sharpening introduces ringing artifacts, and dynamic noise reduction eliminates subtle spatial gradients.
+
+Passing `measure=1` puts the Camera2 pipeline into a calibrated instrument state:
+* Noise reduction, edge sharpening, hot pixel correction, and chromatic aberration correction are disabled.
+* The tone curve is forced to a strictly linear response.
+* Optical image stabilization (OIS) is locked, preventing physical lens movement on stationary mounts.
+* White balance gains are locked.
+
+Measured on 2026-09-10 with `deskcam analyse linearity`, from seven captures between 50 ms and 400 ms at ISO 56, zoom 4, white balance locked, on a static bench scene. The tool dropped the 400 ms frame for clipping:
+
+| Quantity | Result |
+|---|---|
+| Value change per doubling, raw fit | **2.062x** (95% 2.041 to 2.083) |
+| Power-law fit | R squared 1.000, n = 6 |
+| Pedestal at zero exposure | **-2.39 DN** |
+| Exponent with the pedestal removed | **0.999** (1.999x per doubling, 95% 1.992 to 2.006) |
+| Same-against-same noise floor for the run | 1.21 DN, smallest step between captures 10.68 DN |
+
+The pedestal is the interesting part. A constant negative offset bends the raw exponent upward, and this one accounts for the whole excess over 2.0. Read the result as **linear with a black-level offset of about two digits**, not as a sensor that responds better than linearly. Every figure in the table comes from one run of the tool; nothing here is corrected by hand. Reproduce it:
+
+```sh
+deskcam set zoom=4 awblock=1 measure=1 iso=56
+deskcam aatest -o lin/ exposure=200ms          # records the noise floor into lin/
+for ms in 50 71 100 141 200 283 400; do
+    deskcam snap -o lin/e$ms.jpg exposure=${ms}ms settle=600
+done
+deskcam analyse linearity lin/ --region 0.5,0.68,0.30,0.12
+```
+
+Your numbers will differ. The pedestal and the floor belong to your scene and your camera, and the region is the patch of the frame that was neither dark nor clipped in this one.
+
 ### Measuring, and knowing when not to
 
 `frontend/analysis/` holds the measurement tools. They read captures and sidecars off disk
@@ -913,8 +988,9 @@ aa-test: 1.415 DN, n=68252, fraction of pixels not pinned 1.000
   before it is a difference and not this camera
 ```
 
-That figure is recorded next to your captures as `deskcam-noisefloor.json`, and the other
-tools read it and **refuse** a result that sits inside it.
+That figure is recorded next to your captures as `deskcam-noisefloor.json`. Today only
+`linearity` reads it, and it **refuses** a series whose steps sit inside it. The other tools
+do not check it yet, so hold their differences against the floor yourself.
 
 Every tool returns its value, its interval, its sample count and its confidence together,
 and refuses below a stated limit rather than printing a number with a caveat next to it. A
@@ -934,12 +1010,8 @@ Exit codes are 0 for a measurement, 2 for a refusal, 1 for a tool that could not
 
 `deskcam scale` measures pixels per millimetre from a regular reference in the frame, a
 steel rule or graph paper. **It changes every time the stand moves**, so it is never quoted
-as a camera specification. Measure it in the picture you care about:
-
-```sh
-deskcam scale shot.jpg --pitch-mm 1.0 --region 0.365,0.41,0.66,0.05
-deskcam measure shot.jpg 412,308 1190,306      # 47.4 mm (95% 47.3 to 47.5)
-```
+as a camera specification. Measure it in the picture you care about, as in
+[Calibrate Physical Scale & Measure Distances](#calibrate-physical-scale--measure-distances).
 
 `deskcam scale` writes `deskcam-scale.json` beside the captures, and every capture taken
 after it carries the number in its own sidecar for as long as the framing holds. Change the
@@ -1032,75 +1104,7 @@ it live.
 still needs a scale reference in the frame, such as a ruler or graph paper, before you can
 measure real sizes.
 
-### Limits, and the camera idling
-
-The zoom stops where a crop is no longer useful. On this sensor the limit is about 63x.
-Above about 6x you see very few pixels. It is better to move the phone closer. Then use
-`focusm` down to 0.098 m.
-
-Macro is an optical limit. At the 98 mm minimum focus distance the camera gives about 33
-pixels for each millimetre, roughly 30 micrometres for each pixel. That figure is
-arithmetic from the sensor size and the stated minimum focus distance, not a measurement,
-and `focusDistanceCalibration` on this device is `APPROXIMATE`. It is enough to read
-silkscreen and find a part. It is not enough to see a solder fillet. A clip-on macro lens
-is the correction. **The scale of an actual picture depends on where the stand is**, so
-measure it from a reference in the frame rather than trusting a stored number.
-
-`/api/still` sends the JPEG of the camera without a change when the zoom is at or below
-1.0001, and there is no rotation, and there is no resize. This is the quickest path and the
-best quality. Any crop, rotation, or resize costs a decode and a new encode.
-`BitmapRegionDecoder` reads only the necessary tile. Thus a large zoom costs less than a
-small zoom.
-
-**The limit of 1.0001 puts a still on one of two pipelines**, so each capture records which
-one it took in `settings.capture_path`, as `camera_jpeg` or `decoded_and_reencoded`. Two
-captures on opposite sides of the limit are different kinds of image, and comparing them
-measures the pipeline rather than the subject.
-
-**The camera stops reading the sensor when nobody is asking.** After 20 seconds with no
-stream client and nothing requesting a frame, the repeating preview request is stopped.
-The next request that needs a frame starts it again and waits for the exposure loop to
-settle before answering, so the first capture after a quiet period is not quietly worse
-than one taken during a busy one. `/api/status` carries a `preview` block saying whether
-it is idle, for how long, and what the last wake cost.
-
-This sentence used to read "the app converts a preview frame only when a client asks for
-one; an idle service costs almost nothing." The first half is decision D7 and is true. The
-second half was not: the conversion stopped, and the sensor, the ISP and the HAL carried on
-at 29 frames a second for the life of the service. A bench phone left running overnight was
-found at the platform's `severe` thermal level for that reason.
-
-Measured on a Pixel 6a, three runs each:
-
-| | |
-|---|---|
-| Frames while idle | **0 in 10 s**, against 29 a second awake |
-| Wake, exposure fixed | 305 to 348 ms |
-| Wake, exposure automatic | 377 to 803 ms |
-| A still taken against a sleeping camera | 764 to 822 ms, about 320 ms of it the wake |
-
-The exposure of the first frame after a wake was **identical** to one taken two seconds
-later in every automatic run, and the ISO agreed to within 5 of 200. The cost of idling is
-a slower first capture, never a worse one.
-
-A stream client stops it idling, which is why a browser tab left open on the panel used to
-hold the camera awake all night. Both panels now stop their stream while their tab is
-hidden.
-
-### Android 17 Local Network Permission Isolation
-
-Android 17 introduces a strict architectural division between `INTERNET` and `ACCESS_LOCAL_NETWORK`:
-
-* An application can hold the traditional `android.permission.INTERNET` permission and successfully reach external public web servers.
-* Simultaneously, the Android operating system drops all inbound and outbound packets to private local network addresses ($192.168.x.x$, $10.x.x.x$).
-
-In this failure mode, the HTTP server appears healthy in `logcat` and `ss` confirms it is listening on port 8080. However, connection attempts from your workstation time out with no response.
-
-DeskCam explicitly declares and requests `android.permission.ACCESS_LOCAL_NETWORK`. If you install the APK manually without `-g`, you must grant this permission in the phone's App Settings.
-
-Connecting over USB via `deskcam usb` bypasses this mechanism entirely by tunneling through `adb forward` onto the phone's loopback interface (`127.0.0.1:8080`).
-
-### Thermal Rate Shedding and Battery Care
+### Heat and battery
 
 A phone bolted to a stand, holding a camera and a wake lock for hours with nobody looking
 at it, gets hot. `/api/status` carries a `device` block:
@@ -1168,7 +1172,8 @@ because it is the channel carrying the reason.
 the phone is merely warm. **Take it seriously for measurement work**: a throttled phone has
 a hot sensor, and a hot sensor is a noisier one.
 
-The same bench after the camera was given the idling of the section above, an open panel
+The same bench after the camera was given the idling described in
+[Limits, and the camera idling](#limits-and-the-camera-idling), an open panel
 tab was closed, and the phone was set to stop charging at 80 percent:
 
 | | after an afternoon of captures | a quiet hour later |
@@ -1177,18 +1182,6 @@ tab was closed, and the phone was set to stop charging at 80 percent:
 | Battery | 38.1 °C | **27.2 °C** |
 
 Nothing about the hardware changed between those two columns.
-
-### Console Security, QR Pairing, and Access Tokens
-
-**There is no HTTPS.** The service is for a trusted LAN. A self-signed certificate would make `-k` necessary on each request, for no real gain. If you need encryption, or access from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it.
-
-By default the camera is open: any client on the network can control it and take captures. The token is for the days that is not acceptable.
-
-For shared or untrusted networks, DeskCam supports token authentication:
-1. Run `deskcam token new` on the workstation to generate a secure random token stored at `~/.config/deskcam/token` (mode 0600).
-2. Start the workstation console via `deskcam open`. It generates a pairing QR code containing `deskcam://pair?cb=...`.
-3. Scan the QR code with the phone camera to pair the token with the Android service in real time, with no manual keyboard entry.
-4. Subsequent API calls require `?token=...` or an `Authorization: Bearer <token>` header.
 
 ---
 
