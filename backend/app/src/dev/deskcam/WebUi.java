@@ -481,6 +481,25 @@ function requestUrl(path) {
   return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(accessToken);
 }
 
+// Keep the deadline active until the body has been read as well as the headers.
+// Aborting a browser request cannot undo an operation already received by the camera.
+async function requestJson(path) {
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, 15000);
+  try {
+    const r = await fetch(requestUrl(path), {signal: controller.signal});
+    const j = await r.json();
+    return {r: r, j: j};
+  } catch (e) {
+    if (controller.signal.aborted) {
+      throw new Error('Request timed out. The camera may have applied it; check status before retrying.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let busy = false;
 
 /* The answer's status code decides what happens. This used to read the body and nothing
@@ -499,8 +518,7 @@ async function api(url) {
   working(true, verbOf(url));
   const t0 = Date.now();
   try {
-    const r = await fetch(requestUrl(url));
-    const j = await r.json();
+    const {r, j} = await requestJson(url);
     entry.done(r.status, Date.now() - t0, r.ok ? '' : (j.error || ''));
     if (!r.ok) { complain(r.status, j); return null; }
     msg.hidden = true;
@@ -509,6 +527,7 @@ async function api(url) {
   } catch (e) {
     entry.done(0, Date.now() - t0, String(e));
     document.getElementById('meta').textContent = 'error: ' + e;
+    say(String(e), true);
     return null;
   } finally {
     working(false);
@@ -667,16 +686,20 @@ function paintDeck() {
       + (j.stream_clients === 1 ? ' viewer' : ' viewers') : ''));
 }
 
+var statusPending = false;
 async function refresh() {
+  if (statusPending) return;
+  statusPending = true;
   try {
-    const r = await fetch(requestUrl('/api/status'));
-    const j = await r.json();
+    const {r, j} = await requestJson('/api/status');
     deck.answered = r.ok;
     if (r.ok) deck.status = j;
     render(j);
   } catch (e) {
     // Keep the last good settings on a hiccup, but never keep claiming it is live.
     deck.answered = false;
+  } finally {
+    statusPending = false;
   }
   paintDeck();
 }
@@ -910,13 +933,12 @@ async function sendPan(cx, cy) {
     const q = panQueued;
     panQueued = null;
     try {
-      const r = await fetch(requestUrl('/api/set?cx=' + q[0].toFixed(4) + '&cy=' + q[1].toFixed(4)));
-      const j = await r.json();
+      const {r, j} = await requestJson('/api/set?cx=' + q[0].toFixed(4) + '&cy=' + q[1].toFixed(4));
       sends++;
       status = r.status;
       if (!r.ok) { complain(r.status, j); break; }
       render(j);
-    } catch (e) { break; }
+    } catch (e) { status = 0; say(String(e), true); panQueued = null; break; }
   }
   entry.done(status, Date.now() - t0, sends + (sends === 1 ? ' move' : ' moves'));
   panSending = false;
@@ -1013,15 +1035,18 @@ view.addEventListener('wheel', function (e) {
 
 var MARKS = [];
 
+var marksPending = false;
 async function loadMarks() {
+  if (marksPending) return;
+  marksPending = true;
   try {
-    const r = await fetch(requestUrl('/api/marks'));
+    const {r, j} = await requestJson('/api/marks');
     if (!r.ok) return;
-    const j = await r.json();
     MARKS = j.marks || [];
     drawMarks();
     listMarks();
   } catch (e) { /* the next tick tries again */ }
+  finally { marksPending = false; }
 }
 
 function drawMarks() {

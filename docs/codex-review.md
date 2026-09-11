@@ -39,3 +39,13 @@ restarts, pan and still-image links. Request logs retain credential-free URLs.
 `node --test backend/test/webui/panel.test.mjs` reproduced the missing token on
 `/api/status`, then passed both authenticated and open-panel checks after the fix.
 The harness executes the Java-interpreted page script with a controlled DOM/network.
+
+### Bounded requests and polling
+
+All JSON requests now share a 15-second deadline, including body reads. A command
+failure is visible, and timeout text explains that the server may already have applied
+the operation. There is no automatic command retry. Status and marks each allow one
+outstanding poll, releasing that guard on success, failure or timeout.
+
+Five page regressions pass, including stalled headers, a stalled JSON body, recovery
+with a later command, and duplicate polls while an earlier request is pending.

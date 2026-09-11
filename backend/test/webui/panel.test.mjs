@@ -32,3 +32,45 @@ test('an open panel sends no token', async () => {
   for (const call of p.calls) assert.ok(!call.url.includes('token='));
   assert.ok(!p.element('view').src.includes('token='));
 });
+
+test('a stalled command times out visibly and a later command can run', async () => {
+  const p = await panel();
+  p.run("api('/api/af')");
+  await p.flush();
+  const stuck = p.calls.at(-1);
+  await p.advance(15001);
+  assert.equal(stuck.options.signal?.aborted, true);
+  assert.match(p.element('msg').textContent, /timed out/i);
+  const next = p.run("api('/api/set?zoom=3')");
+  await p.flush();
+  assert.match(p.calls.at(-1).url, /zoom=3/);
+  p.calls.at(-1).reply(status(3));
+  await next;
+  assert.equal(p.run('last.zoom'), 3);
+});
+
+test('status and marks polls allow only one pending request each and recover after timeout', async () => {
+  const p = await panel();
+  p.calls.length = 0;
+  p.run('refresh(); refresh(); loadMarks(); loadMarks();');
+  await p.flush();
+  assert.equal(p.calls.filter(c => c.url.includes('/api/status')).length, 1);
+  assert.equal(p.calls.filter(c => c.url.includes('/api/marks')).length, 1);
+  await p.advance(15001);
+  p.run('refresh(); loadMarks();');
+  await p.flush();
+  assert.equal(p.calls.length, 4);
+  for (const call of p.calls.slice(2)) call.reply();
+  await p.flush();
+});
+
+test('the deadline also covers a response whose JSON body never finishes', async () => {
+  const p = await panel();
+  const command = p.run("api('/api/af')");
+  await p.flush();
+  p.calls.at(-1).reply(new Promise(() => {}));
+  await p.flush();
+  await p.advance(15001);
+  assert.equal(await command, null);
+  assert.match(p.element('msg').textContent, /timed out/i);
+});

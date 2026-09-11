@@ -85,7 +85,13 @@ export async function panel(search = '') {
           reply(body = status(), code = 200) {
             this.settled = true;
             resolve({ ok: code >= 200 && code < 300, status: code,
-              json: async () => body });
+              json: () => new Promise((resolveBody, rejectBody) => {
+                const aborted = () => rejectBody(new DOMException('aborted', 'AbortError'));
+                options.signal?.addEventListener('abort', aborted, { once: true });
+                Promise.resolve(body).then(resolveBody, rejectBody).finally(() => {
+                  options.signal?.removeEventListener('abort', aborted);
+                });
+              }) });
           }, reject };
         options.signal?.addEventListener('abort', () => {
           call.settled = true;
