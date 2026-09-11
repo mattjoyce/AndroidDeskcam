@@ -240,7 +240,7 @@ func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
 	state, _, shots := testConsole(t)
 	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
-		"/", "/qr.svg", "/api/state", "/api/roll",
+		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
 		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg", "/api/stream?fps=10",
 		"/api/cam?zoom=2", "/api/newcode", "/api/token?do=clear",
 	} {
@@ -680,7 +680,7 @@ func TestTheOperatorsOwnBrowserStillGetsEverything(t *testing.T) {
 	_, server, shots := testConsole(t)
 	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
-		"/", "/qr.svg", "/api/state", "/api/roll",
+		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
 		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg",
 	} {
 		if code, _ := get(t, server, path); code != http.StatusOK {
@@ -763,5 +763,51 @@ func TestProbingAnAddressWithNothingOnIt(t *testing.T) {
 	// dial-failure path rather than the not-an-address path above it.
 	if probePhone("127.0.0.1", 9, "", time.Second) != nil {
 		t.Fatal("a port with nothing on it is not a phone")
+	}
+}
+
+// The second route the network may reach: the app itself, so a phone that scans the
+// install code can fetch it. It carries no secret; the same file is on the releases page.
+func TestTheAppIsHandedToThePhoneWhenThisCloneHasOne(t *testing.T) {
+	state, _, _ := testConsole(t)
+	apk := filepath.Join(t.TempDir(), "deskcam.apk")
+	if err := os.WriteFile(apk, []byte("PK\x03\x04 not really an app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state.apk = apk
+	mux := http.NewServeMux()
+	state.routes(mux)
+	req := httptest.NewRequest(http.MethodGet, "/deskcam.apk", nil)
+	req.RemoteAddr = "192.168.86.99:54321"
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the phone must be able to fetch the app, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/vnd.android.package-archive" {
+		t.Fatalf("an Android installer wants the APK type, got %q", ct)
+	}
+	url, _ := state.installURL()
+	if !strings.HasPrefix(url, "http://") || !strings.HasSuffix(url, ":9999/deskcam.apk") {
+		t.Fatalf("the install code should point at this console, got %s", url)
+	}
+}
+
+func TestWithNoAppOfItsOwnTheInstallCodePointsAtTheRelease(t *testing.T) {
+	state, _, _ := testConsole(t)
+	if url, _ := state.installURL(); url != releaseAPK {
+		t.Fatalf("with no local build the code should be the release, got %s", url)
+	}
+	if !strings.HasPrefix(releaseAPK, "https://github.com/") {
+		t.Fatal("the release must come over HTTPS from the project's own page")
+	}
+	if got := statusFromLAN(t, state, "/deskcam.apk"); got != http.StatusNotFound {
+		t.Fatalf("a console with no app of its own must say so, got %d", got)
+	}
+}
+
+func TestAnAppThatIsNotThereIsAnError(t *testing.T) {
+	if _, err := findAPK(filepath.Join(t.TempDir(), "missing.apk")); err == nil {
+		t.Fatal("an --apk that does not exist must be an error, not a quiet fallback to the release")
 	}
 }

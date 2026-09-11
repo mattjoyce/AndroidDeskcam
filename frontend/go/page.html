@@ -82,6 +82,9 @@
          border-top:1px solid #21262d}
  .dlgbar .info{font:11px ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
  .qr img{width:100%;max-width:170px;display:block;margin:6px auto}
+ .qrpair{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
+ .qrpair>div{flex:1 1 170px;max-width:230px}
+ .qrhead{font-weight:600;font-size:12px;margin-bottom:2px}
 </style></head><body>
 <header>
   <h1>DeskCam</h1>
@@ -134,9 +137,19 @@
 </div></dialog>
 
 <dialog id="pair"><div style="padding:16px;text-align:center">
-  <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
-  <p class="muted" style="font-size:11px">Scan this with the phone. The code is in the
-     picture only: it carries the access key, so the console never sends it in JSON.</p>
+  <div class="qrpair">
+    <div>
+      <div class="qrhead">1. Install the app</div>
+      <div class="qr"><img id="iqr" src="/install.svg" alt="install code"></div>
+      <p class="muted" style="font-size:11px" id="isrc">Scan with the phone's camera, then open the download.</p>
+    </div>
+    <div>
+      <div class="qrhead">2. Pair</div>
+      <div class="qr"><img id="qr" src="/qr.svg" alt="pairing code"></div>
+      <p class="muted" style="font-size:11px">Scan once the app is installed. The code is in the
+         picture only: it carries the access key, so the console never sends it in JSON.</p>
+    </div>
+  </div>
   <p id="keystate" class="muted" style="font-size:11px"></p>
   <div class="btns" style="justify-content:center;border:0">
     <button onclick="newcode()">New code</button>
@@ -393,6 +406,10 @@ live.addEventListener('wheel', e=>{
   e.preventDefault(); cam('zoomby='+(e.deltaY<0?1.25:0.8));
 },{passive:false});
 
+fetch('/api/install').then(r=>r.json()).then(d=>{
+  document.getElementById('isrc').textContent=
+    'Version '+d.version+' from '+d.source+'. Scan with the phone\'s camera, then open the download.';
+}).catch(()=>{});
 async function newcode(){
   await change('/api/newcode');
   document.getElementById('qr').src='/qr.svg?t='+Date.now();

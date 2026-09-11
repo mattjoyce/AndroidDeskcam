@@ -12,6 +12,14 @@ BT="$SDK/build-tools/$BT_VER"
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# One version for everything, semver, in VERSION at the top of the repository. Android also
+# wants an integer that only ever rises, so it is derived: 1.2.3 becomes 10203, which is
+# why the minor and patch numbers stay below 100.
+VERSION="$(tr -d ' \n' < "$ROOT/../VERSION")"
+[[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "VERSION is not x.y.z: $VERSION" >&2; exit 1; }
+(( BASH_REMATCH[2] < 100 && BASH_REMATCH[3] < 100 )) || { echo "minor and patch must stay below 100" >&2; exit 1; }
+VERSION_CODE=$(( BASH_REMATCH[1] * 10000 + BASH_REMATCH[2] * 100 + BASH_REMATCH[3] ))
 OUT="$ROOT/build"
 KEYSTORE="$ROOT/deskcam.keystore"
 APK="$OUT/deskcam.apk"
@@ -35,7 +43,7 @@ echo ">> aapt2 link"
     --java "$OUT/gen" \
     --min-sdk-version "$MIN_SDK" \
     --target-sdk-version "$TARGET_SDK" \
-    --version-code 1 --version-name 0.1 \
+    --version-code "$VERSION_CODE" --version-name "$VERSION" --replace-version \
     "$OUT/res.zip"
 
 # The pure logic runs on the workstation, before anything is packaged. The ROI maths,
@@ -54,6 +62,7 @@ javac -Xlint:all -Werror -encoding UTF-8 --release 17 \
     "$ROOT/app/src/dev/deskcam/Tape.java" \
     "$ROOT/app/src/dev/deskcam/Thermal.java" \
     "$ROOT/app/src/dev/deskcam/Nets.java" \
+    "$ROOT/app/src/dev/deskcam/Pairing.java" \
     "$ROOT/test/dev/deskcam/Tests.java"
 java -cp "$OUT/testclasses" dev.deskcam.Tests "$OUT/testwork"
 
@@ -80,19 +89,34 @@ cp "$OUT/base.apk" "$OUT/unaligned.apk"
 echo ">> zipalign"
 "$BT/zipalign" -f -p 4 "$OUT/unaligned.apk" "$OUT/aligned.apk"
 
-if [ ! -f "$KEYSTORE" ]; then
-    echo ">> generating signing key"
-    keytool -genkeypair -v -keystore "$KEYSTORE" \
-        -alias deskcam -keyalg RSA -keysize 2048 -validity 10000 \
-        -storepass deskcam -keypass deskcam \
-        -dname "CN=DeskCam, OU=Bench, O=DeskCam, L=., S=., C=AU" >/dev/null 2>&1
+# Two keys. A home build signs with a key made on first run, kept beside this script and
+# never committed; its password is no secret because it protects nothing but this clone.
+# A release signs with the release key, which lives outside the repository: set
+# DESKCAM_RELEASE_KEYSTORE and DESKCAM_RELEASE_PASS. A phone only updates an app signed
+# with the key it was installed with, so a home build and a release do not install over
+# each other; switching means uninstalling first.
+if [ -n "${DESKCAM_RELEASE_KEYSTORE:-}" ]; then
+    : "${DESKCAM_RELEASE_PASS:?set DESKCAM_RELEASE_PASS for $DESKCAM_RELEASE_KEYSTORE}"
+    echo ">> sign (release key)"
+    "$BT/apksigner" sign \
+        --ks "$DESKCAM_RELEASE_KEYSTORE" --ks-key-alias deskcam \
+        --ks-pass env:DESKCAM_RELEASE_PASS --key-pass env:DESKCAM_RELEASE_PASS \
+        --min-sdk-version "$MIN_SDK" \
+        --out "$APK" "$OUT/aligned.apk"
+else
+    if [ ! -f "$KEYSTORE" ]; then
+        echo ">> generating signing key"
+        keytool -genkeypair -v -keystore "$KEYSTORE" \
+            -alias deskcam -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass deskcam -keypass deskcam \
+            -dname "CN=DeskCam, OU=Bench, O=DeskCam, L=., S=., C=AU" >/dev/null 2>&1
+    fi
+    echo ">> sign (home key)"
+    "$BT/apksigner" sign \
+        --ks "$KEYSTORE" --ks-pass pass:deskcam --key-pass pass:deskcam \
+        --min-sdk-version "$MIN_SDK" \
+        --out "$APK" "$OUT/aligned.apk"
 fi
-
-echo ">> sign"
-"$BT/apksigner" sign \
-    --ks "$KEYSTORE" --ks-pass pass:deskcam --key-pass pass:deskcam \
-    --min-sdk-version "$MIN_SDK" \
-    --out "$APK" "$OUT/aligned.apk"
 
 "$BT/apksigner" verify --min-sdk-version "$MIN_SDK" "$APK" >/dev/null
 
@@ -101,3 +125,4 @@ rm -rf "$OUT/unaligned.apk" "$OUT/aligned.apk" "$OUT/base.apk" "$OUT/res.zip" \
 
 echo
 echo "built: $APK  ($(du -h "$APK" | cut -f1))"
+echo "version $VERSION (code $VERSION_CODE)"

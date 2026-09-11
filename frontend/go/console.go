@@ -43,6 +43,9 @@ type consoleState struct {
 	// fails tells the page nothing but "failed", and the console is the only party that
 	// saw the phone's answer. Empty while the stream is healthy.
 	streamError string
+	// The app this console hands to a phone at /deskcam.apk, or empty, in which case the
+	// install code points at the latest release instead.
+	apk string
 }
 
 func newConsoleState(cfg Config, port int) (*consoleState, error) {
@@ -208,12 +211,13 @@ func probePhone(ip string, port int, token string, timeout time.Duration) map[st
 
 // ------------------------------------------------------------------ handlers
 
-func serve(cfg Config, port int) int {
+func serve(cfg Config, port int, apk string) int {
 	state, err := newConsoleState(cfg, port)
 	if err != nil {
 		// A console that cannot make an unpredictable pairing code is worse than none.
 		return fail("%v", err)
 	}
+	state.apk = apk
 	mux := http.NewServeMux()
 	state.routes(mux)
 
@@ -229,7 +233,9 @@ func serve(cfg Config, port int) int {
 	fmt.Printf("  local:  http://127.0.0.1:%d\n", port)
 	fmt.Printf("  shots:  %s\n", state.shots)
 	fmt.Printf("  the page, the roll and the pairing code are served to this machine only;\n")
-	fmt.Printf("  the phone is offered /p/ and nothing else\n")
+	fmt.Printf("  the phone is offered /p/ and /deskcam.apk and nothing else\n")
+	installAt, installFrom := state.installURL()
+	fmt.Printf("  install: %s (%s)\n", installAt, installFrom)
 	if phone, _, _ := state.snapshot(); phone != "" {
 		fmt.Printf("  phone:  %s\n", phone)
 	}
@@ -241,9 +247,10 @@ func serve(cfg Config, port int) int {
 
 // routes wires the console.
 //
-// Exactly one route is offered to the network: /p/, the callback the phone makes to
-// finish pairing. Everything else is the operator's own browser and is refused from
-// anywhere but the loopback interface.
+// Two routes are offered to the network: /p/, the callback the phone makes to finish
+// pairing, and /deskcam.apk, the app the install code points at. Neither carries a
+// secret. Everything else is the operator's own browser and is refused from anywhere but
+// the loopback interface.
 //
 // This is not belt and braces. /qr.svg renders the pairing code, which carries the access
 // key and the live nonce, and this server binds every interface because the phone has to
@@ -251,12 +258,15 @@ func serve(cfg Config, port int) int {
 // and have both. A comment two lines from the route claimed the console answered with no
 // secret; it was describing an intention rather than the code.
 func (s *consoleState) routes(mux *http.ServeMux) {
-	mux.HandleFunc("/p/", s.handlePair) // the phone, from the network
+	mux.HandleFunc("/p/", s.handlePair)         // the phone, from the network
+	mux.HandleFunc("/deskcam.apk", s.handleAPK) // the phone, from the network
 
 	local := func(h http.HandlerFunc) http.HandlerFunc { return s.loopbackOnly(h) }
 	// Reading routes: the operator's browser, loopback only.
 	mux.HandleFunc("/", local(s.handlePage))
 	mux.HandleFunc("/qr.svg", local(s.handleQR))
+	mux.HandleFunc("/install.svg", local(s.handleInstallQR))
+	mux.HandleFunc("/api/install", local(s.handleInstall))
 	mux.HandleFunc("/api/state", local(s.handleState))
 	mux.HandleFunc("/api/roll", local(s.handleRoll))
 	mux.HandleFunc("/api/stream", local(s.handleStream))
@@ -339,7 +349,12 @@ func (s *consoleState) handlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *consoleState) handleQR(w http.ResponseWriter, r *http.Request) {
-	code, err := qr.Encode(s.pairText(), qr.M)
+	writeQR(w, s.pairText())
+}
+
+// writeQR draws text as a QR code in SVG, light on transparent for the dark page.
+func writeQR(w http.ResponseWriter, text string) {
+	code, err := qr.Encode(text, qr.M)
 	if err != nil {
 		http.Error(w, "cannot make a code", http.StatusInternalServerError)
 		return
@@ -644,4 +659,74 @@ func (s *consoleState) handleCam(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(body)
+}
+
+// ------------------------------------------------------------------ install
+
+// releaseAPK is the newest published build. GitHub redirects this address to the asset of
+// the latest release, so it never changes and an install code printed today still works.
+const releaseAPK = "https://github.com/mattjoyce/AndroidDeskcam/releases/latest/download/deskcam.apk"
+
+// installURL is where the install code sends the phone, and where that is, in words.
+func (s *consoleState) installURL() (url, source string) {
+	if s.apk != "" {
+		return fmt.Sprintf("http://%s:%d/deskcam.apk", lanAddress(), s.port), "the build on this workstation"
+	}
+	return releaseAPK, "the latest release on GitHub"
+}
+
+// handleAPK hands the phone the app it is about to pair with. It is offered to the network
+// because the phone has to reach it, and it carries no secret. It is plain HTTP, so a
+// phone installing for the first time trusts whatever arrives: the same trusted-LAN stance
+// as the rest of the tool, which the README states. The release is served over HTTPS.
+func (s *consoleState) handleAPK(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/deskcam.apk" || s.apk == "" {
+		http.Error(w, "this console has no app of its own to hand out; the install code points at the release",
+			http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
+	w.Header().Set("Content-Disposition", `attachment; filename="deskcam.apk"`)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, s.apk)
+}
+
+func (s *consoleState) handleInstallQR(w http.ResponseWriter, r *http.Request) {
+	url, _ := s.installURL()
+	writeQR(w, url)
+}
+
+func (s *consoleState) handleInstall(w http.ResponseWriter, r *http.Request) {
+	url, source := s.installURL()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{"url": url, "source": source, "version": version})
+}
+
+// findAPK returns the app a console should hand out: the file named with --apk, or the one
+// ./backend/build.sh leaves in a clone, looked for beside the binary and then in the
+// current directory. Empty when there is none, and the install code then points at the
+// release.
+func findAPK(explicit string) (string, error) {
+	if explicit != "" {
+		st, err := os.Stat(explicit)
+		if err != nil || st.IsDir() {
+			return "", fmt.Errorf("no app at %s", explicit)
+		}
+		return filepath.Abs(explicit)
+	}
+	var candidates []string
+	if exe, err := os.Executable(); err == nil {
+		if real, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = real
+		}
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "..", "backend", "build", "deskcam.apk"))
+	}
+	candidates = append(candidates, filepath.Join("backend", "build", "deskcam.apk"))
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() {
+			return filepath.Abs(c)
+		}
+	}
+	return "", nil
 }

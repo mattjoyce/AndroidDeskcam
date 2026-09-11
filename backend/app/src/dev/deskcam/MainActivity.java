@@ -82,6 +82,13 @@ public class MainActivity extends Activity {
         port = findViewById(R.id.port);
         token = findViewById(R.id.token);
         autostart = findViewById(R.id.autostart);
+        try {
+            String v = getPackageManager().getPackageInfo(getPackageName(),
+                    PackageManager.PackageInfoFlags.of(0)).versionName;
+            ((TextView) findViewById(R.id.version)).setText(v == null ? "" : "v" + v);
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // Our own package is always there; nothing to show if it somehow is not.
+        }
 
         SharedPreferences p = getSharedPreferences(CamService.PREFS, MODE_PRIVATE);
         port.setText(String.valueOf(p.getInt(CamService.PREF_PORT, 8080)));
@@ -330,9 +337,8 @@ public class MainActivity extends Activity {
                 || intent.getBooleanExtra("start", false);
         boolean wantStop = CamService.ACTION_STOP.equals(intent.getAction())
                 || intent.getBooleanExtra("stop", false);
-        if (intent.hasExtra("port")) port.setText(String.valueOf(intent.getIntExtra("port", 8080)));
-        if (intent.hasExtra("token")) token.setText(intent.getStringExtra("token"));
-        if (intent.hasExtra("autostart")) autostart.setChecked(intent.getBooleanExtra("autostart", false));
+        // The port, token and autostart extras are gone, card 64: the activity is exported,
+        // so any app on the phone could send them and change the key without a word.
         if (wantStop) {
             startService(new Intent(this, CamService.class).setAction(CamService.ACTION_STOP));
         } else if (wantStart) {
@@ -350,18 +356,35 @@ public class MainActivity extends Activity {
     private void handlePairing(android.net.Uri uri) {
         final String cb = uri.getQueryParameter("cb");
         final String tok = uri.getQueryParameter("token");
+        // Card 64. A link used to be applied the moment it arrived. Now a callback that is
+        // not a console's pairing route on a private address is refused outright, and
+        // anything else is put to the person first.
+        String refused = Pairing.refuse(cb);
+        if (refused != null) {
+            say("pairing refused: " + refused);
+            android.util.Log.w(CameraEngine.TAG, "pairing refused, cb=" + cb + ": " + refused);
+            return;
+        }
+        final String host = hostOf(cb);
+        new AlertDialog.Builder(this)
+                .setTitle("Pair with " + host + "?")
+                .setMessage("This will " + Pairing.keyEffect(tok) + ", start the camera, and tell "
+                        + host + " this phone's address.\n\nAccept only a code your own console is showing.")
+                .setPositiveButton("Pair", (d, which) -> pair(cb, tok))
+                .setNegativeButton("Cancel", (d, which) -> say("pairing cancelled"))
+                .setOnCancelListener(d -> say("pairing cancelled"))
+                .show();
+    }
+
+    private void pair(String cb, String tok) {
         // An absent token leaves the key alone. An empty one is the console saying to
         // remove it, which is a different instruction and has to stay distinguishable.
         if (tok != null) token.setText(tok);
         final String keyNote = tok == null ? ""
                 : tok.isEmpty() ? ", access key removed, the camera is open"
                 : ", access key set";
-        if (cb == null) {
-            say("pairing link had no callback address");
-            return;
-        }
         say("pairing...");
-        android.util.Log.i(CameraEngine.TAG, "pairing requested, cb=" + cb);
+        android.util.Log.i(CameraEngine.TAG, "pairing accepted, cb=" + cb);
         start();
 
         new Thread(() -> {

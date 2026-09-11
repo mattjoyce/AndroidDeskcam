@@ -29,3 +29,6 @@ burst/
 *.swp
 *~
 
+
+# release builds, made by scripts/release.sh
+dist/

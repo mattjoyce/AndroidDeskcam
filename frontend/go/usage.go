@@ -74,7 +74,11 @@ func usage() {
   deskcam cameras                      list cameras and capabilities
   deskcam api                          machine-readable API description
   deskcam open                         open the web control panel
-  deskcam serve [PORT]                 local console with QR pairing (default 9000)
+  deskcam serve [PORT] [--apk FILE]    local console on port 9000 with two codes for
+                                       the phone: one installs the app, one pairs it.
+                                       It hands out this clone's build if there is one,
+                                       otherwise the latest release; --apk release
+                                       always points at the release
   deskcam token new|show|clear         make, show or remove the access key
 
   deskcam use URL                      remember a target, e.g. http://192.168.86.120:8080
@@ -82,6 +86,7 @@ func usage() {
   deskcam wifi                         switch back to the device's Wi-Fi address
   deskcam start | stop                 start or stop the service on the phone (needs adb)
   deskcam which                        print the current target
+  deskcam version                      print this CLI's version
 
 Any command also accepts k=v words, applied before the image is taken:
   deskcam snap zoom=6 cx=0.3 cy=0.7 torch=25 exposure=1/120

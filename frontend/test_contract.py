@@ -293,3 +293,28 @@ def test_the_documents_name_only_real_endpoints() -> None:
         named = set(re.findall(r"/api/[a-z]+", doc.read_text()))
         invented = sorted(named - known)
         assert not invented, f"{doc.name} names {invented}, which the server does not answer"
+
+
+# ----------------------------------------------------------------- versions
+
+VERSION_FILE = ROOT / "VERSION"
+CHANGELOG = ROOT / "CHANGELOG.md"
+MANIFEST = ROOT / "backend" / "app" / "AndroidManifest.xml"
+
+
+def test_the_version_is_semver_and_has_a_changelog_entry() -> None:
+    """build.sh derives Android's version code as major*10000 + minor*100 + patch."""
+    version = VERSION_FILE.read_text().strip()
+    assert re.fullmatch(r"\d+\.\d{1,2}\.\d{1,2}", version), f"VERSION is not x.y.z: {version!r}"
+    assert f"## [{version}]" in CHANGELOG.read_text(), f"CHANGELOG.md has no section for {version}"
+
+
+def test_the_manifest_carries_no_version_of_its_own() -> None:
+    """One version, in VERSION. A second copy in the manifest is how they drift apart."""
+    text = MANIFEST.read_text()
+    assert "versionCode" not in text
+    assert "versionName" not in text
+
+
+def test_no_placeholder_survives_in_the_readme() -> None:
+    assert "{{" not in README.read_text(), "a {{placeholder}} was left in the README"

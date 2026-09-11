@@ -65,6 +65,9 @@ public final class Tests {
         mobileIsTheLastResort();
         noAddressMeansNoAnswer();
         interfaceNamesGiveAKindWhenThePlatformWillNot();
+        aConsoleCallbackOnTheBenchIsAccepted();
+        aCallbackAnywhereElseIsRefused();
+        theDialogSaysWhatHappensToTheKey();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -803,6 +806,43 @@ public final class Tests {
         yes("rmnet_data0 is mobile", Nets.kindFromName("rmnet_data0") == Nets.Kind.MOBILE);
         yes("eth0 is Ethernet", Nets.kindFromName("eth0") == Nets.Kind.ETHERNET);
         yes("an unknown name is other, not a guess", Nets.kindFromName("dummy0") == Nets.Kind.OTHER);
+    }
+
+    // ------------------------------------------------------------- pairing
+
+    private static void aConsoleCallbackOnTheBenchIsAccepted() {
+        yes("a console on the LAN", Pairing.refuse("http://192.168.86.45:9000/p/3f9c2a7be41d") == null);
+        yes("a console on 10/8", Pairing.refuse("http://10.0.0.7:9000/p/abcdefgh12345678") == null);
+        yes("a console on 172.16/12", Pairing.refuse("http://172.20.1.2:9000/p/abcdefgh") == null);
+        yes("a console on a tailnet", Pairing.refuse("http://100.90.14.83:9000/p/abcdefgh") == null);
+    }
+
+    private static void aCallbackAnywhereElseIsRefused() {
+        String[] bad = {
+            null, "",
+            "https://192.168.86.45:9000/p/abcdefgh",       // not what a console serves
+            "http://203.0.113.9:9000/p/abcdefgh",          // the internet
+            "http://evil.example:9000/p/abcdefgh",         // a name, not an address
+            "http://192.168.1.1.evil.example/p/abcdefgh",  // looks private, is not
+            "http://172.32.0.1:9000/p/abcdefgh",           // just outside 172.16/12
+            "http://100.128.0.1:9000/p/abcdefgh",          // just outside 100.64/10
+            "http://192.168.86.45/p/abcdefgh",             // no port
+            "http://192.168.86.45:9000/steal",             // not a pairing route
+            "http://192.168.86.45:9000/p/abc",             // too short to be a code
+            "http://192.168.86.45:9000/p/abcdefgh?x=1",    // a query a console never adds
+            "http://user@192.168.86.45:9000/p/abcdefgh",   // user info
+            "not a url at all",
+        };
+        for (String cb : bad) {
+            yes("refused: " + cb, Pairing.refuse(cb) != null);
+        }
+    }
+
+    private static void theDialogSaysWhatHappensToTheKey() {
+        yes("no token leaves the key", Pairing.keyEffect(null).contains("leave"));
+        yes("an empty token removes it and says the camera is open",
+                Pairing.keyEffect("").contains("remove") && Pairing.keyEffect("").contains("open"));
+        yes("a token sets one", Pairing.keyEffect("k3y").contains("set"));
     }
 
     private static void eq(String what, long expected, long actual) {

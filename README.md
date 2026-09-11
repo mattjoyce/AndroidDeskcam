@@ -20,12 +20,22 @@ What you are trusting when you run this, and where to check each claim:
 
 * **Zero Gradle, Zero Android Studio, Zero AGP**: The phone app compiles directly with Android SDK build tools (`aapt2`, `javac`, `d8`, `zipalign`, `apksigner`) in under 5 seconds. No Gradle daemon, no downloading unknown Maven plugins or transitive dependencies.
 * **One Go Dependency**: The workstation CLI compiles to a single static binary. Its only module outside the standard library is `rsc.io/qr` v0.2.0, for the pairing QR code, pinned in `go.sum`.
-* **Zero Cloud Calls or Telemetry**: Nothing in this repository contacts the internet. The Android app talks only to your LAN or to an `adb forward` USB loopback; the CLI talks only to the phone; the explainer page loads no remote fonts or scripts.
+* **Zero Cloud Calls or Telemetry**: The Android app talks only to your LAN or to an `adb forward` USB loopback, and the CLI talks only to the phone. The one internet address anywhere is the release download that `deskcam serve` puts in its install code, and the phone fetches it only when you scan that code.
 * **One HTTP Seam, Contract-Tested**: The HTTP interface is the only seam between the phone and the workstation. A Python test suite (`frontend/test_contract.py`) holds the parameter tables, endpoint lists, CLI reference, and enum values in these documents equal to the code they describe. It reads the source as text; `frontend/surface.py` is the check against a running phone.
 
 **There is no HTTPS, and there is no authentication unless you set a token.** The phone serves plain HTTP on port 8080 to anyone on the same network and to every app on the phone, and that open state is the default (`Access.java`). This is a bench tool for a trusted LAN. If the network is shared, set a token (see [Require an Access Token](#require-an-access-token)). If you need encryption, or reach from outside the LAN, put the phone on a WireGuard or Tailscale network and keep the server on plain HTTP behind it. A self-signed certificate would only add `-k` to every request.
 
-There is no signed release, checksum, or reproducible build. You build the APK yourself from source with the SDK tools listed below, and the build script signs it with a debug keystore it generates on first run. The keystore is `backend/deskcam.keystore`, gitignored, password `deskcam`. Keep it: `git clean -x` deletes it, and an APK signed with a new key will not install over the old one until you uninstall the app, which clears its settings.
+Releases are signed with the DeskCam release key and list a SHA-256 checksum for every file. The release certificate's SHA-256 fingerprint is:
+
+```
+638810f09d75a8f2cdd9c85c9139bae01f67f7f8b6095c6d06de5c2b1beca6a9
+```
+
+That is the form `apksigner` prints. AppVerifier and `keytool` show the same digest as `63:88:10:F0:9D:75:A8:F2:CD:D9:C8:5C:91:39:BA:E0:1F:67:F7:F8:B6:09:5C:6D:06:DE:5C:2B:1B:EC:A6:A9`.
+
+Check an APK before you install it with `apksigner verify --print-certs deskcam.apk`, or on GrapheneOS with AppVerifier. There is no reproducible build yet, so a release is the maintainer's statement that it was built from the tagged source; building it yourself is the only independent check.
+
+A home build signs with a key that `backend/build.sh` generates on first run: `backend/deskcam.keystore`, gitignored, password `deskcam`. Keep it: `git clean -x` deletes it, and an APK signed with a different key will not install over the old one until you uninstall the app, which clears its settings. For the same reason a release and a home build do not install over each other.
 
 | Component | Runs On | Technology | Purpose |
 |---|---|---|---|
@@ -71,72 +81,75 @@ There is no signed release, checksum, or reproducible build. You build the APK y
    - [What the tilt reading is](#what-the-tilt-reading-is)
    - [Heat and battery](#heat-and-battery)
 5. [Interactive Visual Explainer](#interactive-visual-explainer)
-6. [Quality Gates and Verification](#quality-gates-and-verification)
-7. [License](#license)
+6. [Versions and Releases](#versions-and-releases)
+7. [Quality Gates and Verification](#quality-gates-and-verification)
+8. [License](#license)
 
 ---
 
 ## Quick Start (Tutorial)
 
-Set up DeskCam and capture your first bench image in under three minutes.
+There are three ways in. Pick one; they end in the same place.
 
-### Prerequisites
+| Route | You need | The app comes from |
+|---|---|---|
+| **1. Release** | a phone and a computer | the latest GitHub release, by QR code |
+| **2. Build it, install by QR** | Go, JDK 17, `zip`, the Android SDK | your own build, by QR code from your workstation |
+| **3. Build it, install with adb** | route 2's tools, USB debugging | your own build, over USB |
 
-* **Workstation**: Linux or macOS with Go 1.22+, JDK 17+, and `zip`.
-* **Android SDK**: `platforms/android-37.0` and `build-tools/37.0.0` (or set `$ANDROID_HOME`, `$PLATFORM`, and `$BT_VER`).
-* **Android Phone**: Pixel 6a (or Android 13+ device with Camera2 `LEVEL_FULL` support) connected via USB with USB debugging enabled.
+Every route needs an Android 13 or newer phone with a Camera2 `LEVEL_FULL` camera; it is built for a Pixel 6a. The workstation is Linux or macOS.
 
-### 1. Build the Phone App and Workstation CLI
+### Route 1: the release
+
+1. Download the CLI for your workstation from the [latest release](https://github.com/mattjoyce/AndroidDeskcam/releases/latest) and put it on your path. The files are `deskcam-linux-amd64`, `deskcam-linux-arm64`, `deskcam-darwin-amd64` and `deskcam-darwin-arm64`:
+   ```sh
+   mkdir -p ~/.local/bin
+   curl -L -o ~/.local/bin/deskcam https://github.com/mattjoyce/AndroidDeskcam/releases/latest/download/deskcam-linux-amd64
+   chmod +x ~/.local/bin/deskcam
+   ```
+   `SHA256SUMS` on the same page lists every file's checksum.
+2. Start the console and open it in a browser on the workstation:
+   ```sh
+   deskcam serve        # then open http://127.0.0.1:9000 and click **Pair**
+   ```
+   It shows two codes. With no build of your own, the install code points at the latest release.
+3. Scan the install code with the phone's camera. The APK downloads from github.com over HTTPS. Allow the browser to install unknown apps when Android asks.
+4. Open DeskCam, accept its permission prompts, and tap **Start**.
+5. Scan the pairing code. The phone asks before it pairs; tap **Pair**. The workstation's `deskcam` now points at the phone.
+
+### Route 2: build it, install by QR
+
+1. Install Go 1.22 or newer, JDK 17 or newer, `zip`, and the Android SDK [command-line tools](https://developer.android.com/studio#command-line-tools-only). With `sdkmanager`, install the platform and build-tools versions named at the top of `backend/build.sh`. The script looks in `~/Android/Sdk` unless you set `ANDROID_HOME`, `PLATFORM` and `BT_VER`.
+2. Build both halves:
+   ```sh
+   git clone https://github.com/mattjoyce/AndroidDeskcam.git && cd AndroidDeskcam
+   ./backend/build.sh                                   # the APK, in about 5 seconds, no Gradle
+   cd frontend/go && go build -o deskcam . && cd ../..
+   mkdir -p ~/.local/bin && ln -sf "$PWD/frontend/go/deskcam" ~/.local/bin/deskcam
+   ```
+   Neither step needs a phone. `build.sh` runs the backend unit tests on the workstation JVM before it packages the APK, and `cd frontend/go && go test ./...` runs the CLI tests against a stub server. The first `go build` downloads the one Go dependency.
+3. Run `deskcam serve`. It finds `backend/build/deskcam.apk` and hands it out itself, so the install code points at your workstation. Then follow route 1 from step 3.
+
+The app travels over plain HTTP on your LAN, so a phone installing it for the first time trusts whatever arrives, which is the trusted-network stance of the whole tool. Some browsers refuse plain HTTP addresses; GrapheneOS's Vanadium did during development. If yours does, use route 3, or `deskcam serve --apk release` to hand out the release instead.
+
+### Route 3: build it, install with adb
+
+1. Build as in route 2, steps 1 and 2.
+2. Turn on USB debugging, plug the phone in, then install and start the app. The `-g` flag grants every runtime permission the manifest declares at install time, so no dialog appears on the phone; for this app that is camera, local network, and notifications:
+   ```sh
+   adb install -r -g backend/build/deskcam.apk
+   deskcam start
+   ```
+3. Connect over USB with `deskcam usb`, which forwards the phone's port to your workstation. `deskcam wifi` switches to the phone's Wi-Fi address, which it also reads through adb. Or pair it as in route 1, step 5.
+
+### Your first capture
 
 ```sh
-# 1. Build the Android APK (takes ~5 seconds, no Gradle)
-./backend/build.sh
-
-# 2. Build the static workstation CLI
-cd frontend/go && go build -o deskcam . && cd ../..
-
-# 3. Put deskcam on your PATH (optional)
-mkdir -p ~/.local/bin && ln -sf "$PWD/frontend/go/deskcam" ~/.local/bin/deskcam
-```
-
-Neither step needs a phone. `./backend/build.sh` runs the backend unit tests on the workstation JVM before it packages the APK, and `cd frontend/go && go test ./...` runs the CLI tests against a stub server.
-
-### 2. Install and Start the App
-
-Install the APK onto your phone. The `-g` flag grants every runtime permission the manifest declares at install time, so no dialog appears on the phone. For this app that is camera, local network, and notifications:
-
-```sh
-adb install -r -g backend/build/deskcam.apk
-```
-
-Start the foreground camera service on the phone:
-
-```sh
-deskcam start
-```
-
-*(Alternatively, tap the DeskCam app icon on the phone and tap **Start**).*
-
-### 3. Connect and Capture Your First Frame
-
-You can connect over USB (via `adb forward`, zero network configuration) or over local Wi-Fi:
-
-```sh
-# Option A: Connect over USB loopback (recommended for initial setup)
-deskcam usb
-
-# Option B: Connect over Wi-Fi
-deskcam wifi
-
-# Verify connection and show live instrument state
-deskcam show
-```
-
-Capture your first still image:
-
-```sh
+deskcam show         # one line of live state: proves the connection
 deskcam snap
 ```
+
+If the phone shows the wrong address, for instance its VPN address while you are on its Wi-Fi, tap the network chip beside the address in the app and choose. After a reboot, tap the app once: Android does not let a camera app start itself.
 
 The command saves the full-resolution still and prints the path it wrote. Without `-o` the file goes in `DESKCAM_SHOTS`, or the current directory when that is unset:
 ```
@@ -319,7 +332,7 @@ Android 17 introduces a strict architectural division between `INTERNET` and `AC
 
 In this failure mode, the HTTP server appears healthy in `logcat` and `ss` confirms it is listening on port 8080. However, connection attempts from your workstation time out with no response.
 
-DeskCam explicitly declares and requests `android.permission.ACCESS_LOCAL_NETWORK`. If you install the APK manually without `-g`, you must grant this permission in the phone's App Settings.
+DeskCam declares `android.permission.ACCESS_LOCAL_NETWORK` and asks for it the first time it opens. If you declined, grant it in the app's settings. `adb install -g` grants it at install time.
 
 Connecting over USB via `deskcam usb` bypasses this mechanism entirely by tunneling through `adb forward` onto the phone's loopback interface (`127.0.0.1:8080`).
 
@@ -333,9 +346,9 @@ By default the camera is open: any client on the network can control it and take
 3. Scan the QR code with the phone camera to pair the token with the Android service in real time, with no manual keyboard entry.
 4. Subsequent API calls require `?token=...` or an `Authorization: Bearer <token>` header.
 
-**Scan only a code your own console shows.** The phone applies a pairing link without asking: a link from anywhere else can change or clear the key and make the phone report its address to the link's callback.
+**Accept only a code your own console shows.** A pairing link can set or clear the key and makes the phone report its address, so the phone shows what a link will do and waits for **Pair**. It refuses outright a link whose callback is not a console's pairing route on a private address.
 
-`deskcam serve` listens on port 9000 on every interface, because the phone has to reach it to finish pairing. Only that callback answers from off the machine. The page, the capture roll and the key answer on `127.0.0.1` alone.
+`deskcam serve` listens on port 9000 on every interface, because the phone has to reach it to fetch the app and to finish pairing. Only those two routes answer from off the machine. The page, the codes, the capture roll and the key answer on `127.0.0.1` alone.
 
 ---
 
@@ -417,7 +430,11 @@ deskcam - control the bench camera over HTTP
   deskcam cameras                      list cameras and capabilities
   deskcam api                          machine-readable API description
   deskcam open                         open the web control panel
-  deskcam serve [PORT]                 local console with QR pairing (default 9000)
+  deskcam serve [PORT] [--apk FILE]    local console on port 9000 with two codes for
+                                       the phone: one installs the app, one pairs it.
+                                       It hands out this clone's build if there is one,
+                                       otherwise the latest release; --apk release
+                                       always points at the release
   deskcam token new|show|clear         make, show or remove the access key
 
   deskcam use URL                      remember a target, e.g. http://192.168.86.120:8080
@@ -425,6 +442,7 @@ deskcam - control the bench camera over HTTP
   deskcam wifi                         switch back to the device's Wi-Fi address
   deskcam start | stop                 start or stop the service on the phone (needs adb)
   deskcam which                        print the current target
+  deskcam version                      print this CLI's version
 
 Any command also accepts k=v words, applied before the image is taken:
   deskcam snap zoom=6 cx=0.3 cy=0.7 torch=25 exposure=1/120
@@ -1206,6 +1224,12 @@ The explainer includes:
 * **Dioptres vs. Distance Curve**: Interactive optical depth-of-field visualizer showing why linear dioptric stepping prevents focus gaps.
 * **PWM Rolling Shutter Banding Canvas**: Simulate display flicker artifacts and verify how integer period bracketing restores clean captures.
 * **Live Action Tape Runner**: Interactive step-by-step preview of multi-verb inspection sequences.
+
+---
+
+## Versions and Releases
+
+DeskCam uses [semantic versioning](https://semver.org). `VERSION` at the top of the repository is the one number: `build.sh` puts it in the APK, the CLI prints it with `deskcam version`, and the app shows it beside its name. A release is tagged `vX.Y.Z`, and [CHANGELOG.md](CHANGELOG.md) lists what changed. Until 1.0.0 the HTTP API may change in a minor release, and every such change is in the changelog.
 
 ---
 

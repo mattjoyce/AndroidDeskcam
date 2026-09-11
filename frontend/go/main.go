@@ -118,6 +118,9 @@ func run(argv []string) int {
 	case "help", "--help", "-h":
 		usage()
 		return 0
+	case "version", "--version":
+		fmt.Println("deskcam " + version)
+		return 0
 
 	// ------------------------------------------------------------- captures
 	case "snap", "still", "shot":
@@ -233,14 +236,34 @@ func run(argv []string) int {
 	// ------------------------------------------------------------- console
 	case "serve", "console":
 		port := 9000
-		if in.arg(0) != "" {
-			n, err := strconv.Atoi(in.arg(0))
-			if err != nil {
-				return fail("port must be a number, got %q", in.arg(0))
+		apkFlag := ""
+		for i := 0; i < len(in.args); i++ {
+			switch a := in.args[i]; {
+			case a == "--apk":
+				if i+1 >= len(in.args) {
+					return fail("--apk needs a file, or the word release")
+				}
+				i++
+				apkFlag = in.args[i]
+			case strings.HasPrefix(a, "--apk="):
+				apkFlag = strings.TrimPrefix(a, "--apk=")
+			default:
+				n, err := strconv.Atoi(a)
+				if err != nil {
+					return fail("port must be a number, got %q", a)
+				}
+				port = n
 			}
-			port = n
 		}
-		return serve(in.cfg, port)
+		apk := ""
+		if apkFlag != "release" {
+			found, err := findAPK(apkFlag)
+			if err != nil {
+				return fail("%v", err)
+			}
+			apk = found
+		}
+		return serve(in.cfg, port, apk)
 	case "token":
 		return token(in)
 

@@ -269,6 +269,13 @@ echo "Captured inspection image at: $img"
           The Android app has zero external dependencies and builds in approximately 2 seconds.
         </p>
 
+        <div class="callout">
+          <div class="callout-title">Three ways to install</div>
+          <p>Download the <a href="https://github.com/mattjoyce/AndroidDeskcam/releases/latest">latest release</a> and install the app by scanning the code <code>deskcam serve</code> shows, with no Android SDK at all.
+          Or build it yourself and install it the same way, from your own workstation. Or build it and install it with <code>adb</code>, as below.
+          The README's Quick Start walks through all three.</p>
+        </div>
+
         <h3>Prerequisites</h3>
         <ul>
           <li>Any Android device supporting Camera2 API (Android 13+, minSdk 33; optimized for Pixel 6a on GrapheneOS / Android 17).</li>
@@ -448,7 +455,7 @@ deskcam analyse stack sweep/</code></pre>
             <rect x="540" y="167" width="340" height="72" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
             <text x="555" y="189" fill="#f8fafc" font-family="var(--font-mono)" font-size="12" font-weight="bold">Console: deskcam serve (optional)</text>
             <text x="555" y="208" fill="#94a3b8" font-family="var(--font-sans)" font-size="11">A page on the workstation at :9000, only while it runs.</text>
-            <text x="555" y="225" fill="#64748b" font-family="var(--font-sans)" font-size="10">Pairs the phone by QR • live view • forwards to the phone</text>
+            <text x="555" y="225" fill="#64748b" font-family="var(--font-sans)" font-size="10">Install and pairing codes • live view • forwards to the phone</text>
 
             <rect x="540" y="249" width="340" height="46" rx="6" fill="#1e293b" stroke="rgba(255,255,255,0.08)"/>
             <text x="555" y="269" fill="#f8fafc" font-family="var(--font-mono)" font-size="12" font-weight="bold">curl, scripts, any browser</text>

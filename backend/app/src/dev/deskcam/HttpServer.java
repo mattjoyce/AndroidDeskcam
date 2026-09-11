@@ -241,6 +241,10 @@ public class HttpServer implements Runnable {
 
         Map<String, String> params = parseQuery(query);
 
+        // No Access-Control-Allow-Origin on any answer, card 65. It used to be a wildcard,
+        // and with the camera open by default any web page in any browser on the network
+        // could fetch /api/still and read the picture. Nothing here needs it: the phone's
+        // own page is same-origin and the console forwards requests itself.
         if ("OPTIONS".equals(method)) { sendText(out, 204, "text/plain", ""); return; }
 
         if (!Access.allowed(key.current(), params.get("token"), headers.get("authorization"))) {
@@ -820,7 +824,6 @@ public class HttpServer implements Runnable {
         String head = "HTTP/1.1 200 OK\r\n"
                 + "Content-Type: multipart/mixed; boundary=" + SCRIPT_BOUNDARY + "\r\n"
                 + "Cache-Control: no-store\r\n"
-                + "Access-Control-Allow-Origin: *\r\n"
                 + "Connection: close\r\n"
                 + "\r\n";
         out.write(head.getBytes(StandardCharsets.US_ASCII));
@@ -1023,7 +1026,6 @@ public class HttpServer implements Runnable {
                 + "Cache-Control: no-store, no-cache, must-revalidate\r\n"
                 + "Pragma: no-cache\r\n"
                 + "Connection: close\r\n"
-                + "Access-Control-Allow-Origin: *\r\n"
                 + "\r\n";
         out.write(head.getBytes(StandardCharsets.US_ASCII));
         out.flush();
@@ -1168,8 +1170,6 @@ public class HttpServer implements Runnable {
                 + "Content-Type: " + type + "\r\n"
                 + "Content-Length: " + length + "\r\n"
                 + "Cache-Control: no-store\r\n"
-                + "Access-Control-Allow-Origin: *\r\n"
-                + "Access-Control-Allow-Headers: Authorization, Content-Type\r\n"
                 + "Connection: close\r\n\r\n";
     }
 
