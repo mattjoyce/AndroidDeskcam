@@ -66,7 +66,7 @@
 <body>
 <header class="top screen-only">
   <div><p class="eyebrow">DeskCam / physical interface study</p><h1>A sheet for looking, locating and measuring.</h1></div>
-  <span class="badge">A4 · 210 × 297 mm · prototype 01</span>
+  <span class="badge" id="page-badge">A4 · 210 × 297 mm · prototype 01</span>
 </header>
 <main>
   <section>
@@ -81,13 +81,14 @@
     <h2 id="variant-name">Hybrid grid</h2>
     <p id="variant-description"></p>
     <div class="specs">
-      <div><strong>150 × 200</strong><span>mm working field</span></div>
+      <div><strong id="field-size">150 × 200</strong><span>mm working field</span></div>
       <div><strong id="reference-count">8 markers</strong><span id="reference-label">around the working field</span></div>
       <div><strong id="detail-value">5 / 25 mm</strong><span id="detail-label">fine / major grid</span></div>
       <div><strong>2 × 100 mm</strong><span>horizontal + vertical print checks</span></div>
     </div>
     <p id="tradeoff"></p>
     <div class="controls">
+      <label>Paper <select id="orientation"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></label>
       <label>References <select id="references"><option value="coded">Coded markers</option><option value="tetris">Tetris corners</option></select></label>
       <label><input id="objects" type="checkbox"> Preview objects on the sheet</label>
       <label><input id="strong" type="checkbox"> Stronger fine grid</label>
@@ -95,7 +96,7 @@
     </div>
     <div id="readout" aria-live="polite">Move over the working field.<br>Try naming a location to another person.</div>
     <button class="print" id="print">Print this version</button>
-    <p class="small">A4 portrait · 100% scale · margins none · browser headers/footers off. Then check both 100 mm bars with a real ruler. The printer may still impose its own margins.</p>
+    <p class="small"><span id="print-orientation">A4 landscape</span> · 100% scale · margins none · browser headers/footers off. Then check both 100 mm bars with a real ruler. The printer may still impose its own margins.</p>
     <details open>
       <summary id="reference-heading">Why the black squares?</summary>
       <p id="reference-description">Each is a different, genuine ArUco marker. Their known positions give a future detector named points for locating the sheet, its rotation and perspective. Spread-out markers can remain visible when an object covers the centre. That is why they live at the edge.</p>
@@ -130,14 +131,28 @@
 <script>
 const NS = 'http://www.w3.org/2000/svg';
 const sheet = document.getElementById('sheet');
-const field = {x:30, y:50, w:150, h:200};
+const landscape=new URLSearchParams(location.search).get('orientation')!=='portrait';
+const pageSize=landscape?[297,210]:[210,297];
+const field=landscape?{x:36,y:43,w:225,h:125}:{x:30,y:50,w:150,h:200};
+const centre=[field.x+field.w/2,field.y+field.h/2];
+const cols=field.w/25, rows=field.h/25;
+const printStyle=document.createElement('style');
+printStyle.textContent=`@page {size:A4 ${landscape?'landscape':'portrait'};margin:0;}
+  @media print {#paper-shell,#sheet {width:${pageSize[0]}mm;height:${pageSize[1]}mm;}}`;
+document.head.appendChild(printStyle);
+sheet.setAttribute('viewBox',`0 0 ${pageSize[0]} ${pageSize[1]}`);
+sheet.setAttribute('width',pageSize[0]+'mm'); sheet.setAttribute('height',pageSize[1]+'mm');
+document.getElementById('orientation').value=landscape?'landscape':'portrait';
+document.getElementById('field-size').textContent=`${field.w} × ${field.h}`;
+document.getElementById('page-badge').textContent=`A4 · ${pageSize[0]} × ${pageSize[1]} mm · prototype 02`;
+document.getElementById('print-orientation').textContent='A4 '+(landscape?'landscape':'portrait');
 // Generated with cv2.aruco.generateImageMarker(DICT_4X4_50, id, 6).
 // Each string is one row of six modules, including the one-module black border.
 const markerBits = [["111111", "101001", "110101", "111001", "111011", "111111"], ["111111", "111111", "100001", "101101", "101011", "111111"], ["111111", "111001", "111001", "111011", "100101", "111111"], ["111111", "101101", "101101", "110111", "110011", "111111"], ["111111", "110101", "110111", "101101", "100011", "111111"], ["111111", "110001", "101101", "100111", "100101", "111111"], ["111111", "101101", "100011", "111011", "100011", "111111"], ["111111", "100111", "110111", "100001", "111011", "111111"]];
-const markerCentres = [[18,26],[105,26],[192,26],[192,125],[192,268],[105,268],[18,268],[18,125]];
+const markerCentres = landscape?[[18,24],[105,24],[279,24],[192,24],[279,185],[192,185],[18,185],[105,185]]:[[18,26],[105,26],[192,26],[192,125],[192,268],[105,268],[18,268],[18,125]];
 // A future detector can use this explicit geometry; nothing is inferred from screen pixels.
 window.DeskcamMat = {
-  revision:'DCM-01', units:'mm', dictionary:'DICT_4X4_50', page:[210,297], field,
+  revision:landscape?'DCM-02-L':'DCM-01', units:'mm', dictionary:'DICT_4X4_50', page:pageSize, field,
   markerSize:16, quietZone:3,
   codedMarkers:markerCentres.map(([x,y], id) => ({id, corners:[[x-8,y-8],[x+8,y-8],[x+8,y+8],[x-8,y+8]]}))
 };
@@ -207,85 +222,91 @@ function markers() {
       if(bit==='1') d+=`M${c} ${r}h1v1h-1z`;
     }));
     el('path',{d,fill:'#000',transform:`translate(${x-8} ${y-8}) scale(${16/6})`},'',g);
-    if(id===1||id===5) text(x+12,y+1,`M${id}`,2.2,'start','#333',g);
+    if(id===1||id===5||(landscape&&(id===3||id===7))) text(x+12,y+1,`M${id}`,2.2,'start','#333',g);
     else text(x,y+13,`M${id}`,2.2,'middle','#333',g);
   });
 }
 function common() {
-  el('rect',{width:210,height:297,fill:'white'});
+  el('rect',{width:pageSize[0],height:pageSize[1],fill:'white'});
   text(10,13,'DESKCAM',3.3,'start','#111').setAttribute('font-weight','700');
-  text(200,13,`DCM-01 / ${variant.toUpperCase()} / A4`,2.3,'end','#444');
+  text(pageSize[0]-10,13,`${window.DeskcamMat.revision} / ${variant.toUpperCase()} / A4 ${landscape?'LANDSCAPE':'PORTRAIT'}`,2.3,'end','#444');
   markers();
   // Exact, isolated references in both axes. All ticks are identical and 5 mm apart.
-  line(55,285,155,285,'#111',.28);
-  for(let mm=0;mm<=100;mm+=5) line(55+mm,283,55+mm,287,'#111',.28);
-  text(53,286,'0',2.4,'end'); text(158,286,'100 mm',2.4,'start');
-  text(105,281.5,'X CHECK · 20 INTERVALS × 5 mm',1.9);
-  line(18,150,18,250,'#111',.28);
-  for(let mm=0;mm<=100;mm+=5) line(16,150+mm,20,150+mm,'#111',.28);
-  text(18,148,'0',2.3); text(18,254,'100',2.3);
-  text(12,200,'Y CHECK · 100 mm · 5 mm TICKS',2.1).setAttribute('transform','rotate(-90 12 200)');
-  // Orientation cue has different words at each end; letters do not have to do that job.
-  text(57,29,'↑ TOP',3.2,'middle','#222');
-  text(153,29,variant==='hybrid'?'5 mm FINE / 25 mm MAJOR':variant==='quiet'?'5 mm EDGE TICKS':'0° UP / CLOCKWISE',2.0);
-  text(56,270,'PRINT AT 100%',2.2); text(155,270,'VERIFY BOTH BARS',2.2);
+  const hx=pageSize[0]/2-50, hy=pageSize[1]-12, vy=landscape?65:150;
+  line(hx,hy,hx+100,hy,'#111',.28);
+  for(let mm=0;mm<=100;mm+=5) line(hx+mm,hy-2,hx+mm,hy+2,'#111',.28);
+  text(hx-2,hy+1,'0',2.4,'end'); text(hx+103,hy+1,'100 mm',2.4,'start');
+  text(hx+50,hy-3.5,'X CHECK · 20 INTERVALS × 5 mm',1.9);
+  line(18,vy,18,vy+100,'#111',.28);
+  for(let mm=0;mm<=100;mm+=5) line(16,vy+mm,20,vy+mm,'#111',.28);
+  text(18,vy-2,'0',2.3); text(18,vy+104,'100',2.3);
+  text(12,vy+50,'Y CHECK · 100 mm · 5 mm TICKS',2.1).setAttribute('transform',`rotate(-90 12 ${vy+50})`);
+  const left=landscape?61.5:57, right=landscape?235.5:153, top=landscape?27:29;
+  text(left,top,'↑ TOP',3.2,'middle','#222');
+  text(right,top,variant==='hybrid'?'5 mm FINE / 25 mm MAJOR':variant==='quiet'?'5 mm EDGE TICKS':'0° UP / CLOCKWISE',2.0);
+  text(landscape?61.5:56,landscape?187:270,'PRINT AT 100%',2.2);
+  text(landscape?235.5:155,landscape?187:270,'VERIFY BOTH BARS',2.2);
+  if(landscape) text(148.5,187,'LONG EDGE / DESK',2.2);
+
 }
 function addresses() {
-  for(let c=0;c<6;c++) {
-    text(field.x+c*25+12.5,46,String.fromCharCode(65+c),3.1);
-    text(field.x+c*25+12.5,255,String.fromCharCode(65+c),2.7);
+  for(let c=0;c<cols;c++) {
+    text(field.x+c*25+12.5,field.y-4,String.fromCharCode(65+c),3.1);
+    text(field.x+c*25+12.5,field.y+field.h+5,String.fromCharCode(65+c),2.7);
   }
-  for(let r=0;r<8;r++) {
+  for(let r=0;r<rows;r++) {
     const y=field.y+r*25+13.5, label=String(r+1).padStart(2,'0');
-    text(26,y,label,2.7,'end'); text(184,y,label,2.7,'start');
+    text(field.x-4,y,label,2.7,'end'); text(field.x+field.w+4,y,label,2.7,'start');
   }
 }
 function hybrid() {
   const fine=document.getElementById('strong').checked?'#939393':'#b9b9b9';
   const width=document.getElementById('strong').checked ? .22 : .14;
-  for(let x=0;x<=150;x+=5) line(30+x,50,30+x,250,x%25===0?'#777':fine,x%25===0 ? .28 : width);
-  for(let y=0;y<=200;y+=5) line(30,50+y,180,50+y,y%25===0?'#777':fine,y%25===0 ? .28 : width);
+  for(let x=0;x<=field.w;x+=5) line(field.x+x,field.y,field.x+x,field.y+field.h,x%25===0?'#777':fine,x%25===0 ? .28 : width);
+  for(let y=0;y<=field.h;y+=5) line(field.x,field.y+y,field.x+field.w,field.y+y,y%25===0?'#777':fine,y%25===0 ? .28 : width);
   if(document.getElementById('cellnames').checked) {
-    for(let row=0;row<8;row++) for(let col=0;col<6;col++) {
-      text(31+col*25,53.4+row*25,String.fromCharCode(65+col)+String(row+1).padStart(2,'0'),2,'start','#7d7d7d');
+    for(let row=0;row<rows;row++) for(let col=0;col<cols;col++) {
+      text(field.x+1+col*25,field.y+3.4+row*25,String.fromCharCode(65+col)+String(row+1).padStart(2,'0'),2,'start','#7d7d7d');
     }
   }
   addresses();
 }
 function quiet() {
-  for(let x=0;x<=150;x+=5) {
+  for(let x=0;x<=field.w;x+=5) {
     const n=x%25===0?2.8:1.3;
-    line(30+x,50,30+x,50+n,'#777',.22); line(30+x,250,30+x,250-n,'#777',.22);
+    line(field.x+x,field.y,field.x+x,field.y+n,'#777',.22);
+    line(field.x+x,field.y+field.h,field.x+x,field.y+field.h-n,'#777',.22);
   }
-  for(let y=0;y<=200;y+=5) {
+  for(let y=0;y<=field.h;y+=5) {
     const n=y%25===0?2.8:1.3;
-    line(30,50+y,30+n,50+y,'#777',.22); line(180,50+y,180-n,50+y,'#777',.22);
+    line(field.x,field.y+y,field.x+n,field.y+y,'#777',.22);
+    line(field.x+field.w,field.y+y,field.x+field.w-n,field.y+y,'#777',.22);
   }
-  [[55,75],[155,75],[55,225],[155,225]].forEach(([x,y])=>cross(x,y,1.1,'#bbb'));
-  cross(105,150,1.5,'#bbb');
-  addresses();
+  for(const x of [field.x+25,field.x+field.w-25]) for(const y of [field.y+25,field.y+field.h-25]) cross(x,y,1.1,'#bbb');
+  cross(...centre,1.5,'#bbb'); addresses();
 }
-function polar(r,deg) { const a=(deg-90)*Math.PI/180; return [105+r*Math.cos(a),150+r*Math.sin(a)]; }
+function polar(r,deg) { const a=(deg-90)*Math.PI/180; return [centre[0]+r*Math.cos(a),centre[1]+r*Math.sin(a)]; }
 function angles() {
-  for(const r of [20,40,60]) {
-    el('circle',{cx:105,cy:150,r,fill:'none',stroke:'#b0b0b0','stroke-width':.18});
+  const outer=landscape?50:68, rings=landscape?[15,30,45]:[20,40,60];
+  for(const r of rings) {
+    el('circle',{cx:centre[0],cy:centre[1],r,fill:'none',stroke:'#b0b0b0','stroke-width':.18});
     const [x,y]=polar(r,225); text(x-2,y+2,`r${r}`,2.4,'end','#777');
   }
-  el('circle',{cx:105,cy:150,r:68,fill:'none',stroke:'#555','stroke-width':.3});
+  el('circle',{cx:centre[0],cy:centre[1],r:outer,fill:'none',stroke:'#555','stroke-width':.3});
   for(let deg=0;deg<360;deg+=10) {
-    const a=polar(deg%30===0?64:66,deg),b=polar(68,deg);
+    const a=polar(deg%30===0?outer-4:outer-2,deg),b=polar(outer,deg);
     line(...a,...b,'#333',deg%30===0 ? .3 : .2);
-    if(deg%30===0) { const [x,y]=polar(74,deg); text(x,y+1,`${deg}°`,deg%90===0?3.2:2.5); }
+    if(deg%30===0) { const [x,y]=polar(outer+6,deg); text(x,y+1,`${deg}°`,deg%90===0?3.2:2.5); }
   }
-  // Broken axes leave the placement zone quieter than a full fan of spokes.
-  for(const deg of [0,90,180,270]) { line(...polar(5,deg),...polar(60,deg),'#aaa',.18); }
-  cross(105,150,3,'#333',.25);
-  text(105,56,'ALIGN THE PART TO THE CENTRE',2.5);
-  text(105,243,'RADII IN mm · ANGLES CLOCKWISE FROM TOP',2.2);
+  for(const deg of [0,90,180,270]) line(...polar(5,deg),...polar(rings.at(-1),deg),'#aaa',.18);
+  cross(...centre,3,'#333',.25);
+  text(centre[0],landscape?field.y:field.y+6,'ALIGN THE PART TO THE CENTRE',2.5);
+  text(centre[0],landscape?field.y+field.h+4:field.y+field.h-7,'RADII IN mm · ANGLES CLOCKWISE FROM TOP',2.2);
 }
+
 function objects() {
   if(!document.getElementById('objects').checked) return;
-  const g=el('g',{class:'demo-objects','pointer-events':'none'});
+  const g=el('g',{class:'demo-objects','pointer-events':'none',transform:`translate(${centre[0]-105} ${centre[1]-150})`});
   const pcb=el('g',{transform:'rotate(-12 105 150)'},'',g);
   el('rect',{x:69,y:125,width:72,height:50,rx:1.4,fill:'#355949',stroke:'#243c32','stroke-width':.5},'',pcb);
   [[73,129],[137,129],[73,171],[137,171]].forEach(([cx,cy])=>el('circle',{cx,cy,r:1.4,fill:'#e7d5a0'},'',pcb));
@@ -298,8 +319,8 @@ function objects() {
   text(104.5,151,'IC',3,'middle','#89938a',pcb);
   el('rect',{x:123,y:143,width:10,height:17,fill:'#232c2c'},'',pcb);
   text(80,135,'EXAMPLE',2.5,'start','#dae2d8',pcb);
-  el('circle',{cx:144,cy:214,r:9,fill:'#c4c9c8',stroke:'#747d7b','stroke-width':.45},'',g);
-  el('circle',{cx:144,cy:214,r:4,fill:'#fff',stroke:'#747d7b','stroke-width':.4},'',g);
+  el('circle',{cx:landscape?170:144,cy:landscape?185:214,r:9,fill:'#c4c9c8',stroke:'#747d7b','stroke-width':.45},'',g);
+  el('circle',{cx:landscape?170:144,cy:landscape?185:214,r:4,fill:'#fff',stroke:'#747d7b','stroke-width':.4},'',g);
 }
 function render() {
   sheet.replaceChildren(); common(); ({hybrid,quiet,angles}[variant])(); objects();
@@ -323,6 +344,7 @@ function select(next) {
   variant=next;
   const url=new URL(location.href); url.searchParams.set('variant',variant);
   url.searchParams.set('references',document.getElementById('references').value);
+  url.searchParams.set('orientation',landscape?'landscape':'portrait');
   history.replaceState(null,'',url); render();
 }
 function cycle(step) { const keys=Object.keys(variants); select(keys[(keys.indexOf(variant)+step+keys.length)%keys.length]); }
@@ -334,7 +356,7 @@ function locationAt(event) {
   const c=Math.floor(x/25),r=Math.floor(y/25);
   if(variant==='angles') {
     highlight.setAttribute('visibility','hidden');
-    const dx=q.x-105,dy=q.y-150,rad=Math.hypot(dx,dy);
+    const dx=q.x-centre[0],dy=q.y-centre[1],rad=Math.hypot(dx,dy);
     const angle=(Math.atan2(dx,-dy)*180/Math.PI+360)%360;
     document.getElementById('readout').textContent=`r ${rad.toFixed(1)} mm · ${angle.toFixed(0)}° clockwise from top`;
   } else {
@@ -347,6 +369,11 @@ document.getElementById('previous').onclick=()=>cycle(-1);
 document.getElementById('next').onclick=()=>cycle(1);
 document.getElementById('objects').onchange=render;
 document.getElementById('references').onchange=()=>select(variant);
+document.getElementById('orientation').onchange=()=>{
+  const url=new URL(location.href); url.searchParams.set('orientation',document.getElementById('orientation').value);
+  url.searchParams.set('variant',variant); url.searchParams.set('references',document.getElementById('references').value);
+  location.href=url.href;
+};
 document.getElementById('strong').onchange=render;
 document.getElementById('cellnames').onchange=render;
 document.getElementById('print').onclick=()=>window.print();
