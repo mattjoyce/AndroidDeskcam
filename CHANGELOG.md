@@ -8,6 +8,14 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 
 - A level for the mount, on the phone: touch Level in the app's header. A bubble card whose range closes in from ten degrees to half a degree as you converge, the edge to lower named in words, and one tone per axis that beeps faster as that axis comes in and holds steady once it is there, so the mount can be set with both hands on the bracket and your eyes on it. It needs no camera and no running service, which is the state a reboot leaves the phone in.
 
+### Changed
+
+- `/api/status` reports three facts about the lens shading map where it reported one: `sensor.shading_map_supported` is now the judgement, and `sensor.shading_map_key_advertised` and `sensor.shading_map_seen` are the two measurements behind it. This is an API change.
+
+### Fixed
+
+- The lens shading map, which this phone delivers and the app said it did not. The Pixel 6a leaves the map out of its advertised capture result keys and then puts a full 25 by 33 RGGB map in every frame taken with the mode on, so `/api/status` reported `shading_map_supported: false` while `/api/shadingmap` was returning 3300 real gains. A map that is missing also gave one message for three different situations, and that message blamed the camera: it told you to go and measure a flat field by hand when all that had happened was that the mode was off.
+
 ## [0.1.0] - 2026-09-12
 
 The first public release.

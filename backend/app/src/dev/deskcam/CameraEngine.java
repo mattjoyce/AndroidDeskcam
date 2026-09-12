@@ -89,11 +89,22 @@ public class CameraEngine {
      */
     private boolean rawSessionFailed = false;
     /**
-     * Some devices advertise the shading map mode and the map size but never put the map
-     * itself in a capture result. The Pixel 6a is one of them. Check the result keys rather
-     * than trust the mode list.
+     * Two separate facts about the lens shading map, because this device disagrees with
+     * itself about it.
+     *
+     * The Pixel 6a leaves android.statistics.lensShadingMap out of its capture result keys
+     * and then delivers a full 25 by 33 RGGB map in every result taken with the mode on.
+     * Measured 2026-09-12: three consecutive /api/shadingmap each answered ok with 3300
+     * gains running from 1.0 to 3.452, while the key probe below said no. The same call with
+     * shadingmap=0 answered with no map, so the map follows the mode exactly as the platform
+     * documents and it is only the key list that lies.
+     *
+     * So what is advertised and what has actually arrived are held apart, and {@link Shading}
+     * decides what to make of the pair. An earlier version of this comment asserted the
+     * opposite, on the evidence of the key list alone.
      */
-    private boolean shadingMapSupported = false;
+    private boolean shadingMapKeyAdvertised = false;
+    private volatile boolean shadingMapSeen = false;
 
     private final Object lock = new Object();
     private CamSettings settings = new CamSettings();
@@ -592,11 +603,13 @@ public class CameraEngine {
         Rect aa = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
         if (aa != null) activeArray = aa;
         caps = CamSettings.Caps.from(chars, activeArray.width());
-        shadingMapSupported = false;
+        shadingMapKeyAdvertised = false;
+        // A new camera has delivered nothing yet, whatever the last one did.
+        shadingMapSeen = false;
         try {
             for (CaptureResult.Key<?> k : chars.getAvailableCaptureResultKeys()) {
                 if (k.equals(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP)) {
-                    shadingMapSupported = true;
+                    shadingMapKeyAdvertised = true;
                     break;
                 }
             }
@@ -772,6 +785,13 @@ public class CameraEngine {
     private final CameraCaptureSession.CaptureCallback resultCb = new CameraCaptureSession.CaptureCallback() {
         @Override public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult res) {
             lastResult = res;
+            // The arrival of one map is the only evidence this camera delivers them, since
+            // it does not admit to the key. Asked once and then never again: reading it
+            // rebuilds 3300 floats, and at the frame rate that is a waste of a phone.
+            if (!shadingMapSeen
+                    && res.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP) != null) {
+                shadingMapSeen = true;
+            }
         }
     };
 
@@ -1080,8 +1100,11 @@ public class CameraEngine {
      * The lens shading map of the last frame, as a grid of gain factors.
      *
      * A gain above 1.0 marks a position where the lens delivers less light, so the corners
-     * read high. Use it to check a measured flat field. It is only populated while
-     * measurement mode is on.
+     * read high. Use it to check a measured flat field.
+     *
+     * It is populated while the map mode is on, which is shadingmap=1 and not measurement
+     * mode. This comment said measurement mode until 2026-09-12, when a map arrived on a
+     * frame with measure off.
      */
     public JSONObject shadingMap() throws JSONException {
         JSONObject o = new JSONObject();
@@ -1089,13 +1112,15 @@ public class CameraEngine {
         android.hardware.camera2.params.LensShadingMap m =
                 r == null ? null : r.get(CaptureResult.STATISTICS_LENS_SHADING_CORRECTION_MAP);
         if (m == null) {
+            // Three situations had one message between them, and it named the wrong cause
+            // for two of them: it sent a caller off to measure a flat field by hand when
+            // all that had happened was that the mode was off.
             o.put("ok", false);
-            o.put("supported", shadingMapSupported);
-            o.put("error", shadingMapSupported
-                    ? "no shading map yet; ask again with shadingmap=1 so a frame is taken with the map on"
-                    : "this camera does not report a lens shading map. It lists the map mode and the "
-                      + "map size, but android.statistics.lensShadingMap is not one of its result keys. "
-                      + "Measure a flat field instead.");
+            o.put("supported", Shading.available(shadingMapKeyAdvertised, shadingMapSeen));
+            o.put("key_advertised", shadingMapKeyAdvertised);
+            o.put("seen", shadingMapSeen);
+            o.put("error", Shading.absent(snapshot().shadingMap, shadingMapSeen,
+                    shadingMapKeyAdvertised));
             return o;
         }
         int rows = m.getRowCount(), cols = m.getColumnCount();
@@ -2114,7 +2139,13 @@ public class CameraEngine {
         sensor.put("still_roi_megapixels",
                 CamSettings.round2(roi.width() * (double) roi.height() / 1e6));
         sensor.put("raw_available", rawReader != null);
-        sensor.put("shading_map_supported", shadingMapSupported);
+        // Three fields, because two of them are measurements and the third is the judgement
+        // made from them. A caller acts on shading_map_supported; the other two say why it
+        // reads as it does, which matters on a device whose own key list is wrong.
+        sensor.put("shading_map_supported",
+                Shading.available(shadingMapKeyAdvertised, shadingMapSeen));
+        sensor.put("shading_map_key_advertised", shadingMapKeyAdvertised);
+        sensor.put("shading_map_seen", shadingMapSeen);
         if (rawSize != null) sensor.put("raw_size", rawSize.getWidth() + "x" + rawSize.getHeight());
         if (chars != null) {
             android.hardware.camera2.params.BlackLevelPattern blp =

@@ -105,20 +105,39 @@ The design also uses these properties.
 | Min focus distance | 10.204 dioptres (98 mm) | Close work. This is also the macro limit. |
 | Focus calibration | `APPROXIMATE` | A sweep must be monotonic. Do not use the absolute values. |
 | Metering regions | AF 1, AE 1, AWB 0 | The focus and the metering follow the ROI |
-| Lens shading map | Advertised, but NOT delivered | Refer to the note below |
+| Lens shading map | Delivered while the mode is on, and NOT advertised in the result keys | Refer to the note below |
 | Torch | 45 steps | Controlled light for the bench |
 | High speed video | 1080p120 and 1080p240 | Display timing measurement |
 | Rolling shutter skew | Reported for each frame | The PWM frequency from one still image |
 
-**The lens shading map is not usable on this device.** The camera lists
-`availableLensShadingMapModes` as `[0, 1]` and gives a `shadingMapSize` of 33 x 25. But
-`android.statistics.lensShadingMap` is not one of its capture result keys, so the map never
-arrives. The engine tests the result keys at start-up and reports
-`sensor.shading_map_supported`. `/api/shadingmap` then gives a clear message instead of an
-empty result. Measure a flat field. Do not depend on the map.
+**The lens shading map does arrive on this device.** Measured 2026-09-12 on the bench
+Pixel 6a: three consecutive `GET /api/shadingmap` each answered `ok: true` with a 25 by 33
+RGGB map, 3300 gain factors running from 1.0 in the middle to 3.452 at the corner. The same
+call with `shadingmap=0` answered with no map at all, so the map follows
+`STATISTICS_LENS_SHADING_MAP_MODE` exactly as the platform documents it.
 
-This is a general lesson for this device. A mode list says that a control is settable. It
-does not say that the result arrives.
+What is false is the device's own account of itself. The camera lists
+`availableLensShadingMapModes` as `[0, 1]` and gives a `shadingMapSize` of 33 x 25, and
+`android.statistics.lensShadingMap` is nonetheless absent from
+`getAvailableCaptureResultKeys()`. The engine read that list at start-up and published it as
+`sensor.shading_map_supported: false` while the map was arriving on every frame.
+
+**The paragraph that stood here is withdrawn.** It said the map "is not usable on this
+device", that "the map never arrives", and "Measure a flat field. Do not depend on the map."
+It was believed from the key list alone. Nothing had ever asked for a frame with the mode on
+and then looked, which is the only measurement that could have settled it.
+
+It is now two facts and a judgement. `sensor.shading_map_key_advertised` is what the camera
+claims, `sensor.shading_map_seen` is whether a map has actually arrived since the camera was
+opened, and `sensor.shading_map_supported` is the judgement made from the pair. `Shading`
+holds the rule and the workstation tests it. A missing map now says which of three things
+happened, because the one message it used to give named the wrong cause for two of them and
+sent the reader off to measure a flat field by hand when the mode had simply been off.
+
+This is a general lesson for this device, and it runs both ways. A mode list says that a
+control is settable. It does not say that the result arrives. **And a result-key list does
+not say that the result will not arrive.** Neither list is evidence. The only evidence is a
+frame.
 
 ## Platform facts
 

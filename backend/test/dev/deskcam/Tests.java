@@ -80,6 +80,8 @@ public final class Tests {
         theInstructionNamesTheEdgeToLower();
         theBubbleFloatsToTheRaisedEdge();
         theBubbleStaysOnTheCard();
+        theTwoShadingFactsAreHeldApart();
+        aMissingShadingMapNamesTheRightCause();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -1039,6 +1041,53 @@ public final class Tests {
         eq("so the card asks for the right edge", "lower the right edge",
                 Levelling.instruction((float) Levelling.rollDegrees(1.09, 9.75),
                         (float) Levelling.pitchDegrees(0.08, 9.75)));
+    }
+
+    // ----------------------------------------------------- the shading map
+
+    /**
+     * A map that has arrived beats a key list that says it cannot.
+     *
+     * This is the Pixel 6a's case and it was reported backwards for the life of the
+     * project: the device leaves the map out of its advertised result keys and then
+     * delivers one on every frame taken with the mode on.
+     */
+    private static void theTwoShadingFactsAreHeldApart() {
+        no("nothing advertised and nothing seen", Shading.available(false, false));
+        yes("advertised, nothing seen yet", Shading.available(true, false));
+        yes("not advertised, but one arrived", Shading.available(false, true));
+        yes("both", Shading.available(true, true));
+    }
+
+    /**
+     * The three ways to have no map read differently.
+     *
+     * The fault this fixes was one message for all three, and that message blamed the
+     * camera. Telling somebody to go and measure a flat field by hand costs them an hour,
+     * so it may only be said when the camera has actually refused a frame.
+     */
+    private static void aMissingShadingMapNamesTheRightCause() {
+        String modeOff = Shading.absent(false, false, false);
+        yes("a mode that is off says so", modeOff.contains("mode is off"));
+        no("and does not blame the camera", modeOff.contains("does not deliver"));
+        no("and does not send anybody to a flat field", modeOff.contains("flat field"));
+
+        String transient_ = Shading.absent(true, true, false);
+        yes("one that has arrived before says ask again", transient_.contains("Ask again"));
+        no("and does not blame the camera either", transient_.contains("does not deliver"));
+
+        String refused = Shading.absent(true, false, false);
+        yes("a camera that refused a frame is named", refused.contains("does not deliver"));
+        yes("and only then is a flat field the answer", refused.contains("flat field"));
+
+        // The device's own claim is corroboration, never the cause, so it changes the
+        // wording and not the verdict.
+        String refusedButAdvertised = Shading.absent(true, false, true);
+        yes("a refusal from a camera that advertises the key is still a refusal",
+                refusedButAdvertised.contains("does not deliver"));
+        yes("and the contradiction is said out loud",
+                refusedButAdvertised.contains("advertises"));
+        no("the two refusals do not read the same", refused.equals(refusedButAdvertised));
     }
 
     private static void eq(String what, long expected, long actual) {

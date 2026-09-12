@@ -65,6 +65,7 @@ javac -Xlint:all -Werror -encoding UTF-8 --release 17 \
     "$ROOT/app/src/dev/deskcam/Nets.java" \
     "$ROOT/app/src/dev/deskcam/Pairing.java" \
     "$ROOT/app/src/dev/deskcam/Levelling.java" \
+    "$ROOT/app/src/dev/deskcam/Shading.java" \
     "$ROOT/test/dev/deskcam/Tests.java"
 java -cp "$OUT/testclasses" dev.deskcam.Tests "$OUT/testwork"
 
