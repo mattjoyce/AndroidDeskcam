@@ -133,7 +133,7 @@ public class CamService extends Service {
             // refused connection and no reason, while the same camera lost one second
             // later was recovered by the running engine within fifteen. The engine now
             // reports its own state on /api/status and keeps trying.
-            http = new HttpServer(engine, port, () -> p.getString(PREF_TOKEN, ""));
+            http = new HttpServer(engine, port, () -> p.getString(PREF_TOKEN, ""), WebUi.page(this));
             http.start();
             engine.start();
 

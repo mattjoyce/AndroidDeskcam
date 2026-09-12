@@ -54,6 +54,7 @@ public class HttpServer implements Runnable {
     private final CameraEngine engine;
     private final int port;
     private final Key key;
+    private final String page;
     private final Marks marks = new Marks();
 
     private ServerSocket serverSocket;
@@ -82,10 +83,11 @@ public class HttpServer implements Runnable {
         String current();
     }
 
-    public HttpServer(CameraEngine engine, int port, Key key) {
+    public HttpServer(CameraEngine engine, int port, Key key, String page) {
         this.engine = engine;
         this.port = port;
         this.key = key;
+        this.page = page;
     }
 
     /** A request that is wrong in a way the caller can fix. Always an HTTP 400. */
@@ -295,7 +297,7 @@ public class HttpServer implements Runnable {
         switch (path) {
             case "/":
             case "/index.html":
-                sendText(out, 200, "text/html; charset=utf-8", WebUi.page());
+                sendText(out, 200, "text/html; charset=utf-8", page);
                 return;
 
             case "/api/stream":

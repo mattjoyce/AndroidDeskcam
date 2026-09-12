@@ -1,0 +1,362 @@
+<!doctype html>
+<!-- Throwaway design study: three A4 desk mats, ?variant=hybrid|quiet|angles.
+     Not served by the APK. Geometry is in millimetres; print only the selected SVG.
+     The markers are real OpenCV DICT_4X4_50 patterns, not decorative QR-like shapes. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeskCam · A4 mat study</title>
+<style>
+  :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color:#e8e9e7; background:#161b1b; }
+  * { box-sizing:border-box; }
+  body { margin:0; }
+  button, input { font:inherit; }
+  button { cursor:pointer; }
+  a { color:#b7d9c3; text-underline-offset:3px; }
+  .top { max-width:1280px; margin:auto; padding:32px 36px 24px; display:flex; justify-content:space-between; align-items:center; gap:20px; }
+  .eyebrow { text-transform:uppercase; letter-spacing:.16em; font-size:10px; color:#a2b3aa; margin:0 0 8px; }
+  h1 { font-size:27px; font-weight:500; letter-spacing:-.04em; margin:0; }
+  .badge { font:11px ui-monospace,monospace; color:#a4b1a9; border:1px solid #3d4942; border-radius:20px; padding:8px 12px; white-space:nowrap; }
+  main { max-width:1280px; margin:auto; padding:0 36px 120px; display:grid; grid-template-columns:minmax(0, 750px) minmax(260px, 320px); gap:40px; align-items:start; }
+  .paper-label { display:flex; justify-content:space-between; font-size:11px; color:#a7b0aa; margin-bottom:12px; }
+  #paper-shell { max-width:750px; background:white; box-shadow:0 12px 60px #0006; }
+  #sheet { width:100%; height:auto; display:block; background:white; color-scheme:light; }
+  .paper-foot { color:#a7b0aa; font-size:11px; margin:12px 0; line-height:1.6; }
+  aside { position:sticky; top:25px; padding-top:25px; }
+  .kicker { color:#c2d7c9; font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
+  h2 { font-size:28px; font-weight:500; letter-spacing:-.04em; margin:8px 0 12px; }
+  aside p { color:#b3bdb7; font-size:14px; line-height:1.65; margin:0 0 20px; }
+  .specs { display:grid; grid-template-columns:1fr 1fr; gap:16px; border-top:1px solid #38403b; border-bottom:1px solid #38403b; padding:18px 0; margin-bottom:20px; }
+  .specs strong { display:block; font-size:18px; font-weight:500; color:#f0f1ee; margin-bottom:3px; }
+  .specs span { font-size:11px; color:#a7b0aa; }
+  .controls { display:grid; gap:13px; margin:20px 0; }
+  .controls label { display:flex; align-items:center; gap:9px; font-size:13px; color:#d4dcd6; }
+  select { max-width:185px; border:1px solid #536057; border-radius:5px; background:#202823; color:#e0e7e0; padding:7px; font-size:12px; }
+  input { accent-color:#a0c8ac; width:16px; height:16px; margin:0; }
+  label:has(input:disabled) { opacity:.4; }
+  #readout { min-height:52px; border-left:2px solid #799984; padding:6px 0 6px 12px; font:12px/1.7 ui-monospace,monospace; color:#c1d9c9; margin:24px 0; }
+  .print { width:100%; border:0; border-radius:7px; background:#c0d8c5; color:#15251a; font-size:13px; font-weight:600; padding:13px 18px; }
+  .print:hover { background:#d8e9db; }
+  .small { font-size:11px; line-height:1.65; margin-top:10px; }
+  details { border-top:1px solid #38403b; margin-top:22px; padding-top:15px; }
+  summary { font-size:13px; cursor:pointer; color:#e0e6e0; }
+  details p { font-size:12px; margin:14px 0 0; }
+  .switcher { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:7px; padding:7px; border-radius:13px; background:#0d1211f5; border:1px solid #4a5950; box-shadow:0 8px 35px #0008; z-index:10; }
+  .switcher button { background:transparent; color:#aebbb2; border:0; border-radius:7px; padding:11px 15px; font-size:12px; white-space:nowrap; }
+  .switcher button[aria-pressed=true] { background:#c0d8c5; color:#14291c; }
+  .switcher .arrow { font-size:18px; padding:7px 12px; }
+  .switcher button:focus-visible { outline:2px solid white; outline-offset:3px; }
+  @media(max-width:850px) {
+    .top { padding:23px 20px; } h1 { font-size:23px; } .badge { display:none; }
+    main { padding:0 20px 110px; grid-template-columns:1fr; gap:20px; }
+    aside { position:static; padding-top:0; } .switcher { bottom:12px; gap:1px; padding:5px; }
+    .switcher button { padding:11px 9px; } .switcher .arrow { padding:7px; }
+  }
+  @page { size:A4 portrait; margin:0; }
+  @media print {
+    :root, body { background:#fff; margin:0; padding:0; }
+    .screen-only, .demo-objects, .hover-cell { display:none !important; }
+    main { display:block; max-width:none; padding:0; margin:0; }
+    #paper-shell { width:210mm; height:297mm; max-width:none; box-shadow:none; margin:0; }
+    #sheet { width:210mm; height:297mm; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+<header class="top screen-only">
+  <div><p class="eyebrow">DeskCam / physical interface study</p><h1>A sheet for looking, locating and measuring.</h1></div>
+  <span class="badge">A4 · 210 × 297 mm · prototype 01</span>
+</header>
+<main>
+  <section>
+    <div class="paper-label screen-only"><span id="preview-label">01 / Hybrid grid</span><span>PRINT PREVIEW · NOT ACTUAL SIZE ON SCREEN</span></div>
+    <div id="paper-shell">
+      <svg id="sheet" xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 210 297" role="img" aria-label="A4 camera desk mat"></svg>
+    </div>
+    <p class="paper-foot screen-only">White paper, black and grey ink. Only the sheet prints. Example objects and the coordinate highlight never print.</p>
+  </section>
+  <aside class="screen-only">
+    <div class="kicker" id="recommendation">My starting recommendation</div>
+    <h2 id="variant-name">Hybrid grid</h2>
+    <p id="variant-description"></p>
+    <div class="specs">
+      <div><strong>150 × 200</strong><span>mm working field</span></div>
+      <div><strong id="reference-count">8 markers</strong><span id="reference-label">around the working field</span></div>
+      <div><strong id="detail-value">5 / 25 mm</strong><span id="detail-label">fine / major grid</span></div>
+      <div><strong>2 × 100 mm</strong><span>horizontal + vertical print checks</span></div>
+    </div>
+    <p id="tradeoff"></p>
+    <div class="controls">
+      <label>References <select id="references"><option value="coded">Coded markers</option><option value="tetris">Tetris corners</option></select></label>
+      <label><input id="objects" type="checkbox"> Preview objects on the sheet</label>
+      <label><input id="strong" type="checkbox"> Stronger fine grid</label>
+      <label><input id="cellnames" type="checkbox" checked> Labels inside grid cells</label>
+    </div>
+    <div id="readout" aria-live="polite">Move over the working field.<br>Try naming a location to another person.</div>
+    <button class="print" id="print">Print this version</button>
+    <p class="small">A4 portrait · 100% scale · margins none · browser headers/footers off. Then check both 100 mm bars with a real ruler. The printer may still impose its own margins.</p>
+    <details open>
+      <summary id="reference-heading">Why the black squares?</summary>
+      <p id="reference-description">Each is a different, genuine ArUco marker. Their known positions give a future detector named points for locating the sheet, its rotation and perspective. Spread-out markers can remain visible when an object covers the centre. That is why they live at the edge.</p>
+      <p>The mat is a proposal; DeskCam does not yet recognise either kind of landmark. At high zoom, no visible marker means no new absolute sheet position. A repeated grid alone cannot say which square is in view.</p>
+    </details>
+    <details>
+      <summary>What this does and does not measure</summary>
+      <p>Letters and numbers address 25 mm cells. Optional interior labels leave a nearby address visible in a close crop, if the object does not cover it. In the grid and quiet versions, A01 is the upper-left cell. Sheet coordinates start at the working field’s upper-left corner; x goes right and y goes down.</p>
+      <p>The angle version uses 0° up, increasing clockwise. Read angles with the part aligned to the centre, or after correcting the camera view to the paper plane.</p>
+      <p>Scale applies to the paper plane. A raised component’s top is closer to the camera, so its apparent size is different. Lens calibration is a separate job; this is not a replacement for a calibration board.</p>
+    </details>
+    <details>
+      <summary>Print and camera considerations</summary>
+      <p>Start with flat, matte paper. The fine grid is deliberately quieter than an object edge. Use the stronger option if your printer loses it; making every line heavy can make a small part harder to separate from its background.</p>
+      <p>The isolated reference bars use identical 5 mm ticks. For the current DeskCam scale tool, select one strip as the reference and specify a 5 mm pitch. The grid and marker patterns are competing periodic textures.</p>
+      <p>Focus on the object, not a crisp background marking. Keep several edge markers visible when you want to locate the whole sheet. Printed grey is not a calibrated exposure or colour reference.</p>
+    </details>
+    <details>
+      <summary>Sources and design status</summary>
+      <p>The geometry and line weights are design proposals, pending a real home-printer and camera trial. In coded mode, marker patterns are generated from OpenCV’s DICT_4X4_50, IDs 0–7, with 16 mm black outer squares and a 3 mm white surround.</p>
+      <p><a href="https://docs.opencv.org/4.x/db/da9/tutorial_aruco_board_detection.html">OpenCV: marker boards and partial visibility</a><br><a href="https://docs.opencv.org/4.x/da/d13/tutorial_aruco_calibration.html">OpenCV: ArUco / ChArUco calibration</a><br><a href="https://helpx.adobe.com/acrobat/desktop/print-documents/set-up-and-print-pdfs/page-size.html">Adobe: actual-size printing</a></p>
+    </details>
+  </aside>
+</main>
+<nav class="switcher screen-only" aria-label="Compare mat designs">
+  <button class="arrow" id="previous" aria-label="Previous design">←</button>
+  <button data-variant="hybrid" aria-pressed="true">01 · Hybrid</button>
+  <button data-variant="quiet" aria-pressed="false">02 · Quiet</button>
+  <button data-variant="angles" aria-pressed="false">03 · Angles</button>
+  <button class="arrow" id="next" aria-label="Next design">→</button>
+</nav>
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+const sheet = document.getElementById('sheet');
+const field = {x:30, y:50, w:150, h:200};
+// Generated with cv2.aruco.generateImageMarker(DICT_4X4_50, id, 6).
+// Each string is one row of six modules, including the one-module black border.
+const markerBits = [["111111", "101001", "110101", "111001", "111011", "111111"], ["111111", "111111", "100001", "101101", "101011", "111111"], ["111111", "111001", "111001", "111011", "100101", "111111"], ["111111", "101101", "101101", "110111", "110011", "111111"], ["111111", "110101", "110111", "101101", "100011", "111111"], ["111111", "110001", "101101", "100111", "100101", "111111"], ["111111", "101101", "100011", "111011", "100011", "111111"], ["111111", "100111", "110111", "100001", "111011", "111111"]];
+const markerCentres = [[18,26],[105,26],[192,26],[192,125],[192,268],[105,268],[18,268],[18,125]];
+// A future detector can use this explicit geometry; nothing is inferred from screen pixels.
+window.DeskcamMat = {
+  revision:'DCM-01', units:'mm', dictionary:'DICT_4X4_50', page:[210,297], field,
+  markerSize:16, quietZone:3,
+  codedMarkers:markerCentres.map(([x,y], id) => ({id, corners:[[x-8,y-8],[x+8,y-8],[x+8,y+8],[x-8,y+8]]}))
+};
+const variants = {
+  hybrid:{name:'Hybrid grid', label:'01 / Hybrid grid', recommendation:'My starting recommendation',
+    description:'Keep the familiar 5 mm grid. Give it a readable hierarchy: stronger 25 mm squares, simple cell addresses, and a border the camera can recognise.',
+    detail:'5 / 25 mm', detailLabel:'fine / major grid',
+    tradeoff:'Best general-purpose starting point. “Look in C04” is easy to say, while the fine grid still gives you a quick sense of size.'},
+  quiet:{name:'Quiet field', label:'02 / Quiet field', recommendation:'For seeing the object clearly',
+    description:'Leave the centre almost empty. Put the scale, addresses and recognition marks around the edge, where they compete less with component outlines.',
+    detail:'5 mm edges', detailLabel:'no grid beneath the object',
+    tradeoff:'My second choice for tiny parts or software that separates objects from the background. Coarse cell locations are less obvious without grid lines.'},
+  angles:{name:'Angle station', label:'03 / Angle station', recommendation:'For deliberate alignment',
+    description:'A centre and an angle dial make this a small alignment station. Position a part on the crosshair, then refer to a direction or radius.',
+    detail:'10° / 30°', detailLabel:'ticks / numbered angles',
+    tradeoff:'Useful for comparing a lead, edge or tool direction. Less useful for general placement: the object often hides the centre, and the ring needs centring to mean anything.'}
+};
+document.getElementById('references').value = new URLSearchParams(location.search).get('references') === 'tetris' ? 'tetris' : 'coded';
+let variant = new URLSearchParams(location.search).get('variant') || 'hybrid';
+if (!variants[variant]) variant = 'hybrid';
+function el(tag, attrs={}, text='', parent=sheet) {
+  const node=document.createElementNS(NS,tag);
+  for (const [key,value] of Object.entries(attrs)) node.setAttribute(key,value);
+  if(text) node.textContent=text;
+  parent.appendChild(node); return node;
+}
+function line(x1,y1,x2,y2,stroke='#222',width=.22,parent=sheet) {
+  return el('line',{x1,y1,x2,y2,stroke,'stroke-width':width},'',parent);
+}
+function text(x,y,value,size=2.7,anchor='middle',fill='#303030',parent=sheet) {
+  return el('text',{x,y,'font-size':size,'font-family':'Arial, Helvetica, sans-serif','text-anchor':anchor,fill},value,parent);
+}
+function cross(x,y,r=1.3,colour='#888',width=.18,parent=sheet) {
+  line(x-r,y,x+r,y,colour,width,parent); line(x,y-r,x,y+r,colour,width,parent);
+}
+// Four distinct tetrominoes: TL=L, TR=T, BR=Z, BL=O. The Z and O have rotational
+// symmetry individually. Their distinct identities and known layout orient the sheet
+// when enough landmarks are visible; they are not ArUco codes or detector-ready tags.
+const tetrominoes = [
+  {id:0,name:'L / TL',cells:[[0,0],[0,1],[0,2],[1,2]],w:2,h:3},
+  {id:2,name:'T / TR',cells:[[0,0],[1,0],[2,0],[1,1]],w:3,h:2},
+  {id:4,name:'Z / BR',cells:[[0,0],[1,0],[1,1],[2,1]],w:3,h:2},
+  {id:6,name:'O / BL',cells:[[0,0],[1,0],[0,1],[1,1]],w:2,h:2}
+];
+function markers() {
+  const tetris=document.getElementById('references').value==='tetris';
+  window.DeskcamMat.referenceMode=tetris?'tetris':'coded';
+  window.DeskcamMat.markers=tetris?[]:window.DeskcamMat.codedMarkers;
+  window.DeskcamMat.landmarks=tetris?tetrominoes.map(shape=>({...shape,centre:markerCentres[shape.id],cellSize:5})):[];
+  if(tetris) {
+    tetrominoes.forEach(shape=>{
+      const [x,y]=markerCentres[shape.id], cell=5;
+      const g=el('g',{'data-tetromino':shape.name});
+      let d='';
+      shape.cells.forEach(([cx,cy])=>{ d+=`M${cx} ${cy}h1v1h-1z`; });
+      el('path',{d,fill:'#000',transform:`translate(${x-shape.w*cell/2} ${y-shape.h*cell/2}) scale(${cell})`},'',g);
+      text(x,y+12,shape.name,2.2,'middle','#333',g);
+    });
+    return;
+  }
+  markerCentres.forEach(([x,y],id) => {
+    const g=el('g',{'data-marker-id':id});
+    el('rect',{x:x-11,y:y-11,width:22,height:22,fill:'white'},'',g);
+    // A single black compound path prevents hairline seams between black modules.
+    let d='';
+    markerBits[id].forEach((row,r)=>[...row].forEach((bit,c)=>{
+      if(bit==='1') d+=`M${c} ${r}h1v1h-1z`;
+    }));
+    el('path',{d,fill:'#000',transform:`translate(${x-8} ${y-8}) scale(${16/6})`},'',g);
+    if(id===1||id===5) text(x+12,y+1,`M${id}`,2.2,'start','#333',g);
+    else text(x,y+13,`M${id}`,2.2,'middle','#333',g);
+  });
+}
+function common() {
+  el('rect',{width:210,height:297,fill:'white'});
+  text(10,13,'DESKCAM',3.3,'start','#111').setAttribute('font-weight','700');
+  text(200,13,`DCM-01 / ${variant.toUpperCase()} / A4`,2.3,'end','#444');
+  markers();
+  // Exact, isolated references in both axes. All ticks are identical and 5 mm apart.
+  line(55,285,155,285,'#111',.28);
+  for(let mm=0;mm<=100;mm+=5) line(55+mm,283,55+mm,287,'#111',.28);
+  text(53,286,'0',2.4,'end'); text(158,286,'100 mm',2.4,'start');
+  text(105,281.5,'X CHECK · 20 INTERVALS × 5 mm',1.9);
+  line(18,150,18,250,'#111',.28);
+  for(let mm=0;mm<=100;mm+=5) line(16,150+mm,20,150+mm,'#111',.28);
+  text(18,148,'0',2.3); text(18,254,'100',2.3);
+  text(12,200,'Y CHECK · 100 mm · 5 mm TICKS',2.1).setAttribute('transform','rotate(-90 12 200)');
+  // Orientation cue has different words at each end; letters do not have to do that job.
+  text(57,29,'↑ TOP',3.2,'middle','#222');
+  text(153,29,variant==='hybrid'?'5 mm FINE / 25 mm MAJOR':variant==='quiet'?'5 mm EDGE TICKS':'0° UP / CLOCKWISE',2.0);
+  text(56,270,'PRINT AT 100%',2.2); text(155,270,'VERIFY BOTH BARS',2.2);
+}
+function addresses() {
+  for(let c=0;c<6;c++) {
+    text(field.x+c*25+12.5,46,String.fromCharCode(65+c),3.1);
+    text(field.x+c*25+12.5,255,String.fromCharCode(65+c),2.7);
+  }
+  for(let r=0;r<8;r++) {
+    const y=field.y+r*25+13.5, label=String(r+1).padStart(2,'0');
+    text(26,y,label,2.7,'end'); text(184,y,label,2.7,'start');
+  }
+}
+function hybrid() {
+  const fine=document.getElementById('strong').checked?'#939393':'#b9b9b9';
+  const width=document.getElementById('strong').checked ? .22 : .14;
+  for(let x=0;x<=150;x+=5) line(30+x,50,30+x,250,x%25===0?'#777':fine,x%25===0 ? .28 : width);
+  for(let y=0;y<=200;y+=5) line(30,50+y,180,50+y,y%25===0?'#777':fine,y%25===0 ? .28 : width);
+  if(document.getElementById('cellnames').checked) {
+    for(let row=0;row<8;row++) for(let col=0;col<6;col++) {
+      text(31+col*25,53.4+row*25,String.fromCharCode(65+col)+String(row+1).padStart(2,'0'),2,'start','#7d7d7d');
+    }
+  }
+  addresses();
+}
+function quiet() {
+  for(let x=0;x<=150;x+=5) {
+    const n=x%25===0?2.8:1.3;
+    line(30+x,50,30+x,50+n,'#777',.22); line(30+x,250,30+x,250-n,'#777',.22);
+  }
+  for(let y=0;y<=200;y+=5) {
+    const n=y%25===0?2.8:1.3;
+    line(30,50+y,30+n,50+y,'#777',.22); line(180,50+y,180-n,50+y,'#777',.22);
+  }
+  [[55,75],[155,75],[55,225],[155,225]].forEach(([x,y])=>cross(x,y,1.1,'#bbb'));
+  cross(105,150,1.5,'#bbb');
+  addresses();
+}
+function polar(r,deg) { const a=(deg-90)*Math.PI/180; return [105+r*Math.cos(a),150+r*Math.sin(a)]; }
+function angles() {
+  for(const r of [20,40,60]) {
+    el('circle',{cx:105,cy:150,r,fill:'none',stroke:'#b0b0b0','stroke-width':.18});
+    const [x,y]=polar(r,225); text(x-2,y+2,`r${r}`,2.4,'end','#777');
+  }
+  el('circle',{cx:105,cy:150,r:68,fill:'none',stroke:'#555','stroke-width':.3});
+  for(let deg=0;deg<360;deg+=10) {
+    const a=polar(deg%30===0?64:66,deg),b=polar(68,deg);
+    line(...a,...b,'#333',deg%30===0 ? .3 : .2);
+    if(deg%30===0) { const [x,y]=polar(74,deg); text(x,y+1,`${deg}°`,deg%90===0?3.2:2.5); }
+  }
+  // Broken axes leave the placement zone quieter than a full fan of spokes.
+  for(const deg of [0,90,180,270]) { line(...polar(5,deg),...polar(60,deg),'#aaa',.18); }
+  cross(105,150,3,'#333',.25);
+  text(105,56,'ALIGN THE PART TO THE CENTRE',2.5);
+  text(105,243,'RADII IN mm · ANGLES CLOCKWISE FROM TOP',2.2);
+}
+function objects() {
+  if(!document.getElementById('objects').checked) return;
+  const g=el('g',{class:'demo-objects','pointer-events':'none'});
+  const pcb=el('g',{transform:'rotate(-12 105 150)'},'',g);
+  el('rect',{x:69,y:125,width:72,height:50,rx:1.4,fill:'#355949',stroke:'#243c32','stroke-width':.5},'',pcb);
+  [[73,129],[137,129],[73,171],[137,171]].forEach(([cx,cy])=>el('circle',{cx,cy,r:1.4,fill:'#e7d5a0'},'',pcb));
+  el('path',{d:'M79 151H91V139H113V148H131M82 166H112V159H131',fill:'none',stroke:'#82a987','stroke-width':.8},'',pcb);
+  el('rect',{x:94,y:142,width:21,height:16,rx:.7,fill:'#1d2324'},'',pcb);
+  for(let i=0;i<8;i++) {
+    line(95+i*2.6,139.5,95+i*2.6,142,'#bcc0bb',.8,pcb);
+    line(95+i*2.6,158,95+i*2.6,160.5,'#bcc0bb',.8,pcb);
+  }
+  text(104.5,151,'IC',3,'middle','#89938a',pcb);
+  el('rect',{x:123,y:143,width:10,height:17,fill:'#232c2c'},'',pcb);
+  text(80,135,'EXAMPLE',2.5,'start','#dae2d8',pcb);
+  el('circle',{cx:144,cy:214,r:9,fill:'#c4c9c8',stroke:'#747d7b','stroke-width':.45},'',g);
+  el('circle',{cx:144,cy:214,r:4,fill:'#fff',stroke:'#747d7b','stroke-width':.4},'',g);
+}
+function render() {
+  sheet.replaceChildren(); common(); ({hybrid,quiet,angles}[variant])(); objects();
+  el('rect',{id:'hover',class:'hover-cell',fill:'#629fbc','fill-opacity':.16,stroke:'#477d97','stroke-width':.35,visibility:'hidden','pointer-events':'none'});
+  const info=variants[variant];
+  for(const [id,key] of [['preview-label','label'],['variant-name','name'],['recommendation','recommendation'],['variant-description','description'],['detail-value','detail'],['detail-label','detailLabel'],['tradeoff','tradeoff']]) document.getElementById(id).textContent=info[key];
+  document.getElementById('strong').disabled=variant!=='hybrid';
+  document.getElementById('cellnames').disabled=variant!=='hybrid';
+  const tetris=document.getElementById('references').value==='tetris';
+  document.getElementById('reference-count').textContent=tetris?'4 shapes':'8 markers';
+  document.getElementById('reference-label').textContent=tetris?'different in each corner':'around the working field';
+  document.getElementById('reference-heading').textContent=tetris?'Your Tetris idea':'Why the black squares?';
+  document.getElementById('reference-description').textContent=tetris
+    ? 'Yes: different corner shapes break the grid’s rotational symmetry. Here L is top-left, T top-right, Z bottom-right and O bottom-left. The Z and O are individually ambiguous after some rotations; the known arrangement resolves orientation when enough corners are visible. This would need shape-recognition code of our own.'
+    : 'Each is a different, genuine ArUco marker. Their known positions give a future detector named points for locating the sheet, its rotation and perspective. Spread-out markers can remain visible when an object covers the centre. That is why they live at the edge.';
+  document.querySelectorAll('[data-variant]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.variant===variant)));
+  document.getElementById('readout').innerHTML='Move over the working field.<br>Try naming a location to another person.';
+  sheet.setAttribute('aria-label',`A4 ${info.name} desk mat: ${tetris?'four Tetris corner shapes':'eight ArUco markers'} and two 100 mm check bars`);
+}
+function select(next) {
+  variant=next;
+  const url=new URL(location.href); url.searchParams.set('variant',variant);
+  url.searchParams.set('references',document.getElementById('references').value);
+  history.replaceState(null,'',url); render();
+}
+function cycle(step) { const keys=Object.keys(variants); select(keys[(keys.indexOf(variant)+step+keys.length)%keys.length]); }
+function locationAt(event) {
+  const p=sheet.createSVGPoint(); p.x=event.clientX; p.y=event.clientY;
+  const q=p.matrixTransform(sheet.getScreenCTM().inverse());
+  const x=q.x-field.x,y=q.y-field.y, highlight=document.getElementById('hover');
+  if(x<0||y<0||x>=field.w||y>=field.h) { highlight.setAttribute('visibility','hidden'); return; }
+  const c=Math.floor(x/25),r=Math.floor(y/25);
+  if(variant==='angles') {
+    highlight.setAttribute('visibility','hidden');
+    const dx=q.x-105,dy=q.y-150,rad=Math.hypot(dx,dy);
+    const angle=(Math.atan2(dx,-dy)*180/Math.PI+360)%360;
+    document.getElementById('readout').textContent=`r ${rad.toFixed(1)} mm · ${angle.toFixed(0)}° clockwise from top`;
+  } else {
+    for(const [key,value] of Object.entries({x:field.x+c*25,y:field.y+r*25,width:25,height:25,visibility:'visible'})) highlight.setAttribute(key,value);
+    document.getElementById('readout').textContent=`${String.fromCharCode(65+c)}${String(r+1).padStart(2,'0')} · x ${x.toFixed(1)} mm · y ${y.toFixed(1)} mm`;
+  }
+}
+document.querySelectorAll('[data-variant]').forEach(b=>b.addEventListener('click',()=>select(b.dataset.variant)));
+document.getElementById('previous').onclick=()=>cycle(-1);
+document.getElementById('next').onclick=()=>cycle(1);
+document.getElementById('objects').onchange=render;
+document.getElementById('references').onchange=()=>select(variant);
+document.getElementById('strong').onchange=render;
+document.getElementById('cellnames').onchange=render;
+document.getElementById('print').onclick=()=>window.print();
+sheet.addEventListener('pointermove',locationAt);
+sheet.addEventListener('pointerleave',()=>document.getElementById('hover').setAttribute('visibility','hidden'));
+document.addEventListener('keydown',event=>{
+  if(event.target.closest('input,textarea,select,[contenteditable]')) return;
+  if(event.key==='ArrowLeft'||event.key==='ArrowRight') { event.preventDefault(); cycle(event.key==='ArrowLeft'?-1:1); }
+});
+render();
+</script>
+</body>
+</html>
