@@ -19,7 +19,7 @@ run() { echo ">> $*"; "$@"; }
 run "$BIN/ruff" check frontend/
 run "$BIN/ruff" format --check frontend/
 run "$BIN/mypy" frontend/analysis frontend/test_contract.py frontend/test_analysis.py \
-    frontend/surface.py
+    frontend/surface.py frontend/streamlag.py
 
 # surface.py is the live half of the contract check and needs a phone, so it is not run
 # here. It is type-checked above, because a tool nobody can run when they need it is worse

@@ -1039,9 +1039,11 @@ public class HttpServer implements Runnable {
         }
         if (refused.length() > 0) throw new BadRequest(refused.toString().trim());
 
-        CamSettings req = engine.snapshot();
+        // Validated once, here, before the 200 goes out. A bad value has to be refused as
+        // an error with a reason, not as a stream that dies in the middle of a part. The
+        // result is thrown away: the loop below reads the camera again for every frame.
         StringBuilder problems = new StringBuilder();
-        req.apply(params, engine.caps(), problems);
+        engine.snapshot().apply(params, engine.caps(), problems);
         if (problems.length() > 0) throw new BadRequest(problems.toString().trim());
 
         double fps = Geom.clampDouble(doubleParam(params, "fps", 10), 0.1, 30);
@@ -1060,6 +1062,7 @@ public class HttpServer implements Runnable {
 
         engine.addStreamClient(1);
         long streamed = 0;
+        final StringBuilder ignored = new StringBuilder();
         try {
             long seq = 0;
             long sent = 0;
@@ -1068,7 +1071,26 @@ public class HttpServer implements Runnable {
                 long t0 = System.currentTimeMillis();
                 byte[] jpeg;
                 try {
-                    jpeg = engine.frameAfter(req, seq, 5000);
+                    // The camera is read fresh for every frame, with this connection's own
+                    // presentation applied on top: the rate, w, h and jpegq belong to the
+                    // viewer, and the framing belongs to the camera.
+                    //
+                    // This used to crop with the snapshot taken when the stream connected,
+                    // which meant a reframe never appeared on an open connection at all.
+                    // Measured 2026-09-12 at 6 fps: after a zoom=6, 256 frames over 42.6 s
+                    // and not one of them differed from the frame before it by more than
+                    // the 0.434 noise floor, while a connection opened immediately
+                    // afterwards differed by 36.32. The bench page only ever showed a
+                    // reframe when its own watchdog happened to restart the stream, which
+                    // is the "it did it, just slow" of card 74. frontend/streamlag.py is
+                    // that measurement, kept so it can be repeated rather than believed.
+                    //
+                    // D10 is untouched: a stream shows the camera and never sets it. A view
+                    // that shows the framing from the moment it connected is not a view.
+                    CamSettings live = engine.snapshot();
+                    ignored.setLength(0);
+                    live.apply(params, engine.caps(), ignored);
+                    jpeg = engine.frameAfter(live, seq, 5000);
                     seq = engine.currentSeq();
                     failures = 0;
                 } catch (Exception e) {
