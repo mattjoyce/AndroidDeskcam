@@ -62,12 +62,41 @@ cannot independently establish its absolute position on the sheet.
 
 ## Physical geometry
 
-All SVG coordinates are millimetres. The print size is 210 × 297 mm, A4 portrait.
-The main field starts at page position (30, 50) and is 150 × 200 mm. A01 is the
-upper-left 25 mm cell. Human x/y coordinates are relative to this field, x right and
-y down. The page geometry exposed as `window.DeskcamMat` uses page coordinates.
+All SVG coordinates are millimetres. Both orientations are A4, and each is its own sheet
+family rather than a rotation of the other.
 
-Coded marker black squares are 16 × 16 mm, surrounded by 3 mm of white. The centres:
+| Sheet | Page, mm | Working field, mm | Field origin on page | Marker ids |
+|---|---|---|---|---|
+| Landscape (`DCM-02-L`) | 297 × 210 | 225 × 125 | (36, 43) | 8–15 |
+| Portrait (`DCM-01`) | 210 × 297 | 150 × 200 | (30, 50) | 0–7 |
+
+A01 is the upper-left 25 mm cell, and a cell address carries its sheet, so `L-C04` and
+`P-C04` are different places on different paper. Human x/y coordinates are relative to the
+working field, x right and y down. The geometry exposed as `window.DeskcamMat` uses page
+coordinates, and `explainer/mats/geometry.json` is that object for every printed sheet.
+
+Coded marker black squares are 10 × 10 mm, surrounded by 3 mm of white. One number sets
+the marker size, and the quiet zone and the label offsets follow it. 10 mm is the floor for
+the binding case, a live preview with the sheet filling half the frame, where the original
+16 mm was about twice what was needed. Each family owning an id block means a single
+decoded marker names the sheet and its orientation, and therefore the marker size and grid
+pitch it should have. That also catches a wrong-scale print. Measure a marker and compare
+it with the 10 mm its id block declares.
+
+Landscape marker centres, in page millimetres:
+
+| ID | x, mm | y, mm |
+|---|---:|---:|
+| 8 | 18 | 24 |
+| 9 | 105 | 24 |
+| 10 | 279 | 24 |
+| 11 | 192 | 24 |
+| 12 | 279 | 185 |
+| 13 | 192 | 185 |
+| 14 | 18 | 185 |
+| 15 | 105 | 185 |
+
+Portrait marker centres, in page millimetres:
 
 | ID | x, mm | y, mm |
 |---|---:|---:|
@@ -84,9 +113,12 @@ Tetris mode uses only positions 0, 2, 4 and 6, with shapes centred there. Its la
 shape dimension is 15 mm. The state object distinguishes the displayed references;
 these shapes must never be passed to an ArUco detector as if they were coded markers.
 
-The horizontal check runs from (55, 285) to (155, 285). The vertical check runs from
-(18, 150) to (18, 250). Each spans 100 mm between endpoint tick centres and has 20 equal
-5 mm intervals. There is no 1 mm rule mixed into the sheet.
+Each sheet carries two 100 mm check bars, spanning 100 mm between endpoint tick centres
+with 20 equal 5 mm intervals. The horizontal one is centred across the page and sits 12 mm
+off the bottom edge; the vertical one is at x = 18 on both sheets. So on portrait the
+horizontal bar runs from (55, 285) to (155, 285) and the vertical from (18, 150) to
+(18, 250), and on landscape they run from (98.5, 198) to (198.5, 198) and from (18, 65) to
+(18, 165). There is no 1 mm rule mixed into the sheet.
 
 Normal fine grid: 0.14 mm stroke, #b9b9b9. Stronger fine grid: 0.22 mm, #939393.
 Major grid: 0.28 mm, #777777. Reference ticks: 0.28 mm, #111111. These are nominal
@@ -133,12 +165,60 @@ including the black border, are embedded in the HTML and drawn as vector paths.
 OpenCV is not a dependency of the mockup or APK.
 
 Pending: the user chooses a layout/reference style, then a real print and camera trial
-settles line contrast, marker size, usable field size and object occlusion. After that,
-make a fixed vector PDF of the selected design, preserve its geometry manifest, and
-remove the prototype-only controls. No PDF or detector is delivered in this step.
+settles line contrast, marker size, usable field size and object occlusion. The
+prototype-only controls stay in the page, because it is still the design tool, and no
+detector is delivered.
+
+The fixed vector PDFs and the geometry manifest now exist, described below. They were made
+before the layout decision rather than after it, so all three designs are printable and
+the choice can be made with paper on the bench instead of with a screen.
 
 A follow-up inspection exercised all six layout/reference combinations, switching and
 reloading the URL, optional interior cell labels, object previews, stronger grid and
 hover coordinates. A point at field (60, 87.5) reported C04. At a 390 px viewport the
 page had no horizontal overflow. Print CSS hid sample objects, highlights and the
 switcher. All six combinations ran without JavaScript page errors.
+
+## Printable sheets
+
+`explainer/mats/` holds the six sheets as vector PDF, three designs in both orientations,
+with `geometry.json` carrying each one's `window.DeskcamMat` so a detector can read what
+the artwork declared instead of measuring it off a render. Print at 100%, no fit-to-page,
+no browser headers or footers, then check both 100 mm bars with a ruler.
+
+Regenerate them after any change to the artwork:
+
+```sh
+node scripts/print-mats.mjs                      # the six coded sheets
+node scripts/print-mats.mjs --references tetris  # the corner-shape alternative
+```
+
+That drives a real Firefox over WebDriver BiDi through `backend/test/webui/bidi.mjs` and
+prints the page the way the browser's own print dialogue would, with margins at zero and
+shrink-to-fit off, so a millimetre in the artwork stays a millimetre on the paper. It adds
+no dependency, and nothing in the script names A4: the page decides the paper, and the
+script refuses to save a sheet whose page or reference mode is not the one asked for.
+
+**What the PDFs measure**, by rasterising each at 600 dpi and decoding it back with
+OpenCV 5's `DICT_4X4_50` detector:
+
+- All eight markers decode on all six sheets, with the ids that sheet declares. Portrait
+  returns 0 to 7 and landscape 8 to 15, so one marker names the sheet.
+- Marker edges measure 9.95 to 9.99 mm against the 10 mm declared, so the artwork's scale
+  survives the print path to about 0.1%.
+- Each file is one page, and the page box is 0.30 mm over A4 on its short axis. That is
+  Firefox rounding the box to whole points, 596 against A4's 595.28. It is the container,
+  not the ink, and the ink is the line above.
+- The quiet variant raises far more marker-sized candidate quads than the others, 1260 and
+  1369 against 4 to 6, all correctly rejected. Its perimeter ticks are a periodic texture
+  competing with the markers, the same effect the 25 mm grid showed in real ink, louder
+  here because a 600 dpi render has no paper or lens in the way.
+
+This checks the vector artwork and the print path, not a photographed home print. The
+60% scaled sheet has still never been under the camera.
+
+**Open, and worth settling before a reprint.** The two families report their revision
+inconsistently: landscape says `DCM-02-L` and portrait says `DCM-01`, which is also the
+name on the stale 16 mm sheet already on the bench. A decoded portrait marker therefore
+cannot tell a fresh print from the old one, which is the thing the id blocks and prefixed
+cell addresses were added to fix.

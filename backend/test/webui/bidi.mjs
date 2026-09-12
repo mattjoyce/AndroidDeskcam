@@ -168,6 +168,26 @@ export async function browser({ binary = process.env.FIREFOX || 'firefox',
       return path;
     },
 
+    /**
+     * Prints the page to a vector PDF, the way the browser's own print dialogue would.
+     *
+     * The page decides the paper. Its own @page rule carries the size and orientation, so
+     * nothing here names A4: shrinkToFit stays off and the margins stay at zero, or the
+     * millimetres in the artwork would stop being millimetres on paper, which is the whole
+     * point of a printed measuring surface.
+     */
+    async print(path, { background = true } = {}) {
+      const r = await send('browsingContext.print', {
+        context,
+        background,
+        shrinkToFit: false,
+        margin: { top: 0, bottom: 0, left: 0, right: 0 },
+      });
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(path, Buffer.from(r.data, 'base64'));
+      return path;
+    },
+
     async close() {
       try { ws.close(); } catch { /* the socket dies with the browser anyway */ }
       proc.kill('SIGTERM');

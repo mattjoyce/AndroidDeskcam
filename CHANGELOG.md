@@ -2,6 +2,12 @@
 
 What changed in each release of DeskCam. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [semantic versioning](https://semver.org): `VERSION` at the top of the repository is the one number, the APK and the CLI both carry it, and each release is tagged `vX.Y.Z`. Until 1.0.0 the HTTP API may change in a minor release, and every such change is listed here.
 
+## [Unreleased]
+
+### Added
+
+- The A4 bench mat sheets as print-ready vector PDFs, in `explainer/mats/`: three designs, hybrid, quiet and angles, in both orientations, with a `geometry.json` carrying each sheet's declared geometry for a future detector. `scripts/print-mats.mjs` regenerates them by driving a real Firefox over WebDriver BiDi, which adds no dependency, and prints with margins at zero and shrink-to-fit off so a millimetre in the artwork is a millimetre on the paper. Checked by rasterising each PDF at 600 dpi and decoding it back: all eight markers on all six sheets, with the ids that sheet declares, and marker edges measuring 9.95 to 9.99 mm against the 10 mm declared. The mat is a design study and is not part of the APK.
+
 ## [0.2.0] - 2026-09-12
 
 ### Added
