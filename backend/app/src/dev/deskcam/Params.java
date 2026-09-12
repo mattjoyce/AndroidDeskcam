@@ -228,6 +228,17 @@ public final class Params {
                 + "the sharpness it reports describes now rather than the last frame "
                 + "anything asked for. Costs one frame, and takes fresh and timeout. "
                 + "Card 9.", "sharpness");
+        router("/api/marks: a mark to add, as cx,cy for a point or cx,cy,w,h for a box, in "
+                + "the coordinates of the picture you see, the same ones cx, cy and "
+                + "focusbox use. It is stored on the sensor, so it stays on its part when "
+                + "rotate changes.", "mark");
+        router("/api/marks: the words on the mark being added. At most " + Parse.LABEL_MAX
+                + " characters, drawn as text and never as markup.", "label");
+        router("/api/marks: remove one mark by its id, or every one of them with "
+                + "unmark=all.", "unmark");
+        router("/api/marks: who is making the mark, one short word. It is a claim and not a "
+                + "proof: on a trusted LAN nothing can check it.", "by");
+
         router("/api/focussweep and /api/focushunt: the focus of the first frame, or the "
                 + "far end of the range to hunt, in diopters. Defaults to 0, which is as "
                 + "far away as the lens goes.", "from");

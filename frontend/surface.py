@@ -69,6 +69,7 @@ PROBES: list[tuple[str, str, str]] = [
     ("bracket", "/api/bracket", "base=1/240&stops=2"),
     ("walk", "/api/walk", "vary=torch&values=0,5"),
     ("focushunt", "/api/focushunt", "from=3&to=5&coarse=3&fine=0"),
+    ("marks", "/api/marks", ""),
     ("shadingmap", "/api/shadingmap", ""),
     ("nettest", "/api/nettest", "port=9"),
     ("reset", "/api/reset", ""),

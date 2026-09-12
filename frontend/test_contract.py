@@ -318,3 +318,40 @@ def test_the_manifest_carries_no_version_of_its_own() -> None:
 
 def test_no_placeholder_survives_in_the_readme() -> None:
     assert "{{" not in README.read_text(), "a {{placeholder}} was left in the README"
+
+
+# ------------------------------------------------------------------- the panels
+
+CONSOLE_PAGE = ROOT / "frontend" / "go" / "page.html"
+
+
+def test_the_panel_survives_its_own_java_text_block() -> None:
+    """The page is a Java text block, and a text block processes escapes on the way out.
+
+    `join('\\n')` written with one backslash reaches the browser as a real newline inside a
+    string literal. That is a syntax error, and one syntax error kills every line of script
+    on the page at once: the header froze on "connecting", no log line could be written, and
+    the picture stayed live because an <img> needs no script, so the page looked half alive.
+
+    Checking that the Java source parses as JavaScript does not catch it, because in the
+    source it IS valid JavaScript. Only what the phone serves counts.
+    """
+    text = HELP.read_text()
+    page = text[text.index('private static final String PAGE = """') :]
+    lone = sorted(set(re.findall(r'(?<!\\)\\[ntrsf"]', page)))
+    assert not lone, (
+        f"the page block carries Java escapes the browser will never see: {lone}. "
+        "Double the backslash so the browser gets it."
+    )
+
+
+@pytest.mark.parametrize("page", [HELP, CONSOLE_PAGE], ids=["phone", "console"])
+def test_a_panel_hides_what_it_marks_hidden(page: Path) -> None:
+    """A rule that sets display beats the browser's own [hidden] rule.
+
+    Both panels toggle the paused overlay with `hidden` and style it with `display:flex`.
+    Without this guard the overlay covered the live view from the first paint, dimmed it,
+    and took every click, drag and wheel meant for the picture.
+    """
+    css = re.sub(r"\s+", "", page.read_text())
+    assert "[hidden]{display:none!important" in css

@@ -54,6 +54,7 @@ public class HttpServer implements Runnable {
     private final CameraEngine engine;
     private final int port;
     private final Key key;
+    private final Marks marks = new Marks();
 
     private ServerSocket serverSocket;
     /** Connections being served right now, for the display on the phone. */
@@ -611,6 +612,31 @@ public class HttpServer implements Runnable {
                 }
                 return walkAnswer(params, req, engine.valueSteps(req, vary, values),
                         manifest, vary, labels, asked);
+            }
+
+            case "/api/marks": {
+                // A mark is not camera state, so this keeps answering while a script holds
+                // the camera (D14): an agent can point at something in the picture its own
+                // tape is taking, and the person at the bench can answer, without either of
+                // them touching the controls.
+                CamSettings s = apply(params);
+                String unmark = params.get("unmark");
+                if (unmark != null) {
+                    if (unmark.trim().equalsIgnoreCase("all")) {
+                        marks.removeAll();
+                    } else if (!marks.remove(Integer.parseInt(unmark.trim()))) {
+                        throw new IllegalArgumentException("no mark has id '" + unmark
+                                + "'; GET /api/marks lists the ones there are.");
+                    }
+                }
+                String add = params.get("mark");
+                if (add != null) {
+                    String by = params.containsKey("by") ? params.get("by") : "agent";
+                    marks.add(Parse.mark(add), params.get("label"), by, s.rotate);
+                }
+                JSONObject o = marks.toJson(s);
+                o.put("ok", true);
+                return Answer.json(o);
             }
 
             case "/api/orientation": {
