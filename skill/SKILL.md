@@ -1,6 +1,6 @@
 ---
 name: deskcam
-description: Look at real physical things with a phone bench camera over HTTP. Use when the user asks you to look at, photograph, inspect, or measure something on their desk - a circuit board, a component, an OLED or LCD panel, a connector, a cable, a device screen, a 3D print, anything physical. Also use when the user says "look at this", "can you see", "what does this look like", "check the board", "photograph it", or refers to the deskcam, bench camera, or phone camera. Gives full-resolution stills, software zoom and pan, manual focus and exposure, RAW/DNG, and burst capture.
+description: Look at real physical things with a phone bench camera over HTTP. Use when the user asks you to look at, read, photograph, inspect, or measure something in front of them - a handwritten note, a painting or a drawing, a page of a book, a plant, a 3D print, a circuit board, a component, an OLED or LCD panel, a connector, a cable, a device screen, anything physical. Also use when the user says "look at this", "can you see", "what does this look like", "read my note", "check the board", "photograph it", or refers to the deskcam, bench camera, or phone camera. Gives full-resolution stills, software zoom and pan, manual focus and exposure, RAW/DNG, and burst capture.
 ---
 
 # DeskCam
@@ -8,8 +8,38 @@ description: Look at real physical things with a phone bench camera over HTTP. U
 A phone on a stand acting as a bench camera. You drive it with one shell command and
 read the resulting file.
 
-The camera is a measuring instrument first. Where "looks good" and "is correct" disagree,
-correct wins.
+**It is a general observation platform.** Most of the time the job is to look at
+something and say what is there. A handwritten note to read back, a watercolour someone
+wants an opinion on, a page of a book, a plant, a first layer that is not sticking, a
+connector seated crooked, a missing part. Answer the question that was actually asked, in
+plain words, from a picture you looked at.
+
+**Which mode you are in is situational, and the request decides it.** Not the tool, and
+not this document.
+
+| When the ask is | It wants |
+|---|---|
+| "read my handwritten note", "what does this look like", "help me with my watercolour", "is it seated properly" | Looking. Answer in words from the picture. The image pipeline's job here is to make the thing legible, so leave it on. |
+| "help me build an enclosure", "will this fit", "how far apart are these holes", "is the first layer even" | Numbers, and every rule under **Before you report a number** applies in full. A scale reference in the frame, the noise floor, and a refusal rather than a guess. |
+
+Both directions fail. A caution about measurement error is not an answer to "what does
+this look like", and an eyeballed millimetre is not an answer to "will this fit". Read
+which one you were asked for, and say which one you are giving.
+
+## First, find out what this camera is
+
+Before a session of any length, ask the camera what it can do. The answers differ from one
+phone to the next, so take them from the device rather than from this document.
+
+```sh
+deskcam cameras          # the cameras, their size, closest focus, and capabilities
+deskcam status           # the limits block, and what the camera is set to right now
+```
+
+Read the `limits` block once and then work inside it. **The limits are the phone's, not a
+guess**, further down, says what each one governs. Capabilities are worth the same
+attention: if `deskcam cameras` does not list `raw`, this phone cannot answer
+`deskcam raw` at all, and that is a fact about the hardware rather than a fault to debug.
 
 ## The loop
 
@@ -28,6 +58,32 @@ deskcam show      # one line: zoom, framing, focus, exposure, iso
 ```
 
 If that fails, refer to **When it does not work** at the end.
+
+## Two pages, and where the files land
+
+A capture is written into `DESKCAM_SHOTS`, or into the current directory when that is
+unset. `snap` prints the full path it wrote, so read that rather than assuming a
+directory. If someone says their capture roll is empty, this is usually why: the captures
+went to whatever directory the command ran in.
+
+**There are two web pages and they are not the same.** Confusing them wastes a person's
+time, because the one they are looking at may not be the one you mean.
+
+| Page | Where | What it is |
+|---|---|---|
+| The bench tool | the phone itself, `http://PHONE:8080` | The live view. Aiming, focus, torch, and the marks of `/api/marks`. Any browser on the network opens it with nothing installed. `deskcam open` opens this one. |
+| The console | the workstation, `http://127.0.0.1:9000`, from `deskcam serve` | The capture roll with thumbnails and sidecars, and the QR codes that install and pair. |
+
+The console is **loopback only**. Its banner prints the machine's LAN address on the first
+line, but that address serves the phone `/p/` and `/deskcam.apk` and nothing else, and
+answers 403 for the page itself. Only `http://127.0.0.1:9000` opens the console, and only
+from the workstation. The banner's `shots:` line says where captures are going.
+
+The consequence for you: **there is no way to put an image in front of the person at the
+bench.** The phone's page shows the live camera and never your files, and the console is
+on the workstation. Give the person the path you printed, or tell them to look at the
+console, and say which page you mean.
+
 
 ## Aiming
 
@@ -109,6 +165,34 @@ img=$(deskcam snap)
 Try `1/60`, `1/30` or `1/120` and keep whichever has no bands. Lock the white balance as
 well, or the colour drifts between shots and you will report colour differences that are
 not real.
+
+## Looking at things that are not circuit boards
+
+A note, a painting, a fabric, a plant, a page. Same camera, and most of the measurement
+advice below is wrong for these.
+
+- **Leave the pipeline alone.** `measure=1` switches off the tone curve, the noise
+  reduction and the sharpening, which are the things that make a picture legible to a
+  person. It is for comparing pixel values and nothing else. Never use it to read a note
+  or to look at a painting.
+- **Fill the frame by moving the camera, not by zooming.** Zoom is a crop of sensor
+  pixels, so a note filling the frame at `zoom=1` carries far more detail than the same
+  note cropped to at `zoom=4`. Ask for the subject or the stand to be moved.
+- **The torch is one small LED, so it glares.** Ink, varnish, wet paint, a photo in a
+  plastic sleeve and a glossy page all throw a specular highlight straight back. If a
+  bright patch is washing out part of the picture, turn the torch off and use the room,
+  or ask for a lamp off to one side.
+- **Raking light shows relief.** Brush strokes, paper grain, an embossed seal, a scratch,
+  a crease. Light from one side at a shallow angle reveals texture that flat light hides.
+  That is a request to the person rather than a setting.
+- **Square up for anything with lines on it.** A note or a painting read straight on keeps
+  its text and edges square. The tilt in `deskcam status` is the check, and it is the angle
+  to gravity, so it only means square when the subject is lying flat.
+- **Reading small handwriting is a resolution question.** Use `deskcam snap`, which is full
+  resolution. `deskcam frame` is preview sized and will not read faint pencil.
+- **Lock the white balance before comparing colour.** `awblock=on`, or a named setting like
+  `awb=daylight`. Two captures taken on auto white balance can differ in colour for no
+  reason but the camera changing its mind, so never report a colour difference between them.
 
 ## Measuring, not photographing
 
@@ -299,6 +383,38 @@ values from 34.9 to 64.5, so take the `diopters` a hunt returns and never carry 
 **Merge a bracket on the measured exposure, never on the nominal stop.** The sensor does
 not deliver exactly what it was asked for. Every frame records `exposure_ns`,
 `base_periods` and `period_error` for that reason.
+
+## The limits are the phone's, not a guess
+
+`deskcam status` carries a `limits` block. Read it instead of assuming, because these are
+one device's numbers and another phone answers differently.
+
+Read live from this bench's Pixel 6a on 2026-09-13:
+
+| Limit | Here | What it governs |
+|---|---|---|
+| `burst_max` | 31 | `n` on a burst, `steps` on a focussweep, `stops` on a bracket, and the count of `values` on a walk. All four. |
+| `iso_range` | 56..7111 | `iso`. Above `max_analog_iso`, which is 444 here, the gain is digital and adds no light. Stay under it for measurement. |
+| `exposure_human_range` | 53.7us .. 10.177s | `exposure`. A long one needs `timeout=` raised to match, or the capture gives up first. |
+| `min_focus_diopters` | 10.2, which is 98 mm | The near end of `focus`, and the default `to=` of a sweep or a hunt. A sweep of `from=3 to=6` leaves most of the range unvisited. |
+| `max_zoom` | 63 | `zoom`. The optical advice above still stands: past about 8 you are cropping to too few pixels. |
+| `max_output_edge`, `max_output_pixels` | 2896, 8388608 | `w` and `h`. A larger resize is refused before anything is captured. |
+| `ev_range`, `ev_step` | -24..24, 0.167 | `ev`, in thirds of a stop, and only while `ae=on`. |
+| `torch_max_level` | 45 | `torch`. |
+| `raw_black_level`, `raw_white_level` | 64, 1023 | The floor and the ceiling of a DNG pixel, which is what a linearity check is measured against. |
+
+`/api/cameras` says what each camera can do rather than what it is. The rear camera here
+reports `manual_sensor`, `manual_post`, `burst` and `raw`, which is why fixed exposure,
+measurement mode and DNG all work. A phone missing `raw` cannot answer `deskcam raw` at
+all, and the failure is worth reading as a capability rather than a fault.
+
+**Three router parameters change how a capture is timed**, and they are easy to miss.
+`settle` waits after applying settings before capturing, defaulting to 350 ms while auto
+exposure is on and 120 otherwise. `timeout` bounds the capture itself, 100 to 60000.
+`fresh` discards that many preview frames first, so a frame exposed under the previous
+settings is never handed back as the new one. After a large change of light, `fresh=2` is
+cheaper than a throwaway capture.
+
 
 ## Judgement
 
