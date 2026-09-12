@@ -17,7 +17,9 @@ not a new APK panel route. No server, bundler or runtime dependency is needed.
 
 Use the hybrid: 5 mm light lines, stronger 25 mm lines, A–F / 01–08 cell addresses,
 and identifiable landmarks outside the area normally covered by objects. This keeps
-size, location and orientation as separate visual jobs. The heavy lines help a human
+size, location and orientation as separate visual jobs. The hybrid also has optional small addresses inside each major cell, so a close crop
+can retain a nearby human-readable location. These labels can be obscured and are not
+a substitute for a coded landmark. The heavy lines help a human
 count; they are not the sole scale reference for software.
 
 The alternatives answer different needs:
@@ -134,3 +136,9 @@ Pending: the user chooses a layout/reference style, then a real print and camera
 settles line contrast, marker size, usable field size and object occlusion. After that,
 make a fixed vector PDF of the selected design, preserve its geometry manifest, and
 remove the prototype-only controls. No PDF or detector is delivered in this step.
+
+A follow-up inspection exercised all six layout/reference combinations, switching and
+reloading the URL, optional interior cell labels, object previews, stronger grid and
+hover coordinates. A point at field (60, 87.5) reported C04. At a 390 px viewport the
+page had no horizontal overflow. Print CSS hid sample objects, highlights and the
+switcher. All six combinations ran without JavaScript page errors.

@@ -91,6 +91,7 @@
       <label>References <select id="references"><option value="coded">Coded markers</option><option value="tetris">Tetris corners</option></select></label>
       <label><input id="objects" type="checkbox"> Preview objects on the sheet</label>
       <label><input id="strong" type="checkbox"> Stronger fine grid</label>
+      <label><input id="cellnames" type="checkbox" checked> Labels inside grid cells</label>
     </div>
     <div id="readout" aria-live="polite">Move over the working field.<br>Try naming a location to another person.</div>
     <button class="print" id="print">Print this version</button>
@@ -102,7 +103,7 @@
     </details>
     <details>
       <summary>What this does and does not measure</summary>
-      <p>Letters and numbers address 25 mm cells. In the grid and quiet versions, A01 is the upper-left cell. Sheet coordinates start at the working field’s upper-left corner; x goes right and y goes down.</p>
+      <p>Letters and numbers address 25 mm cells. Optional interior labels leave a nearby address visible in a close crop, if the object does not cover it. In the grid and quiet versions, A01 is the upper-left cell. Sheet coordinates start at the working field’s upper-left corner; x goes right and y goes down.</p>
       <p>The angle version uses 0° up, increasing clockwise. Read angles with the part aligned to the centre, or after correcting the camera view to the paper plane.</p>
       <p>Scale applies to the paper plane. A raised component’s top is closer to the camera, so its apparent size is different. Lens calibration is a separate job; this is not a replacement for a calibration board.</p>
     </details>
@@ -244,6 +245,11 @@ function hybrid() {
   const width=document.getElementById('strong').checked ? .22 : .14;
   for(let x=0;x<=150;x+=5) line(30+x,50,30+x,250,x%25===0?'#777':fine,x%25===0 ? .28 : width);
   for(let y=0;y<=200;y+=5) line(30,50+y,180,50+y,y%25===0?'#777':fine,y%25===0 ? .28 : width);
+  if(document.getElementById('cellnames').checked) {
+    for(let row=0;row<8;row++) for(let col=0;col<6;col++) {
+      text(31+col*25,53.4+row*25,String.fromCharCode(65+col)+String(row+1).padStart(2,'0'),2,'start','#7d7d7d');
+    }
+  }
   addresses();
 }
 function quiet() {
@@ -301,6 +307,7 @@ function render() {
   const info=variants[variant];
   for(const [id,key] of [['preview-label','label'],['variant-name','name'],['recommendation','recommendation'],['variant-description','description'],['detail-value','detail'],['detail-label','detailLabel'],['tradeoff','tradeoff']]) document.getElementById(id).textContent=info[key];
   document.getElementById('strong').disabled=variant!=='hybrid';
+  document.getElementById('cellnames').disabled=variant!=='hybrid';
   const tetris=document.getElementById('references').value==='tetris';
   document.getElementById('reference-count').textContent=tetris?'4 shapes':'8 markers';
   document.getElementById('reference-label').textContent=tetris?'different in each corner':'around the working field';
@@ -341,6 +348,7 @@ document.getElementById('next').onclick=()=>cycle(1);
 document.getElementById('objects').onchange=render;
 document.getElementById('references').onchange=()=>select(variant);
 document.getElementById('strong').onchange=render;
+document.getElementById('cellnames').onchange=render;
 document.getElementById('print').onclick=()=>window.print();
 sheet.addEventListener('pointermove',locationAt);
 sheet.addEventListener('pointerleave',()=>document.getElementById('hover').setAttribute('visibility','hidden'));
