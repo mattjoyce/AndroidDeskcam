@@ -104,7 +104,7 @@
     </details>
     <details>
       <summary>What this does and does not measure</summary>
-      <p>Letters and numbers address 25 mm cells. Optional interior labels leave a nearby address visible in a close crop, if the object does not cover it. In the grid and quiet versions, A01 is the upper-left cell. Sheet coordinates start at the working field’s upper-left corner; x goes right and y goes down.</p>
+      <p>Letters and numbers address 25 mm cells. Optional interior labels leave a nearby address visible in a close crop, if the object does not cover it. In the grid and quiet versions, P-A01 or L-A01 is the upper-left cell; the letter is the sheet, P for portrait and L for landscape. Every marker sits outside the working field, so a close crop of a part contains none of them: measured, at a 60 mm frame width no marker arrangement around the field is visible at all, while at 150 mm about 45% of positions see one. The prefixed cell address is what identifies the sheet at the zoom where the markers have gone. Sheet coordinates start at the working field’s upper-left corner; x goes right and y goes down.</p>
       <p>The angle version uses 0° up, increasing clockwise. Read angles with the part aligned to the centre, or after correcting the camera view to the paper plane.</p>
       <p>Scale applies to the paper plane. A raised component’s top is closer to the camera, so its apparent size is different. Lens calibration is a separate job; this is not a replacement for a calibration board.</p>
     </details>
@@ -116,7 +116,7 @@
     </details>
     <details>
       <summary>Sources and design status</summary>
-      <p>The geometry and line weights are design proposals, pending a real home-printer and camera trial. In coded mode, marker patterns are generated from OpenCV’s DICT_4X4_50, IDs 0–7, with 16 mm black outer squares and a 3 mm white surround.</p>
+      <p>The geometry and line weights are design proposals, pending a real home-printer and camera trial. In coded mode, marker patterns are generated from OpenCV’s DICT_4X4_50 with 10 mm black outer squares and a 3 mm white surround. Each sheet family owns an id block, portrait 0–7 and landscape 8–15, so a single decoded marker names the sheet, its orientation and therefore its nominal marker size and grid pitch. That also catches a wrong-scale print: measure a marker and compare it with the 10 mm the id block declares.</p>
       <p><a href="https://docs.opencv.org/4.x/db/da9/tutorial_aruco_board_detection.html">OpenCV: marker boards and partial visibility</a><br><a href="https://docs.opencv.org/4.x/da/d13/tutorial_aruco_calibration.html">OpenCV: ArUco / ChArUco calibration</a><br><a href="https://helpx.adobe.com/acrobat/desktop/print-documents/set-up-and-print-pdfs/page-size.html">Adobe: actual-size printing</a></p>
     </details>
   </aside>
@@ -148,13 +148,24 @@ document.getElementById('page-badge').textContent=`A4 · ${pageSize[0]} × ${pag
 document.getElementById('print-orientation').textContent='A4 '+(landscape?'landscape':'portrait');
 // Generated with cv2.aruco.generateImageMarker(DICT_4X4_50, id, 6).
 // Each string is one row of six modules, including the one-module black border.
-const markerBits = [["111111", "101001", "110101", "111001", "111011", "111111"], ["111111", "111111", "100001", "101101", "101011", "111111"], ["111111", "111001", "111001", "111011", "100101", "111111"], ["111111", "101101", "101101", "110111", "110011", "111111"], ["111111", "110101", "110111", "101101", "100011", "111111"], ["111111", "110001", "101101", "100111", "100101", "111111"], ["111111", "101101", "100011", "111011", "100011", "111111"], ["111111", "100111", "110111", "100001", "111011", "111111"]];
+// Generated with cv2.aruco.generateImageMarker(DICT_4X4_50, id, 6) for ids 0-15 and
+// round-tripped through the detector. Portrait uses 0-7, landscape 8-15, so one marker
+// identifies the sheet.
+const markerBits = [["111111", "101001", "110101", "111001", "111011", "111111"], ["111111", "111111", "100001", "101101", "101011", "111111"], ["111111", "111001", "111001", "111011", "100101", "111111"], ["111111", "101101", "101101", "110111", "110011", "111111"], ["111111", "110101", "110111", "101101", "100011", "111111"], ["111111", "110001", "101101", "100111", "100101", "111111"], ["111111", "101101", "100011", "111011", "100011", "111111"], ["111111", "100111", "110111", "100001", "111011", "111111"], ["111111", "100001", "100011", "100101", "101011", "111111"], ["111111", "100111", "100001", "110101", "110011", "111111"], ["111111", "100001", "101101", "101101", "111101", "111111"], ["111111", "111101", "111101", "101011", "110001", "111111"], ["111111", "111111", "100011", "101001", "110001", "111111"], ["111111", "111011", "101011", "111111", "100001", "111111"], ["111111", "111011", "110111", "101001", "111101", "111111"], ["111111", "111011", "110011", "111001", "100011", "111111"]];
+const sheetTag = landscape?'L':'P';
+const idBase = landscape?8:0;
+// One number sets the marker size; the quiet zone and the label offsets follow it. 10 mm is
+// the simulation's floor for the binding case (a live preview with the sheet filling half
+// the frame), where 16 mm was about twice what is needed.
+const MARK = 10, QUIET = 3, HALF = MARK/2, PAD = HALF + QUIET;
 const markerCentres = landscape?[[18,24],[105,24],[279,24],[192,24],[279,185],[192,185],[18,185],[105,185]]:[[18,26],[105,26],[192,26],[192,125],[192,268],[105,268],[18,268],[18,125]];
 // A future detector can use this explicit geometry; nothing is inferred from screen pixels.
 window.DeskcamMat = {
   revision:landscape?'DCM-02-L':'DCM-01', units:'mm', dictionary:'DICT_4X4_50', page:pageSize, field,
-  markerSize:16, quietZone:3,
-  codedMarkers:markerCentres.map(([x,y], id) => ({id, corners:[[x-8,y-8],[x+8,y-8],[x+8,y+8],[x-8,y+8]]}))
+  sheetTag, markerSize:MARK, quietZone:QUIET,
+  markerIds:markerCentres.map((_,i) => idBase+i),
+  codedMarkers:markerCentres.map(([x,y], i) => ({id:idBase+i,
+    corners:[[x-HALF,y-HALF],[x+HALF,y-HALF],[x+HALF,y+HALF],[x-HALF,y+HALF]]}))
 };
 const variants = {
   hybrid:{name:'Hybrid grid', label:'01 / Hybrid grid', recommendation:'My starting recommendation',
@@ -213,17 +224,18 @@ function markers() {
     });
     return;
   }
-  markerCentres.forEach(([x,y],id) => {
+  markerCentres.forEach(([x,y],i) => {
+    const id=idBase+i;
     const g=el('g',{'data-marker-id':id});
-    el('rect',{x:x-11,y:y-11,width:22,height:22,fill:'white'},'',g);
+    el('rect',{x:x-PAD,y:y-PAD,width:PAD*2,height:PAD*2,fill:'white'},'',g);
     // A single black compound path prevents hairline seams between black modules.
     let d='';
     markerBits[id].forEach((row,r)=>[...row].forEach((bit,c)=>{
       if(bit==='1') d+=`M${c} ${r}h1v1h-1z`;
     }));
-    el('path',{d,fill:'#000',transform:`translate(${x-8} ${y-8}) scale(${16/6})`},'',g);
-    if(id===1||id===5||(landscape&&(id===3||id===7))) text(x+12,y+1,`M${id}`,2.2,'start','#333',g);
-    else text(x,y+13,`M${id}`,2.2,'middle','#333',g);
+    el('path',{d,fill:'#000',transform:`translate(${x-HALF} ${y-HALF}) scale(${MARK/6})`},'',g);
+    if(i===1||i===5||(landscape&&(i===3||i===7))) text(x+HALF+4,y+1,`M${id}`,2.2,'start','#333',g);
+    else text(x,y+HALF+5,`M${id}`,2.2,'middle','#333',g);
   });
 }
 function common() {
@@ -266,7 +278,7 @@ function hybrid() {
   for(let y=0;y<=field.h;y+=5) line(field.x,field.y+y,field.x+field.w,field.y+y,y%25===0?'#777':fine,y%25===0 ? .28 : width);
   if(document.getElementById('cellnames').checked) {
     for(let row=0;row<rows;row++) for(let col=0;col<cols;col++) {
-      text(field.x+1+col*25,field.y+3.4+row*25,String.fromCharCode(65+col)+String(row+1).padStart(2,'0'),2,'start','#7d7d7d');
+      text(field.x+1+col*25,field.y+3.4+row*25,`${sheetTag}-${String.fromCharCode(65+col)}${String(row+1).padStart(2,'0')}`,2,'start','#7d7d7d');
     }
   }
   addresses();
@@ -361,7 +373,7 @@ function locationAt(event) {
     document.getElementById('readout').textContent=`r ${rad.toFixed(1)} mm · ${angle.toFixed(0)}° clockwise from top`;
   } else {
     for(const [key,value] of Object.entries({x:field.x+c*25,y:field.y+r*25,width:25,height:25,visibility:'visible'})) highlight.setAttribute(key,value);
-    document.getElementById('readout').textContent=`${String.fromCharCode(65+c)}${String(r+1).padStart(2,'0')} · x ${x.toFixed(1)} mm · y ${y.toFixed(1)} mm`;
+    document.getElementById('readout').textContent=`${sheetTag}-${String.fromCharCode(65+c)}${String(r+1).padStart(2,'0')} · x ${x.toFixed(1)} mm · y ${y.toFixed(1)} mm`;
   }
 }
 document.querySelectorAll('[data-variant]').forEach(b=>b.addEventListener('click',()=>select(b.dataset.variant)));
