@@ -52,6 +52,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Levelling the mount. Not exported: nothing outside the app has any reason to
+             open it, and an exported activity is a surface to defend for no gain.
+             Portrait is locked because the screen is used while it is nearly flat, which
+             is exactly where the platform's own rotation cannot tell which way is up; a
+             card whose two axes swapped under the bubble mid-adjustment would be worse
+             than no card. -->
+        <activity
+            android:name=".LevelActivity"
+            android:exported="false"
+            android:theme="@style/DeskCam"
+            android:screenOrientation="portrait"
+            android:label="Level" />
+
         <service
             android:name=".CamService"
             android:exported="false"

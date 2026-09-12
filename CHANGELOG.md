@@ -2,6 +2,12 @@
 
 What changed in each release of DeskCam. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [semantic versioning](https://semver.org): `VERSION` at the top of the repository is the one number, the APK and the CLI both carry it, and each release is tagged `vX.Y.Z`. Until 1.0.0 the HTTP API may change in a minor release, and every such change is listed here.
 
+## [Unreleased]
+
+### Added
+
+- A level for the mount, on the phone: touch Level in the app's header. A bubble card whose range closes in from ten degrees to half a degree as you converge, the edge to lower named in words, and one tone per axis that beeps faster as that axis comes in and holds steady once it is there, so the mount can be set with both hands on the bracket and your eyes on it. It needs no camera and no running service, which is the state a reboot leaves the phone in.
+
 ## [0.1.0] - 2026-09-12
 
 The first public release.

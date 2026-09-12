@@ -40,6 +40,20 @@
             android:textSize="13sp" />
 
         <Button
+            android:id="@+id/level"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:layout_marginEnd="8dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:background="@drawable/btn_quiet"
+            android:textColor="@color/text"
+            android:textAllCaps="false"
+            android:text="Level" />
+
+        <Button
             android:id="@+id/settings"
             android:layout_width="wrap_content"
             android:layout_height="36dp"

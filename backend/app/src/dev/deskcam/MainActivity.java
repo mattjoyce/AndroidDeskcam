@@ -110,6 +110,10 @@ public class MainActivity extends Activity {
         net.setOnClickListener(v -> chooseNetwork());
         ((Button) findViewById(R.id.settings)).setOnClickListener(v ->
                 setup.setVisibility(setup.getVisibility() == View.GONE ? View.VISIBLE : View.GONE));
+        // The leveller reads the accelerometer and nothing else, so it works with the
+        // service stopped, which is the state a reboot leaves the phone in.
+        ((Button) findViewById(R.id.level)).setOnClickListener(v ->
+                startActivity(new Intent(this, LevelActivity.class)));
 
         requestPermissions();
         handleIntent(getIntent());

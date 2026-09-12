@@ -109,8 +109,11 @@ public class Sensors implements SensorEventListener {
         // straight down at a level desk the screen faces straight up and gz is +9.81.
         double tilt = Math.toDegrees(Math.acos(Math.max(-1, Math.min(1, gz / mag))));
         o.put("tilt_degrees", CamSettings.round2(tilt));
-        o.put("roll_degrees", CamSettings.round2(Math.toDegrees(Math.atan2(gx, gz))));
-        o.put("pitch_degrees", CamSettings.round2(Math.toDegrees(Math.atan2(gy, gz))));
+        // Levelling owns these two formulas, and the leveller on the phone calls the same
+        // pair, so the screen a person levels by and the figure an agent reads cannot
+        // disagree about which way the mount leans.
+        o.put("roll_degrees", CamSettings.round2(Levelling.rollDegrees(gx, gz)));
+        o.put("pitch_degrees", CamSettings.round2(Levelling.pitchDegrees(gy, gz)));
         o.put("aim", describe(tilt));
         o.put("measures", "the angle between the optical axis and gravity, averaged over "
                 + n + " samples. It equals the angle to a flat subject only when the "

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The levelling screen. It is read from above, at arm's length, by somebody whose hands are
+  on a bracket, so there are four things on it and they are all large: what to do, the card,
+  the two numbers, and the way out.
+
+  keepScreenOn is on the root. Levelling a mount takes longer than the screen timeout, and
+  a screen that blanks halfway through an adjustment is the one fault that would make the
+  whole screen useless.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg"
+    android:keepScreenOn="true"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Level the mount"
+                android:textColor="@color/text"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/sound"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:layout_marginEnd="8dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:background="@drawable/btn_quiet"
+                android:textColor="@color/text"
+                android:textAllCaps="false"
+                android:text="Sound on" />
+
+            <Button
+                android:id="@+id/done"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:minHeight="0dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:background="@drawable/btn"
+                android:textColor="#FFFFFFFF"
+                android:textAllCaps="false"
+                android:text="Done" />
+        </LinearLayout>
+
+        <!-- What to do about it, in the largest type on the screen, because it is the only
+             thing worth reading while your eyes are on the bracket. -->
+        <TextView
+            android:id="@+id/instruction"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="waiting for the sensor"
+            android:textColor="@color/text"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <dev.deskcam.Level
+            android:id="@+id/levelcard"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/numbers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/pill"
+            android:padding="10dp"
+            android:gravity="center"
+            android:fontFamily="monospace"
+            android:textColor="@color/accent"
+            android:textSize="15sp"
+            android:text="roll  -    pitch  -" />
+
+        <TextView
+            android:id="@+id/note"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="The bubble floats to the high side: lower the edge it sits on. Half a degree is level, because past that a flat subject's scale is skewed by more than one percent across a full frame. This measures against gravity, so it squares the camera to a level bench, not to a jig that is itself tilted."
+            android:textColor="@color/dim"
+            android:textSize="12sp" />
+    </LinearLayout>
+</LinearLayout>

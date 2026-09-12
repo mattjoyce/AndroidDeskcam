@@ -71,6 +71,15 @@ public final class Tests {
         aConsoleCallbackOnTheBenchIsAccepted();
         aCallbackAnywhereElseIsRefused();
         theDialogSaysWhatHappensToTheKey();
+        aRangeStepsAtMostOncePerReading();
+        aRangeThatFlapsIsWorseThanAWideOne();
+        theWidestRangeIsForAMountThatNeedsASpanner();
+        theCadenceRisesAllTheWayToGood();
+        goodSoundsLikeASteadyTone();
+        aBeepIsNeverLongerThanItsGap();
+        theInstructionNamesTheEdgeToLower();
+        theBubbleFloatsToTheRaisedEdge();
+        theBubbleStaysOnTheCard();
 
         System.out.println(checks + " checks, " + failures + " failed");
         if (failures > 0) System.exit(1);
@@ -892,6 +901,146 @@ public final class Tests {
         yes("a token sets one", Pairing.keyEffect("k3y").contains("set"));
     }
 
+    // --------------------------------------------------------- the leveller
+
+    /**
+     * The range on the card must settle in one step, not walk across the ranges while the
+     * reading sits still. Applying the rule twice to the same reading has to be the same
+     * as applying it once, from every starting range.
+     */
+    private static void aRangeStepsAtMostOncePerReading() {
+        float[] readings = {0f, 0.1f, 0.3f, 0.5f, 0.6f, 0.9f, 1.4f, 2.9f, 3.1f, 7f, 9.9f, 40f};
+        for (int from = 0; from < Levelling.rangeCount(); from++) {
+            for (float w : readings) {
+                int once = Levelling.range(from, w);
+                int twice = Levelling.range(once, w);
+                eq("range settles at " + w + " from " + from, once, twice);
+            }
+        }
+    }
+
+    /**
+     * The hysteresis, which is the whole reason the rule is not one line.
+     *
+     * Between 0.275 and 0.475 degrees the card keeps whichever of the one degree and half
+     * degree ranges it already had. Without that band a bubble sitting on the boundary
+     * flips the range back and forth at the one moment it is being watched hardest.
+     */
+    private static void aRangeThatFlapsIsWorseThanAWideOne() {
+        eq("a wider card holds at 0.4", 2, Levelling.range(2, 0.4f));
+        eq("a tighter card holds at 0.4", 3, Levelling.range(3, 0.4f));
+        eq("well inside, it closes in", 3, Levelling.range(2, 0.2f));
+        eq("near the rim, it opens out", 2, Levelling.range(3, 0.49f));
+        eq("a reading it cannot use changes nothing", 2, Levelling.range(2, Float.NaN));
+    }
+
+    private static void theWidestRangeIsForAMountThatNeedsASpanner() {
+        eq("ten degrees of half-width", 10f, Levelling.span(0));
+        eq("half a degree at the tightest", Levelling.GOOD_DEG,
+                Levelling.span(Levelling.rangeCount() - 1));
+        eq("a range below the first is the first", 10f, Levelling.span(-3));
+        eq("a range past the last is the last", Levelling.GOOD_DEG, Levelling.span(99));
+        // The mount this was written for read 6.55 degrees after a remount, so the widest
+        // card has to hold it.
+        eq("a fresh remount starts on the widest card", 0, Levelling.range(3, 6.55f));
+    }
+
+    /**
+     * The beeping has to speed up all the way in, without a step where the card zooms.
+     *
+     * Keying the cadence to the range on show was the tempting version and it is wrong: it
+     * slows down at the instant you get closer, because the new range is wider relative to
+     * the error. So the rate comes from the error alone and must be strictly monotonic.
+     */
+    private static void theCadenceRisesAllTheWayToGood() {
+        float previous = Float.MAX_VALUE;
+        for (float e = 10f; e > Levelling.GOOD_DEG; e -= 0.05f) {
+            float rate = Levelling.beepsPerSecond(e);
+            yes("the cadence rises as " + e + " falls", rate > previous || previous == Float.MAX_VALUE);
+            yes("the cadence stays in its band at " + e,
+                    rate >= Levelling.SLOW_HZ - 0.001f && rate <= Levelling.FAST_HZ + 0.001f);
+            previous = rate;
+        }
+        eq("the widest error beeps slowest", Levelling.SLOW_HZ, Levelling.beepsPerSecond(10f));
+        eq("further out than the card is no slower", Levelling.SLOW_HZ,
+                Levelling.beepsPerSecond(40f));
+        yes("it arrives at the top of the band just before good",
+                Levelling.beepsPerSecond(0.501f) > Levelling.FAST_HZ - 0.1f);
+    }
+
+    private static void goodSoundsLikeASteadyTone() {
+        eq("good is steady", 0f, Levelling.beepsPerSecond(Levelling.GOOD_DEG));
+        eq("well inside good is steady", 0f, Levelling.beepsPerSecond(0.01f));
+        eq("dead level is steady", 0f, Levelling.beepsPerSecond(0f));
+        eq("the sign of the error does not change the sound",
+                Levelling.beepsPerSecond(2f), Levelling.beepsPerSecond(-2f));
+        // A sensor that has not reported yet must not sound like a mount that is level.
+        eq("no reading is not good news", Levelling.SLOW_HZ, Levelling.beepsPerSecond(Float.NaN));
+        yes("good and level agree", Levelling.good(0.5f) && !Levelling.good(0.51f));
+        yes("good is about size, not sign", Levelling.good(-0.4f));
+    }
+
+    /** A beep that ran past its own gap would join the next one into a steady tone. */
+    private static void aBeepIsNeverLongerThanItsGap() {
+        for (float rate = Levelling.SLOW_HZ; rate <= Levelling.FAST_HZ; rate += 0.1f) {
+            float gap = 1000f / rate;
+            yes("a beep at " + rate + " per second fits in its gap",
+                    Levelling.beepMillis(rate) < gap);
+        }
+        eq("the slowest beep is capped, not stretched", Levelling.BEEP_MS,
+                Levelling.beepMillis(Levelling.SLOW_HZ));
+        yes("the fastest beep is shortened", Levelling.beepMillis(Levelling.FAST_HZ) < Levelling.BEEP_MS);
+        eq("a steady tone is not a beep", Levelling.BEEP_MS, Levelling.beepMillis(0f));
+    }
+
+    private static void theInstructionNamesTheEdgeToLower() {
+        eq("a raised right edge", "lower the right edge", Levelling.instruction(2f, 0f));
+        eq("a raised left edge", "lower the left edge", Levelling.instruction(-2f, 0f));
+        eq("a raised top edge", "lower the top edge", Levelling.instruction(0f, 2f));
+        eq("a raised bottom edge", "lower the bottom edge", Levelling.instruction(0f, -2f));
+        eq("both inside", "level", Levelling.instruction(0.4f, -0.2f));
+        eq("on the limit is level", "level", Levelling.instruction(0.5f, 0.5f));
+        // One screw at a time: the worse axis is the one named.
+        eq("the worse axis wins", "lower the right edge", Levelling.instruction(3f, 0.9f));
+        eq("the worse axis wins the other way", "lower the top edge", Levelling.instruction(0.9f, 3f));
+        eq("a good axis is never named", "lower the bottom edge", Levelling.instruction(0.3f, -0.8f));
+    }
+
+    private static void theBubbleStaysOnTheCard() {
+        eq("dead centre", 0f, Levelling.offset(0f, 10f));
+        eq("half way out", 0.5f, Levelling.offset(5f, 10f));
+        eq("half way out the other way", -0.5f, Levelling.offset(-5f, 10f));
+        eq("on the rim", 1f, Levelling.offset(10f, 10f));
+        eq("further out than the card goes", 1f, Levelling.offset(40f, 10f));
+        eq("and the other way", -1f, Levelling.offset(-40f, 10f));
+        eq("the tightest card puts good on the rim", 1f,
+                Levelling.offset(Levelling.GOOD_DEG, Levelling.GOOD_DEG));
+        eq("no reading sits in the middle", 0f, Levelling.offset(Float.NaN, 10f));
+        eq("a span of nothing cannot be divided by", 0f, Levelling.offset(2f, 0f));
+    }
+
+    /**
+     * The sign convention, tied to a real reading.
+     *
+     * Android reports gravity positive on whichever axis points up, so the bench phone's
+     * measured (1.09, 0.08, 9.75) is a mount leaning onto its right edge. The bubble is
+     * drawn on that side and the words have to name that side, or the person levels the
+     * mount further out and blames the card.
+     */
+    private static void theBubbleFloatsToTheRaisedEdge() {
+        near("a phone lying flat has no roll", 0.0, Levelling.rollDegrees(0, 9.81), 1e-9);
+        near("a phone lying flat has no pitch", 0.0, Levelling.pitchDegrees(0, 9.81), 1e-9);
+        near("the right edge up by 45", 45.0, Levelling.rollDegrees(9.81, 9.81), 1e-9);
+        near("the left edge up by 45", -45.0, Levelling.rollDegrees(-9.81, 9.81), 1e-9);
+        near("the top edge up by 45", 45.0, Levelling.pitchDegrees(9.81, 9.81), 1e-9);
+        near("the bench mount leans 6.38 to the right", 6.38,
+                Levelling.rollDegrees(1.09, 9.75), 0.005);
+        near("and tips 0.47 forward", 0.47, Levelling.pitchDegrees(0.08, 9.75), 0.005);
+        eq("so the card asks for the right edge", "lower the right edge",
+                Levelling.instruction((float) Levelling.rollDegrees(1.09, 9.75),
+                        (float) Levelling.pitchDegrees(0.08, 9.75)));
+    }
+
     private static void eq(String what, long expected, long actual) {
         checks++;
         if (expected != actual) fail(what + ": expected " + expected + ", got " + actual);
@@ -907,6 +1056,13 @@ public final class Tests {
     private static void eq(String what, float expected, float actual) {
         checks++;
         if (Float.compare(expected, actual) != 0) fail(what + ": expected " + expected + ", got " + actual);
+    }
+
+    private static void near(String what, double expected, double actual, double tolerance) {
+        checks++;
+        if (!(Math.abs(expected - actual) <= tolerance)) {
+            fail(what + ": expected " + expected + " within " + tolerance + ", got " + actual);
+        }
     }
 
     private static void yes(String what, boolean actual) {
