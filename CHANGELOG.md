@@ -2,7 +2,7 @@
 
 What changed in each release of DeskCam. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [semantic versioning](https://semver.org): `VERSION` at the top of the repository is the one number, the APK and the CLI both carry it, and each release is tagged `vX.Y.Z`. Until 1.0.0 the HTTP API may change in a minor release, and every such change is listed here.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-12
 
 ### Added
 
@@ -37,4 +37,5 @@ The first public release.
 - The app no longer takes a token, port or autostart setting from other apps.
 - No response carries `Access-Control-Allow-Origin`, so a web page in a browser on the network can no longer read the camera.
 
+[0.2.0]: https://github.com/mattjoyce/AndroidDeskcam/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mattjoyce/AndroidDeskcam/releases/tag/v0.1.0

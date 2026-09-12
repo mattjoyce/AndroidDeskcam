@@ -24,6 +24,10 @@ burst/
 *.dng
 *.thumb.jpg
 
+# The handoff note for the next agent. Written fresh each session, and out of the
+# repository on purpose: it is the state of a bench, not of the code.
+HANDOFF.md
+
 # OS and editor files
 .DS_Store
 *.swp

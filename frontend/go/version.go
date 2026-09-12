@@ -4,4 +4,4 @@ package main
 // go:embed cannot reach outside the module and a plain `go build` must still print the
 // right number, so the number is copied here and TestTheVersionIsTheRepositorysVersion
 // holds the copy to the source.
-const version = "0.1.0"
+const version = "0.2.0"

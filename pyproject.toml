@@ -2,7 +2,7 @@
 # ruff, mypy and bandit settings, as run by frontend/check.sh.
 [project]
 name = "deskcam-frontend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Measurement tools for the DeskCam bench camera"
 requires-python = ">=3.11"
 dependencies = []          # the binary needs no runtime; measuring needs [analysis]

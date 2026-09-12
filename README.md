@@ -556,6 +556,8 @@ When a request is refused because an atomic action tape holds the camera, DeskCa
 
 Device-specific physical limits (`max_output_edge`, `max_output_pixels`, `burst_max`) are advertised in the `limits` block of `/api/status`. Requests exceeding the phone's memory capacity are refused before capture begins.
 
+`/api/status` reports the lens shading map as three fields in its `sensor` block rather than one. `sensor.shading_map_supported` is the judgement, and the field to act on. `sensor.shading_map_key_advertised` is what the camera claims in its capture result keys, and `sensor.shading_map_seen` is whether a map has actually arrived since the camera was opened. The two disagree on this phone. The Pixel 6a leaves the map out of the keys it advertises and then puts a full 25 by 33 RGGB map in every frame taken with the mode on, so only what arrived is evidence. When `/api/shadingmap` has no map to hand back it now says which of the three situations it is in, because the mode being off and the camera refusing are not the same problem and only one of them is yours to fix.
+
 ### JSON Sidecars and Telemetry Headers
 
 Every capture writes an adjacent `NAME.json` sidecar on disk and embeds the identical telemetry inside EXIF `UserComment` (for JPEG) or `ImageDescription` (for DNG).
@@ -1130,6 +1132,14 @@ it live.
 **The sensors give the angle only.** They give no distance and no position, so a picture
 still needs a scale reference in the frame, such as a ruler or graph paper, before you can
 measure real sizes.
+
+**Levelling the mount itself is a job for the phone.** Touch **Level** in the app's
+header. A bubble card shows the tilt, names the edge to lower in words, and sounds one
+tone per axis that beeps faster as that axis comes in and holds steady once it is
+there, so the mount can be set with both hands on the bracket and your eyes on it. The
+range closes in from ten degrees to half a degree as you converge, so the display stays
+useful across the whole job. It needs no camera and no running service, which is the
+state a reboot leaves the phone in.
 
 ### Heat and battery
 
