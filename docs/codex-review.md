@@ -86,3 +86,55 @@ Validation: the APK builds with 462 Java checks and ten panel regressions passin
 `assets/panel.html` in the built APK matches the source byte for byte. The full
 workstation gate also passes: ruff, formatting, mypy, bandit, 79 Python tests, Go vet,
 Go build and Go tests. The original checkout's virtualenv supplied Python tooling.
+
+## Final validation and browser smoke check
+
+The deterministic suite has 13 passing tests. It also checks HTTP 400/401/409/500
+failures, queue recovery, stale marks and completion of coalesced callers.
+
+A separate Chromium check runs the actual HTML handlers against an authenticated
+localhost camera double. It passed startup, status/marks/image authentication, rapid
+slider input, autofocus, stream restart and the still popup with zero page errors.
+The image response is a finite PNG: this checks image URLs, not MJPEG decoding or
+camera hardware. It makes no request to a real phone.
+
+To repeat it without adding a project dependency (tested with Playwright 1.63.0):
+
+```sh
+npm install --prefix /tmp/deskcam-codex-browser --no-audit --no-fund playwright@1.63.0
+/tmp/deskcam-codex-browser/node_modules/.bin/playwright install chromium
+PLAYWRIGHT_MODULE=/tmp/deskcam-codex-browser/node_modules/playwright/index.mjs \
+  node backend/test/webui/browser-smoke.mjs
+```
+
+## Remaining device checks
+
+No APK was installed and no camera service was contacted. Before deploying, check the
+panel on a real phone for sustained MJPEG streaming, touch gestures, idle/wake behaviour
+and slow autofocus. A browser timeout does not cancel a camera operation already
+received by the server, which is why pending controls are cancelled after a failure
+and no command is automatically retried.
+
+The worktree build generated its own gitignored home signing key. Its APK is a test
+artifact and will not update phones installed using the original checkout's different
+key. Build with the intended signing key when ready to install; do not uninstall a
+phone app just to test this branch.
+
+The trusted-network defaults and all-interface binding remain deliberate existing
+behaviour, not changes made by this review. The page keeps the token from its opening
+link; after changing the key, reopen it with the new link.
+
+## Commit guide
+
+- `4cce7db`: pre-existing working-tree snapshot, not review fixes.
+- `b37437c`: scope and merge boundary.
+- `6b9297d`: token propagation and initial regressions.
+- `f0529e8`: deadlines and bounded polling.
+- `76d172f`: ordered commands and final-input preservation.
+- `4df0691`: stale-response protection.
+- `7c7d7f9`: HTML asset extraction and build integration.
+- The final validation commit adds the Chromium check, broader failure regressions
+  and these handoff instructions.
+
+When reconciling later work, phone-panel edits now belong in
+`backend/app/assets/panel.html`, not the former `PAGE` string in `WebUi.java`.

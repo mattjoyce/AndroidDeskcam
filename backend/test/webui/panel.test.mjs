@@ -150,3 +150,51 @@ test('polls wait while controls are pending and intermediate replies leave slide
   await p.flush();
   assert.equal(Number(p.element('zoom').value), 5);
 });
+
+test('HTTP failures stay visible, cancel pending actions, and release the command queue', async () => {
+  for (const code of [400, 401, 409, 500]) {
+    const p = await panel();
+    p.calls.length = 0;
+    const first = p.run("api('/api/af')");
+    const queued = p.run("api('/api/set?dx=0.2')");
+    p.calls[0].reply({ error: 'request refused' }, code);
+    assert.equal(await first, null);
+    assert.equal(await queued, null);
+    assert.equal(p.calls.length, 1);
+    assert.equal(p.element('msg').hidden, false);
+    assert.match(p.element('msg').textContent, /cancelled/);
+    const retry = p.run("api('/api/set?zoom=2')");
+    p.calls.at(-1).reply(status(2));
+    await retry;
+    assert.equal(p.run('last.zoom'), 2);
+  }
+});
+
+test('marks from an older crop are discarded and later marks still arrive', async () => {
+  const p = await panel();
+  p.run('loadMarks()');
+  const oldPoll = p.calls.at(-1);
+  const change = p.run("api('/api/set?zoom=5')");
+  p.calls.at(-1).reply(status(5));
+  await change;
+  oldPoll.reply({ marks: [{ id: 1, label: 'old crop' }] });
+  await p.flush();
+  assert.equal(p.run('MARKS.length'), 0);
+  p.run('loadMarks()');
+  p.calls.at(-1).reply({ marks: [{ id: 2, label: 'current crop', cx: 0.5, cy: 0.5, in_crop: true }] });
+  await p.flush();
+  assert.equal(p.run('MARKS[0].id'), 2);
+});
+
+test('coalesced callers all complete when the final value is acknowledged', async () => {
+  const p = await panel();
+  const first = p.run("setv('zoom', 2)");
+  const middle = p.run("setv('zoom', 3)");
+  const last = p.run("setv('zoom', 4)");
+  p.calls.at(-1).reply(status(2));
+  await first;
+  await p.flush();
+  p.calls.at(-1).reply(status(4));
+  assert.equal((await middle).settings.zoom, 4);
+  assert.equal((await last).settings.zoom, 4);
+});
