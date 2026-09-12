@@ -1,10 +1,10 @@
-# DeskCam: Precision Optical Bench Instrument & Agent Camera Server
+# DeskCam: gives vision to AI agents
 
-DeskCam transforms a spare Android smartphone into a calibrated optical bench instrument and camera server. You control the camera from the command line, from shell scripts, or from an autonomous AI coding agent (such as Claude Code). It is built for a Google Pixel 6a (or compatible Camera2 device) running GrapheneOS or stock Android.
+DeskCam turns a spare Android phone into eyes an agent can use. It asks for a picture of a real thing in one shell command, reads the file, and says what it sees. You drive it the same way yourself, from the command line or from a shell script. It is built for a Google Pixel 6a (or compatible Camera2 device) running GrapheneOS or stock Android.
 
-Its primary workbench tasks are **circuit debugging and SMD inspection**, **OLED/LCD display evaluation**, and **giving AI coding agents deterministic visual feedback**.
+**Most of the work is looking.** Read a handwritten note, see whether a first layer went down flat, check that a connector is seated, inspect a board, evaluate a display, look at a painting. When the question wants a number rather than a description, the same camera measures, and refuses rather than guessing when it cannot support one.
 
-Each camera control is an HTTP GET or POST request. You can control the instrument from `curl`, from a Python script, or from a coding agent with zero external client libraries.
+Each camera control is an HTTP GET or POST request. You can control the camera from `curl`, from a Python script, or from a coding agent with zero external client libraries.
 
 ```sh
 deskcam snap zoom=6 cx=0.32 cy=0.68 torch=25 focusm=0.12
