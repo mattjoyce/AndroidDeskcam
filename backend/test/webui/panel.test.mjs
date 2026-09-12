@@ -198,3 +198,38 @@ test('coalesced callers all complete when the final value is acknowledged', asyn
   assert.equal((await middle).settings.zoom, 4);
   assert.equal((await last).settings.zoom, 4);
 });
+
+test('a mark is redrawn when the framing changes, not on the next marks poll', async () => {
+  const p = await panel();
+  // Placed in CSS pixels, so compared as numbers: the arithmetic lands on
+  // -192.00000000000003 and a string comparison would fail on the last bit rather than on
+  // anything a person could see.
+  const at = el => [parseFloat(el.style.left), parseFloat(el.style.top)];
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 0.001,
+    `expected ${expected}, got ${actual}`);
+
+  // One mark against the crop the page has now. The double's picture is 640 by 480 at the
+  // origin, so a mark at 0.3,0.7 of a full frame belongs at 192,336.
+  p.run('MARKS = [{id: 1, kind: "point", cx: 0.3, cy: 0.7, in_crop: true, by: "agent"}];'
+        + ' drawMarks();');
+  const marks = p.element('marks');
+  assert.equal(marks.childNodes.length, 1);
+  near(at(marks.firstChild)[0], 192);
+  near(at(marks.firstChild)[1], 336);
+
+  // A status answer that moves the crop, with no marks poll anywhere near it. At zoom 4 on
+  // the middle the crop starts at 0.375, so 0.3 is off the left edge at -192 and 0.7 is
+  // below the bottom at 624.
+  const polling = p.run('refresh()');
+  await p.flush();
+  assert.match(p.calls.at(-1).url, /\/api\/status/);
+  p.calls.at(-1).reply(status(4));
+  await polling;
+  assert.equal(p.run('last.zoom'), 4);
+
+  // Before this, drawMarks ran only on the marks poll and on a resize, so after a reframe
+  // every mark sat on the wrong part of the picture until the next tick. live-bench.mjs
+  // caught one 333 px from where it belonged, straight after a zoom.
+  near(at(marks.firstChild)[0], -192);
+  near(at(marks.firstChild)[1], 624);
+});

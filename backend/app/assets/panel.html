@@ -461,7 +461,16 @@ function render(j, updateControls = true) {
   const s = j.settings || (j.status && j.status.settings);
   if (!s) return;
   // The crop every gesture measures itself against, kept fresh from whatever answered last.
+  const reframed = last.zoom !== Number(s.zoom) || last.cx !== Number(s.cx)
+                   || last.cy !== Number(s.cy);
   last = {zoom: Number(s.zoom), cx: Number(s.cx), cy: Number(s.cy), box: s.focus_box};
+  /* A mark is placed against the crop, so the instant the crop changes every mark on the
+     picture is in the wrong place until something redraws it. Nothing did: drawMarks ran on
+     the marks poll and on a resize, so after a reframe a mark sat on the wrong part of the
+     picture for up to a tick. Measured with backend/test/webui/live-bench.mjs, which read a
+     mark 333 px from where it belonged straight after a zoom, and the card's whole claim is
+     that a mark stays on its part. */
+  if (reframed) drawMarks();
   document.getElementById('status').textContent = JSON.stringify(j, null, 1);
   // Intermediate acknowledgements update known framing, not unsent slider input.
   if (updateControls) {
