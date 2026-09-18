@@ -94,7 +94,7 @@ func scriptCommand(in *invocation) int {
 				}
 				// A part name is still a path, however well the phone behaves. Same
 				// reasoning as the burst and the walk.
-				if err := writePart(filepath.Join(dir, name), part, pending); err != nil {
+				if err := writePart(filepath.Join(dir, name), part, pending, in.who); err != nil {
 					return err
 				}
 				written++
@@ -126,7 +126,7 @@ func scriptCommand(in *invocation) int {
 // Each file gets the whole event as its sidecar rather than a second /api/status request,
 // which is the same rule every other capture in this tool follows: the record comes from
 // the reply that carried the pixels, so it cannot describe a later moment.
-func writePart(path string, body io.Reader, event map[string]any) error {
+func writePart(path string, body io.Reader, event map[string]any, who asker) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
@@ -149,6 +149,9 @@ func writePart(path string, body io.Reader, event map[string]any) error {
 	}
 	record["image"] = filepath.Base(path)
 	record["from"] = "the capture itself"
+	if block := who.block(); block != nil {
+		record["asker"] = block
+	}
 	out, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return err

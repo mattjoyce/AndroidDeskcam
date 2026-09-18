@@ -451,7 +451,13 @@ Camera state persists until you change it (zoom, cx, cy, focus, exposure, iso, t
 awb, measure, rotate). Presentation applies to one request and is then forgotten
 (w, h, jpegq). deskcam api prints the whole list.
 
-Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL
+Any command also accepts --why "TEXT": what it is for, in your own words. It is written
+into the record beside each capture and is never sent to the phone. The record also says
+which directory and project asked. A scratch directory is in no project, so name one with
+DESKCAM_PROJECT, and name a run of work with DESKCAM_SESSION.
+
+Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL,
+             DESKCAM_PROJECT, DESKCAM_SESSION
 ```
 
 ### HTTP REST API Endpoints
@@ -658,6 +664,20 @@ This sidecar was written by `deskcam snap -o board.jpg zoom=4 cx=0.5 cy=0.5` on 
 ```
 
 `settings` is what was asked for; `null` means the automatic mode was in charge. `measured` is what the sensor reported for that frame, taken from the capture result and not from a later status call (`from` says so). `focus_metres_approx` is one divided by the lens position in dioptres; the camera reports its focus calibration as `APPROXIMATE`, so it is not a measured distance and the word stays in the key. `pipeline` is what the HAL applied, and with `measure=1` every entry there reads `off` and the tone map is linear. `orientation` carries `"available": false` and nothing else when the phone has no gravity sensor. A `scale` block appears when `deskcam scale` has recorded pixels per millimetre for this framing. There is no thermal or battery block in a sidecar; that state is in `/api/status` and on the stream headers below.
+
+A sidecar also says who asked, in an `asker` block. The example above was written before the block existed. This one is from `deskcam snap --why "D19 step 1 live check"`, run in a scratch directory on 2026-09-19, as the tool wrote it:
+
+```json
+"asker": {
+  "command": "deskcam snap --why 'D19 step 1 live check'",
+  "cwd": "/tmp/claude-1000/-home-matt-Projects-AndroidDeskcam/3e50d8c0-8938-46fa-8d23-129612e68bcb/scratchpad/live1",
+  "session": "20260915_4",
+  "via": "cli",
+  "why": "D19 step 1 live check"
+}
+```
+
+`command` is the command as typed, with any access key replaced by `token=***`. `why` is the text given to `--why`. `session` comes from `DESKCAM_SESSION`, or from `AGENT_SESSION_ID` when an agent harness sets one. `via` is `cli` or `console`, which is how the request arrived and not a claim about whether a person or an agent was typing. `project` is the nearest directory above `cwd` that holds a `.git`, or `DESKCAM_PROJECT` when that is set. It is missing here because a scratch directory under `/tmp` is in no repository, and the tool does not guess a project from a directory's name. A key with no value is left out.
 
 HTTP responses also carry headers, and which ones depends on the endpoint (`HttpServer.java` is the source of truth):
 * `X-DeskCam-Provenance`: on `/api/still`, the frame's own record as one line of JSON, the same content as the sidecar. Omitted if it would exceed 7000 bytes.

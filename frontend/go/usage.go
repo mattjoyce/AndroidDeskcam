@@ -95,6 +95,12 @@ Camera state persists until you change it (zoom, cx, cy, focus, exposure, iso, t
 awb, measure, rotate). Presentation applies to one request and is then forgotten
 (w, h, jpegq). deskcam api prints the whole list.
 
-Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL
+Any command also accepts --why "TEXT": what it is for, in your own words. It is written
+into the record beside each capture and is never sent to the phone. The record also says
+which directory and project asked. A scratch directory is in no project, so name one with
+DESKCAM_PROJECT, and name a run of work with DESKCAM_SESSION.
+
+Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL,
+             DESKCAM_PROJECT, DESKCAM_SESSION
 `)
 }

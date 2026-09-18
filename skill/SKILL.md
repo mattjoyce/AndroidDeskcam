@@ -66,6 +66,20 @@ unset. `snap` prints the full path it wrote, so read that rather than assuming a
 directory. If someone says their capture roll is empty, this is usually why: the captures
 went to whatever directory the command ran in.
 
+**Say what each capture is for, and which project it is for.** Every capture leaves a record
+beside it, and the person reads those records later to see what you looked at and why. Add
+`--why "read the OLED after flashing"` to a capture, in your own words. The record also
+names the project, which it finds from the repository you run in. A scratch directory is in
+no repository, so do not `cd` into one to shoot. Stay in the project directory and send the
+files where you want them:
+
+```bash
+export DESKCAM_SHOTS="$SCRATCH"        # where the files go
+img=$(deskcam snap zoom=4 --why "check the solder bridge on U3")
+```
+
+If you cannot run from the project directory, set `DESKCAM_PROJECT` to its path.
+
 **There are two web pages and they are not the same.** Confusing them wastes a person's
 time, because the one they are looking at may not be the one you mean.
 

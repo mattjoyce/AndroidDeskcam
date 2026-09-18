@@ -44,6 +44,7 @@ type invocation struct {
 	out     string
 	cfg     Config
 	client  *Client
+	who     asker // who asked, written into every record this command leaves
 }
 
 func (in *invocation) arg(i int) string {
@@ -73,7 +74,7 @@ func run(argv []string) int {
 	}
 
 	in := &invocation{command: argv[0]}
-	var urlFlag string
+	var urlFlag, why string
 	rest := argv[1:]
 	for i := 0; i < len(rest); i++ {
 		switch a := rest[i]; {
@@ -89,6 +90,14 @@ func run(argv []string) int {
 			}
 			i++
 			urlFlag = rest[i]
+		// What the capture is for, in the caller's words. It goes into the record and
+		// nowhere near the phone. Decision D19.
+		case a == "--why":
+			if i+1 >= len(rest) {
+				return fail("--why needs a value")
+			}
+			i++
+			why = rest[i]
 		case a == "-h" || a == "--help":
 			usage()
 			return 0
@@ -109,6 +118,7 @@ func run(argv []string) int {
 
 	in.cfg = loadConfig(urlFlag)
 	in.client = NewClient(in.cfg)
+	in.who = thisProcess(argv, why)
 
 	if code := in.checkParams(); code != 0 {
 		return code
@@ -342,7 +352,7 @@ func capture(in *invocation, path, ext string) int {
 	if err != nil {
 		return failWith(err)
 	}
-	if err := writeSidecar(out, reply, in.client, in.cfg.URL); err != nil {
+	if err := writeSidecar(out, reply, in.client, in.cfg.URL, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
 	}
 	if err := writeThumb(out); err != nil {
@@ -437,7 +447,7 @@ func burst(in *invocation) int {
 		fmt.Fprintf(os.Stderr, "deskcam: short burst, %d of %d frames (HTTP %d)\n",
 			got, n, reply.Status)
 	}
-	if err := writeSidecar(filepath.Join(dir, "burst.jpg"), reply, in.client, in.cfg.URL); err != nil {
+	if err := writeSidecar(filepath.Join(dir, "burst.jpg"), reply, in.client, in.cfg.URL, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
 	}
 	fmt.Println(dir)
@@ -508,7 +518,7 @@ func aatest(in *invocation) int {
 		if err != nil {
 			return fail("%s capture failed: %v", suffix, err)
 		}
-		if err := writeSidecar(name, reply, in.client, in.cfg.URL); err != nil {
+		if err := writeSidecar(name, reply, in.client, in.cfg.URL, in.who); err != nil {
 			return fail("could not write the sidecar: %v", err)
 		}
 		shots = append(shots, name)
@@ -596,7 +606,7 @@ func walkCommand(in *invocation, path, prefix string) int {
 		fmt.Fprintf(os.Stderr, "deskcam: the phone sent %d frames and %d were written\n",
 			got, written)
 	}
-	if err := splitWalk(dir, manifest); err != nil {
+	if err := splitWalk(dir, manifest, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecars:", err)
 	}
 	fmt.Println(dir)
@@ -608,7 +618,7 @@ const walkManifest = "walk.json"
 
 // splitWalk turns the one manifest into a sidecar beside each frame, and keeps the
 // manifest too, because the order and the range of the walk belong to the set.
-func splitWalk(dir string, manifest []byte) error {
+func splitWalk(dir string, manifest []byte, who asker) error {
 	if len(manifest) == 0 {
 		return fmt.Errorf("the walk carried no %s", walkManifest)
 	}
@@ -641,6 +651,9 @@ func splitWalk(dir string, manifest []byte) error {
 		if width > 0 {
 			frame["width_px"] = width
 			frame["height_px"] = height
+		}
+		if block := who.block(); block != nil {
+			frame["asker"] = block
 		}
 		out, err := json.MarshalIndent(frame, "", "  ")
 		if err != nil {
