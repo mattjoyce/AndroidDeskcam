@@ -276,7 +276,7 @@ func (s *consoleState) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/thumb/", local(s.handleFile))
 	mux.HandleFunc("/sidecar/", local(s.handleFile))
 	// Routes that change something: loopback, and a POST the page has to mean.
-	mux.HandleFunc("/api/cam", local(s.mutating(s.handleCam)))
+	mux.HandleFunc("/api/op", local(s.mutating(s.handleOp)))
 	mux.HandleFunc("/api/newcode", local(s.mutating(s.handleNewCode)))
 	mux.HandleFunc("/api/token", local(s.mutating(s.handleToken)))
 }
@@ -634,39 +634,6 @@ func (s *consoleState) handleStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-}
-
-// handleCam forwards a control request to the phone, so the page only ever talks to the
-// console. So does the live view, through handleStream.
-func (s *consoleState) handleCam(w http.ResponseWriter, r *http.Request) {
-	phone, token, _ := s.snapshot()
-	if phone == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "no phone paired"})
-		return
-	}
-	target := phone + "/api/set"
-	if q := r.URL.RawQuery; q != "" {
-		target += "?" + q
-	}
-	if token != "" {
-		if strings.Contains(target, "?") {
-			target += "&token=" + url.QueryEscape(token)
-		} else {
-			target += "?token=" + url.QueryEscape(token)
-		}
-	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Get(target)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(body)
 }
 
 // ------------------------------------------------------------------ install

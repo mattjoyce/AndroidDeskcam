@@ -106,14 +106,20 @@ func takeFailure() string {
 
 // journalRun writes down what a command did. Nothing here can fail the command: a journal
 // that cannot be written is a lost diagnostic and never a lost capture.
-func journalRun(in *invocation, started time.Time, code int) {
+//
+// It gives back what the command said when it failed, for a caller with no terminal to
+// have read it on.
+func journalRun(in *invocation, started time.Time, code int) string {
 	failure := takeFailure()
+	if code == 0 {
+		failure = ""
+	}
 	if !journalled[in.command] {
-		return
+		return failure
 	}
 	dir := journalDir()
 	if dir == "" {
-		return
+		return failure
 	}
 	entry := journalEntry{
 		At:        started.UTC().Format(time.RFC3339Nano),
@@ -125,14 +131,13 @@ func journalRun(in *invocation, started time.Time, code int) {
 		ExitCode:  code,
 		Asker:     in.who.block(),
 	}
-	if code != 0 {
-		entry.Error = failure
-	}
+	entry.Error = failure
 	if err := writeJournal(dir, entry, in.produced); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the journal:", err)
-		return
+		return failure
 	}
 	pruneJournal(dir, journalCap)
+	return failure
 }
 
 var journalSeq atomic.Int64

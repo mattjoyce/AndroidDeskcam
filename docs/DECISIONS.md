@@ -13,7 +13,7 @@ records what was chosen. It cannot record what was rejected, or what was measure
 bench at a particular hour to settle an argument, and a reader who does not have those
 re-litigates every one of them.
 
-The rules are `R1` to `R8` and the decisions are `D1` to `D17`. Both are referred to by
+The rules are `R1` to `R8` and the decisions are `D1` to `D19`. Both are referred to by
 number throughout the repository, in the code comments, in the kanban cards and in the
 commit messages, so the numbers are stable and are never reused.
 
@@ -593,16 +593,36 @@ A session is derived and not managed. It is a run of captures from one project w
 gap between them. Nobody creates, names or closes one, and the console keeps no state that
 the files do not hold. The sidecar stays the only index, as in `roll.go`.
 
-This is the target and the code does not meet it yet. On 2026-09-19 the capture roll read
-one directory, the working directory of `deskcam serve`, while 99 of the 100 captures on the
-workstation sat in 11 temporary session directories that agents had chosen for themselves.
-That is a count by `find` of `deskcam-20*.jpg`, thumbnails excluded, under the home
-directory and `/tmp`. The roll cannot show a capture it is not pointed at, so it showed none of those. A sidecar records the camera completely and
-records nothing about who asked: no directory, no project, no command, no purpose. The
-console still carries the framing buttons. Its one operation, "Shoot this again", takes no
-picture: it restores the settings and stops, and it builds them in the page's own
-JavaScript while `recallQuery` in `recall.go` does the same job for the CLI. That is a
-second code path of the kind this decision forbids. Those four are the work it implies.
+The code met none of this on the morning of 2026-09-19, and the four faults are worth
+keeping because each is the general one in a small form.
+
+The capture roll read one directory, the working directory of `deskcam serve`, while 99 of
+the 100 captures on the workstation sat in 11 temporary session directories that agents had
+chosen for themselves. That is a count by `find` of `deskcam-20*.jpg`, thumbnails excluded,
+under the home directory and `/tmp`. The roll cannot show a capture it is not pointed at,
+so it showed none of those. The CLI now writes every operation into a journal that does
+not move, with a copy of the thumbnail and the sidecar, and the roll is that journal. A
+refusal is journalled as fully as a capture.
+
+A sidecar recorded the camera completely and nothing about who asked. It now carries an
+`asker` block: the directory, the project, the command as typed, the session and the reason
+given to `--why`. A scratch directory is in no repository, so the project is found from the
+directory the command ran in or stated in `DESKCAM_PROJECT`, and it is never guessed.
+
+The console carried framing buttons and gestures, a second copy of the bench tool. They are
+gone, and so is the route that forwarded any parameter to the phone. The console offers
+named operations and refuses the rest.
+
+Its one operation, "Shoot this again", took no picture. It restored the settings and
+stopped, and it built them in the page's own JavaScript from six of the keys that
+`recallQuery` in `recall.go` knows, so the two had already drifted. Both now run
+`recallFrom`, and a recall checked against the phone sent fourteen. `operate()` in
+`main.go` is the one door: the CLI and the console both go through it, to one dispatch and
+one journal.
+
+One thing is still open. The phone keeps a log of the last forty requests and shows it on
+its own screen only. Serving it would let the console show every client, including one that
+does not use the CLI. That is a change to the phone and has not been made.
 
 ## Non-goals
 

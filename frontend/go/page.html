@@ -19,14 +19,15 @@
 
  /* Three columns filling the window. Each scrolls on its own. */
  main{flex:1 1 auto;display:grid;gap:9px;padding:9px;min-height:0;
-      grid-template-columns:214px 300px minmax(0,1fr)}
- @media(max-width:1000px){main{grid-template-columns:170px 250px minmax(0,1fr)}}
+      grid-template-columns:260px 340px minmax(0,1fr)}
+ @media(max-width:1000px){main{grid-template-columns:200px 270px minmax(0,1fr)}}
  @media(max-width:760px){main{grid-template-columns:1fr;overflow:auto}}
  .col{min-height:0;display:flex;flex-direction:column;background:#161b22;
       border:1px solid #21262d;border-radius:9px;overflow:hidden}
- .col>h2{flex:0 0 auto;margin:0;padding:7px 11px;font-size:10px;text-transform:uppercase;
+ .col>h2{flex:0 0 auto;margin:0;padding:7px 11px;font-size:11.5px;text-transform:uppercase;
          letter-spacing:.07em;color:#8b949e;font-weight:600;border-bottom:1px solid #21262d}
- .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0}
+ .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0;
+         scrollbar-color:#30363d transparent;scrollbar-width:thin}
  #asleep{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
          background:rgba(1,4,9,0.82);color:#8b949e;font-size:13px}
 
@@ -34,27 +35,30 @@
  .shot{background:#0d1117;border:1px solid #21262d;border-radius:6px;overflow:hidden;
        cursor:pointer;flex:0 0 auto}
  .shot img{display:block;width:100%;height:auto}
- .shot .m{padding:3px 6px;font:9px/1.3 ui-monospace,monospace;color:#8b949e}
+ .shot .m{padding:4px 7px;font:11.5px/1.35 ui-monospace,monospace;color:#8b949e}
  .shot:hover,.shot.sel{border-color:#2f81f7}
- .proj{font:600 11px ui-monospace,monospace;color:#e6edf3;padding:6px 2px 0;border-top:1px solid #21262d}
+ .proj{font:600 13px ui-monospace,monospace;color:#e6edf3;padding:6px 2px 0;border-top:1px solid #21262d}
  .proj:first-child{border-top:0}
- .sess{font:9px/1.4 ui-monospace,monospace;color:#8b949e;padding:0 2px}
+ .sess{font:11.5px/1.4 ui-monospace,monospace;color:#8b949e;padding:0 2px}
  .why{color:#c9d1d9;font-style:italic}
  .op{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:3px 6px;cursor:pointer;
-     font:9px/1.4 ui-monospace,monospace;color:#8b949e;overflow-wrap:anywhere}
+     font:11.5px/1.4 ui-monospace,monospace;color:#8b949e;overflow-wrap:anywhere}
  .op b{color:#c9d1d9} .op.bad{border-color:#8e1519} .op.bad .why{color:#ff7b72;font-style:normal}
  .op:hover,.op.sel{border-color:#2f81f7}
+ .op code{word-break:normal;overflow-wrap:anywhere}
  .t{color:#6e7681} .gone{color:#d29922}
+ .col>h2 a{color:#8b949e;text-decoration:none} .col>h2 a:hover{color:#e6edf3}
+ #why{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:5px 8px;font-size:13px}
 
  details.grp{border-bottom:1px solid #21262d}
- details.grp>summary{cursor:pointer;padding:6px 11px;font:11px ui-monospace,monospace;
+ details.grp>summary{cursor:pointer;padding:6px 11px;font:12.5px ui-monospace,monospace;
         color:#8b949e;list-style:none;display:flex;justify-content:space-between;gap:8px}
  details.grp>summary::-webkit-details-marker{display:none}
  details.grp>summary::after{content:"+";color:#484f58}
  details.grp[open]>summary::after{content:"\2212"}
  details.grp[open]>summary{color:#e6edf3;background:#0d1117}
  details.grp .body{padding:4px 11px 9px}
- table.kv{width:100%;border-collapse:collapse;font:11px/1.45 ui-monospace,monospace}
+ table.kv{width:100%;border-collapse:collapse;font:12.5px/1.45 ui-monospace,monospace}
  table.kv td{padding:1px 0;vertical-align:top;word-break:break-word}
  table.kv td:first-child{color:#8b949e;width:46%;padding-right:6px}
  .raw{width:100%;background:#0d1117;color:#8b949e;border:1px solid #21262d;border-radius:5px;
@@ -63,11 +67,9 @@
  .view{position:relative;background:#000;flex:1 1 auto;display:flex;align-items:center;
        justify-content:center;min-height:0;overflow:hidden}
  .view img{max-width:100%;max-height:100%;object-fit:contain;display:block;
-           cursor:crosshair;user-select:none;-webkit-user-drag:none}
+           user-select:none;-webkit-user-drag:none}
  /* A paused view has no src, and the browser draws the alt text through the overlay. */
  .view img:not([src]){visibility:hidden}
- #box{position:absolute;border:2px solid #2f81f7;background:rgba(47,129,247,.15);
-      display:none;pointer-events:none}
  .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
        border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
        color:#8b949e;pointer-events:none}
@@ -77,10 +79,10 @@
  .btns{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:8px;
        border-top:1px solid #21262d}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
-        padding:4px 10px;font-size:11px;cursor:pointer}
+        padding:5px 11px;font-size:13px;cursor:pointer}
  button:hover{background:#30363d}
  button.p{background:#1f6feb;border-color:#1f6feb} button.p:hover{background:#388bfd}
- code{font:11px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
+ code{font:12px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
 
  dialog{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
         padding:0;width:min(1150px,94vw);max-height:92vh;overflow:hidden}
@@ -94,7 +96,7 @@
  .frame img{max-width:100%;max-height:66vh;object-fit:contain;display:block;border-radius:4px}
  .dlgbar{display:flex;gap:8px;align-items:center;padding:8px 12px;flex-wrap:wrap;
          border-top:1px solid #21262d}
- .dlgbar .info{font:11px ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
+ .dlgbar .info{font:12.5px ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
  .qr img{width:100%;max-width:170px;display:block;margin:6px auto}
  .qrpair{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
  .qrpair>div{flex:1 1 170px;max-width:230px}
@@ -107,7 +109,9 @@
 </header>
 <main>
   <div class="col">
-    <h2>Journal</h2>
+    <h2>Journal <span style="float:right;text-transform:none;letter-spacing:0">
+      <a href="#" id="vGroups" onclick="return view('groups')">by project</a> &middot;
+      <a href="#" id="vLog" onclick="return view('log')">command log</a></span></h2>
     <div class="scroll"><div id="roll"></div>
       <p id="empty" class="muted" style="font-size:11px;padding:0 10px">
         Nothing in the journal yet. <code>deskcam snap</code> from anywhere.</p></div>
@@ -120,20 +124,19 @@
     <div class="view" id="wrap">
       <img id="live" alt="live view">
       <div id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
-      <div id="box"></div>
-      <div class="hint">drag a box to frame &middot; click to centre
-        &middot; shift-click resets</div>
+      <div class="hint">what the agent sees &middot; to aim, open the phone's page</div>
       <div id="streamerr" class="warn"></div>
     </div>
     <div class="btns">
-      <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
-      <button onclick="cam('zoomby=1.5')">In</button>
-      <button onclick="cam('zoomby=0.667')">Out</button>
-      <button onclick="cam('measure=1')">Measure</button>
-      <button onclick="cam('measure=0')">Normal</button>
-      <button onclick="rot()">Rotate</button>
+      <button class="p" onclick="snapNow()">Snap</button>
+      <input id="why" placeholder="what is it for? (optional)" size="26">
+      <button onclick="op('do=hunt')">Focus hunt</button>
+      <button onclick="op('do=measure')">Measure</button>
+      <button onclick="op('do=normal')">Normal</button>
       <button onclick="restream()">Restream</button>
       <button onclick="document.getElementById('pair').showModal()">Pair</button>
+      <a id="bench" class="muted" target="_blank" rel="noopener" style="font-size:12px">aim on the phone's page</a>
+      <span id="said" class="muted" style="font-size:12px"></span>
     </div>
   </div>
 </main>
@@ -145,7 +148,7 @@
   </div>
   <div class="dlgbar">
     <div class="info" id="biginfo"></div>
-    <button onclick="recall()">Shoot this again</button>
+    <button onclick="again()">Shoot this again</button>
     <button onclick="document.getElementById('big').close()">Close</button>
   </div>
 </div></dialog>
@@ -226,7 +229,28 @@ document.addEventListener('toggle', e=>{
 function change(path){
   return fetch(path, {method:'POST', headers:{'X-DeskCam-Console':'1'}});
 }
-async function cam(q){ try{ await change('/api/cam?'+q); }catch(e){} refresh(); }
+/* The console is the agent's seat. It runs the CLI's own operations and it does not aim:
+   zoom, pan and rotate are on the phone's page, which is the bench tool. Decision D19.
+   Whatever an operation did, or was refused for, lands in the journal like anyone else's. */
+let busy=false;
+async function op(q){
+  if(busy) return;
+  busy=true; say('working...');
+  try{
+    const d=await (await change('/api/op?'+q)).json();
+    const bad=(d.steps||[]).find(x=>!x.ok);
+    say(d.ok?'':(bad?bad.operation+': '+bad.error:(d.error||'refused')), !d.ok);
+  }catch(e){ say('the console did not answer', true); }
+  busy=false; refresh(); loadRoll();
+}
+function say(text,bad){
+  const el=document.getElementById('said');
+  el.textContent=text||''; el.className=bad?'gone':'muted';
+}
+function snapNow(){
+  const why=document.getElementById('why').value.trim();
+  op('do=snap'+(why?'&why='+encodeURIComponent(why):''));
+}
 /* The live view comes through the console, not straight from the phone. The browser has
    no access key on purpose, so pointing an <img> at the phone meant that setting a key
    turned the video black with nothing on the page saying why. The console has the key and
@@ -280,17 +304,10 @@ function streamFailed(why){
   el.style.display='block';
 }
 function streamOK(){ document.getElementById('streamerr').style.display='none'; }
-/* Rotation is how the phone is bolted down, so it is camera state and a deliberate
-   press changes it. The stream then shows it because the camera has it. */
-async function rot(){
-  const now=(S.settings&&S.settings.rotate)||0;
-  await cam('rotate='+((now+180)%360));
-  streamUrl=''; restream();
-}
-
 async function refresh(){
   try{
     S=await (await fetch('/api/state')).json();
+    { const b=document.getElementById('bench'); b.hidden=!S.phone; if(S.phone) b.href=S.phone; }
     const dot=S.online?'<span class="dot on"></span>':'<span class="dot off"></span>';
     document.getElementById('hdr').innerHTML=dot+
       (S.phone?(S.online?S.phone:'paired, not answering'):'no phone paired');
@@ -333,10 +350,44 @@ function rowOf(c,i){
     ' <span class="t">'+clock(c.at)+'</span>'+
     (c.exists?'':'<br><span class="gone">original gone</span>')+'</div></div>';
 }
+/* Two views of one journal. By project, for what a piece of work looked at. The command
+   log, for what was typed: newest first, one line for each command, as it was typed, so it
+   can be copied and run. */
+let VIEW='groups';
+try{ VIEW=localStorage.getItem('deskcam.view')||'groups'; }catch(e){}
+function view(v){
+  VIEW=v; try{ localStorage.setItem('deskcam.view',v); }catch(e){}
+  loadRoll(); return false;
+}
+function logOf(groups){
+  const seen={}, rows=[];
+  for(const g of groups) for(const x of g.sessions) for(const c of x.items){
+    if(seen[c.id]) continue;
+    seen[c.id]=true; rows.push([c, g]);
+  }
+  rows.sort((a,b)=>a[0].at<b[0].at?1:-1);
+  return rows.map(([c,g])=>{
+    const i=ROLL.length; ROLL.push(c);
+    const name=g.project.split('/').filter(Boolean).pop()||g.project;
+    return '<div class="op'+(c.ok?'':' bad')+(rowKey(c)===selName?' sel':'')+'" onclick="pick('+i+')">'+
+      '<div class="t">'+day(c.at)+' '+clock(c.at)+' &middot; '+esc(name)+' &middot; '+
+      esc(c.via||'')+' &middot; '+c.millis+' ms</div>'+
+      '<code>'+esc(c.command||(c.operation+' '+(c.query||'')))+'</code>'+
+      (c.ok?'':'<div class="why">'+esc(c.error||'refused')+'</div>')+'</div>';
+  }).join('');
+}
 async function loadRoll(){
   try{
     const groups=(await (await fetch('/api/roll')).json()).groups||[];
     ROLL=[];
+    document.getElementById('vGroups').style.color=VIEW==='groups'?'#e6edf3':'';
+    document.getElementById('vLog').style.color=VIEW==='log'?'#e6edf3':'';
+    if(VIEW==='log'){
+      const html=logOf(groups);
+      document.getElementById('empty').style.display=ROLL.length?'none':'block';
+      document.getElementById('roll').innerHTML=html;
+      return;
+    }
     let html='';
     for(const g of groups){
       const name=g.project.split('/').filter(Boolean).pop()||g.project;
@@ -398,19 +449,16 @@ function show(c){
   loadRecord(c,'dside');
   document.getElementById('big').showModal();
 }
-function recall(){
-  if(!shown||!shown.settings) return;
-  const g=shown.settings, q=['reset=1','zoom='+g.zoom,'cx='+g.cx,'cy='+g.cy,'rotate='+g.rotate];
-  if(g.measure) q.push('measure=1');
-  if(g.torch) q.push('torch='+g.torch);
-  if(g.focus_diopters!=null) q.push('focus='+g.focus_diopters);
-  if(g.ae==='manual'){ if(g.exposure_ns)q.push('exposure='+g.exposure_ns);
-                       if(g.iso)q.push('iso='+g.iso); }
-  cam(q.join('&'));
+/* "Shoot this again" used to rebuild the settings here, from six of the keys the CLI's
+   recall knows, and then take no picture. The console now recalls through the CLI's own
+   code and shoots. */
+function again(){
+  if(!shown) return;
   document.getElementById('big').close();
+  op('do=again&id='+encodeURIComponent(shown.id)+'&n='+shown.n);
 }
 
-const live=document.getElementById('live'), box=document.getElementById('box');
+const live=document.getElementById('live');
 live.addEventListener('load', streamOK);
 live.addEventListener('error', ()=>{
   streamFailed(S.stream_error);
@@ -418,50 +466,6 @@ live.addEventListener('error', ()=>{
      dead phone would otherwise be dialled every one of them. */
   streamUrl=''; streamRetryAt=Date.now()+5000;
 });
-let sx=0, sy=0, dragging=false;
-function frac(e){
-  const b=live.getBoundingClientRect();
-  return [(e.clientX-b.left)/b.width,(e.clientY-b.top)/b.height];
-}
-live.addEventListener('mousedown', e=>{
-  if(e.shiftKey){ cam('zoom=1&cx=0.5&cy=0.5'); return; }
-  [sx,sy]=frac(e); dragging=true;
-  const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
-  box.style.display='block';
-  box.dataset.ox=b.left-w.left; box.dataset.oy=b.top-w.top;
-  box.dataset.bw=b.width; box.dataset.bh=b.height;
-  e.preventDefault();
-});
-window.addEventListener('mousemove', e=>{
-  if(!dragging) return;
-  const [x,y]=frac(e), ox=+box.dataset.ox, oy=+box.dataset.oy,
-        bw=+box.dataset.bw, bh=+box.dataset.bh;
-  box.style.left=(ox+Math.min(sx,x)*bw)+'px';
-  box.style.top=(oy+Math.min(sy,y)*bh)+'px';
-  box.style.width=(Math.abs(x-sx)*bw)+'px';
-  box.style.height=(Math.abs(y-sy)*bh)+'px';
-});
-window.addEventListener('mouseup', e=>{
-  if(!dragging) return;
-  dragging=false; box.style.display='none';
-  const [x,y]=frac(e), g=S.settings||{};
-  const z=Math.max(1,g.zoom||1), w=1/z;
-  const left=Math.min(Math.max((g.cx!=null?g.cx:0.5)-w/2,0),1-w);
-  const top =Math.min(Math.max((g.cy!=null?g.cy:0.5)-w/2,0),1-w);
-  const dx=Math.abs(x-sx), dy=Math.abs(y-sy);
-  if(dx<0.02&&dy<0.02){
-    cam('cx='+(left+Math.min(sx,x)*w).toFixed(4)+'&cy='+(top+Math.min(sy,y)*w).toFixed(4));
-    return;
-  }
-  const nz=Math.min(1/(dx*w),1/(dy*w));
-  cam('zoom='+Math.min(nz,20).toFixed(2)+
-      '&cx='+(left+(Math.min(sx,x)+dx/2)*w).toFixed(4)+
-      '&cy='+(top+(Math.min(sy,y)+dy/2)*w).toFixed(4));
-});
-live.addEventListener('wheel', e=>{
-  e.preventDefault(); cam('zoomby='+(e.deltaY<0?1.25:0.8));
-},{passive:false});
-
 fetch('/api/install').then(r=>r.json()).then(d=>{
   document.getElementById('isrc').textContent=
     'Version '+d.version+' from '+d.source+'. Scan with the phone\'s camera, then open the download.';

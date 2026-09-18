@@ -486,7 +486,7 @@ deskcam analyse stack sweep/</code></pre>
         <ul>
           <li><strong>Zero-Config URL Discovery:</strong> Automatically resolves the camera target in priority order: <code>--url</code> flag &rarr; <code>$DESKCAM_URL</code> environment variable &rarr; <code>~/.config/deskcam/url</code> &rarr; localhost:8080.</li>
           <li><strong>Automated USB Forwarding:</strong> <code>deskcam usb</code> executes <code>adb forward tcp:8080 tcp:8080</code>, making camera control 100% reliable even in air-gapped or restricted Wi-Fi environments.</li>
-          <li><strong>A second client, the console:</strong> <code>deskcam serve</code> starts a page at <code>http://127.0.0.1:9000</code> with a live view, touch-to-centre pan and zoom, a capture roll and QR pairing. It forwards to the phone like any other client, and it exists only while <code>deskcam serve</code> is running.</li>
+          <li><strong>A second client, the console:</strong> <code>deskcam serve</code> starts a page at <code>http://127.0.0.1:9000</code> that is the other view of the same operations. It shows the journal of everything an agent did, grouped by project and session or as a log of the commands as typed, with refusals in the phone's own words, beside the live view. A person there can take a still, run a focus hunt or shoot a capture again, through the same code the CLI runs. It does not aim: that is the phone's own page. It exists only while <code>deskcam serve</code> is running.</li>
         </ul>
       </section>
 
@@ -1165,7 +1165,7 @@ SNAP</textarea>
               <span style="font-family:var(--font-mono); font-size:0.72rem;">Surfaces</span>
             </div>
             <div class="card-title">The Console Is the Other View of the Same Operations</div>
-            <div class="card-desc">The phone is the measurement end and the workstation is the operations end. The console shows a person what an agent asked for, from which project, what came back and what was refused. It is the agent's seat: it observes without being in the path, it runs the CLI's own operations through the CLI's code, and tooling that needs the record instead of the camera lives there. Aiming stays on the bench tool. The code does not meet this yet.</div>
+            <div class="card-desc">The phone is the measurement end and the workstation is the operations end. The console shows a person what an agent asked for, from which project, what came back and what was refused. It is the agent's seat: it observes without being in the path, it runs the CLI's own operations through the CLI's code, and tooling that needs the record instead of the camera lives there. Aiming stays on the bench tool. Every operation is written into a journal by the CLI, wherever its files went, and the console reads that.</div>
           </div>
         </div>
       </section>

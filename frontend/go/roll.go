@@ -41,6 +41,7 @@ type rollItem struct {
 	Error       string         `json:"error,omitempty"`
 	Why         string         `json:"why,omitempty"`
 	Via         string         `json:"via,omitempty"`
+	Command     string         `json:"command,omitempty"`
 	Cwd         string         `json:"cwd,omitempty"`
 	Name        string         `json:"name,omitempty"`
 	Path        string         `json:"path,omitempty"`
@@ -166,6 +167,7 @@ func itemsOf(entry journalEntry) []rollItem {
 		ID: entry.id, N: -1, Operation: entry.Operation, Query: entry.Query, At: entry.At,
 		Millis: entry.Millis, Ok: entry.Ok, Error: entry.Error,
 		Why: str(entry.Asker, "why"), Via: str(entry.Asker, "via"), Cwd: str(entry.Asker, "cwd"),
+		Command: str(entry.Asker, "command"),
 	}
 	if len(entry.Files) == 0 {
 		return []rollItem{base}

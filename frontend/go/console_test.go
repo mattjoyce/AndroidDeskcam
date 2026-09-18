@@ -244,7 +244,7 @@ func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
 	for _, path := range []string{
 		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
 		"/img/" + id + "/0", "/thumb/" + id + "/0", "/sidecar/" + id + "/0", "/api/stream?fps=10",
-		"/api/cam?zoom=2", "/api/newcode", "/api/token?do=clear",
+		"/api/op?do=snap", "/api/newcode", "/api/token?do=clear",
 	} {
 		if got := statusFromLAN(t, state, path); got != http.StatusForbidden {
 			t.Errorf("%s answered the network with %d, want 403", path, got)
@@ -267,7 +267,7 @@ func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
 // website they happen to be visiting from firing a request at the console.
 func TestAWebsiteCannotChangeAnythingThroughTheBrowser(t *testing.T) {
 	_, server, _ := testConsole(t)
-	for _, path := range []string{"/api/token?do=clear", "/api/newcode", "/api/cam?zoom=2"} {
+	for _, path := range []string{"/api/token?do=clear", "/api/newcode", "/api/op?do=snap"} {
 		// What an <img> or a cross-origin form can send: a GET, or a POST with no header.
 		if code, _ := get(t, server, path); code != http.StatusMethodNotAllowed {
 			t.Errorf("GET %s should not be allowed to change anything, got %d", path, code)

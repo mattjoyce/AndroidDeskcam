@@ -124,10 +124,17 @@ func run(argv []string) int {
 	in.client = NewClient(in.cfg)
 	in.who = thisProcess(argv, why)
 
+	code, _ := operate(in)
+	return code
+}
+
+// operate runs one command and writes down what it did, however it ended. The CLI and the
+// console both come through here, which is what makes an operation from the console the
+// same operation: one dispatch, one journal, one set of refusals. Decision D19.
+func operate(in *invocation) (int, string) {
 	started := time.Now()
 	code := dispatch(in)
-	journalRun(in, started, code)
-	return code
+	return code, journalRun(in, started, code)
 }
 
 // dispatch runs the command. run wraps it so that whatever it did, and however it ended,

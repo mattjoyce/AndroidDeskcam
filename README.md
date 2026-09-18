@@ -348,7 +348,7 @@ By default the camera is open: any client on the network can control it and take
 
 **Accept only a code your own console shows.** A pairing link can set or clear the key and makes the phone report its address, so the phone shows what a link will do and waits for **Pair**. It refuses outright a link whose callback is not a console's pairing route on a private address.
 
-`deskcam serve` listens on port 9000 on every interface, because the phone has to reach it to fetch the app and to finish pairing. Only those two routes answer from off the machine. The page, the codes, the capture roll and the key answer on `127.0.0.1` alone.
+`deskcam serve` listens on port 9000 on every interface, because the phone has to reach it to fetch the app and to finish pairing. Only those two routes answer from off the machine. The page, the codes, the journal, the operations and the key answer on `127.0.0.1` alone.
 
 ---
 
@@ -684,6 +684,8 @@ A sidecar also says who asked, in an `asker` block. The example above was writte
 `command` is the command as typed, with any access key replaced by `token=***`. `why` is the text given to `--why`. `session` comes from `DESKCAM_SESSION`, or from `AGENT_SESSION_ID` when an agent harness sets one. `via` is `cli` or `console`, which is how the request arrived and not a claim about whether a person or an agent was typing. `project` is the nearest directory above `cwd` that holds a `.git`, or `DESKCAM_PROJECT` when that is set. It is missing here because a scratch directory under `/tmp` is in no repository, and the tool does not guess a project from a directory's name. A key with no value is left out.
 
 **The journal.** A capture can be written anywhere, and agents write theirs into scratch directories that are cleaned away. So the CLI also keeps one journal of every command that takes a picture or changes the camera, in `~/.local/state/deskcam/journal` or `DESKCAM_JOURNAL`. Each entry is a JSON file of its own, so two agents writing at once need no lock. It holds the time, the duration, the operation and its parameters, the exit code, the `asker` block, and for each file produced its absolute path, its size, a copy of its sidecar and a copy of its thumbnail. A refusal is journalled as fully as a capture, with the phone's own words in `error`. Reading the camera (`status`, `show`, `api`) is not journalled, because an agent polls those. The access key is replaced by `token=***` wherever it appears. The journal keeps its newest 2,000 entries, and a failure to write it never fails a capture.
+
+**The console reads the journal.** `deskcam serve` shows it two ways: grouped by project and then by session, where a session is a run of operations with no gap over thirty minutes, or as a log of the commands as they were typed, newest first. Select a row to see its record beside the live view. The console is also the agent's seat: **Snap**, **Focus hunt**, **Measure**, **Normal** and **Shoot this again** run the CLI's own commands through the CLI's own code, and land in the journal marked `via: console`. It does not aim. Zoom, pan and rotate are on the phone's page, and the console refuses them.
 
 HTTP responses also carry headers, and which ones depends on the endpoint (`HttpServer.java` is the source of truth):
 * `X-DeskCam-Provenance`: on `/api/still`, the frame's own record as one line of JSON, the same content as the sidecar. Omitted if it would exceed 7000 bytes.
