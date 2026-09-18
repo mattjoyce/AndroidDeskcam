@@ -56,7 +56,7 @@
         <a href="#command-playground" class="nav-link">Command Builder <span class="nav-badge">★</span></a>
         <a href="#http-contract" class="nav-link">HTTP API Contract <span class="nav-badge">08</span></a>
         <a href="#metrology-refusal" class="nav-link">Metrology & Refusal <span class="nav-badge">09</span></a>
-        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D18) <span class="nav-badge">10</span></a>
+        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D19) <span class="nav-badge">10</span></a>
       </div>
     </aside>
 
@@ -993,9 +993,9 @@ SNAP</textarea>
         </div>
       </section>
 
-      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D18) -->
+      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D19) -->
       <section id="architectural-decisions">
-        <h2>Architectural Decisions (D1–D18)</h2>
+        <h2>Architectural Decisions (D1–D19)</h2>
         <div class="card-grid">
           <div class="info-card">
             <div class="card-header">
@@ -1156,7 +1156,16 @@ SNAP</textarea>
               <span style="font-family:var(--font-mono); font-size:0.72rem;">Surfaces</span>
             </div>
             <div class="card-title">A Surface Sits With What It Touches</div>
-            <div class="card-desc">The phone owns the camera, so the page it serves is the bench tool and the only live view. The workstation owns the captures, the key and the APK, so the Go binary does everything else. Two live views with gestures of their own had drifted apart.</div>
+            <div class="card-desc">The phone owns the camera, so the page it serves is the bench tool and the only place the camera is aimed. The workstation owns the captures, the key and the APK, so the Go binary does everything else. Two live views with gestures of their own had drifted apart.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D19</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Surfaces</span>
+            </div>
+            <div class="card-title">The Console Is the Other View of the Same Operations</div>
+            <div class="card-desc">The phone is the measurement end and the workstation is the operations end. The console shows a person what an agent asked for, from which project, what came back and what was refused. It is the agent's seat: it observes without being in the path, it runs the CLI's own operations through the CLI's code, and tooling that needs the record instead of the camera lives there. Aiming stays on the bench tool. The code does not meet this yet.</div>
           </div>
         </div>
       </section>

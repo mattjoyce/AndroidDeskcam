@@ -464,10 +464,13 @@ distinguishable from outside instead of both being a frame counter that stopped.
 **A page that nobody is looking at does not hold the camera awake.** An `<img>` on an MJPEG
 stream keeps its connection for as long as its `src` is set, whether the tab is visible,
 buried, or on a machine with the lid shut. Both panels stop their stream on
-`visibilitychange`, and again after 30 seconds with no pointer, key, wheel or touch,
-starting it on the next thing anyone does. **Being visible is not the same as being
-watched**: a page open on a second monitor with nobody in the room is the case most likely
-to be left running, and the first version of this covered every case except that one.
+`visibilitychange`, and again after five minutes with no pointer, key, wheel or touch,
+starting it on the next thing anyone does. The first value was 30 seconds, and in use it
+paused the view on someone watching it with both hands on the work. The fault it guards
+against is a page left overnight, which minutes cure as well as seconds. **Being visible is
+not the same as being watched**: a page open on a second monitor with nobody in the room is
+the case most likely to be left running, and the first version of this covered every case
+except that one.
 Idling the engine achieves nothing while a forgotten page holds it awake.
 
 **D17. The crop and the focus region are two rectangles, not one.** `meteringForRoi()`
@@ -541,6 +544,65 @@ One consequence comes first. The access check covers every path, the page includ
 page's own requests carry no key, so with a key set the bench tool fails. The console's relay
 exists to get around that. The fix belongs on the phone, and until it lands the console keeps
 its live view.
+
+D19 revises one part of this. The split between the phone and the workstation stands. The
+line that the console has no live view does not, because D18 judged the console as a second
+bench tool and it is not one.
+
+**D19. The console is the other view of the same operations.** The system has two ends. The
+phone is the measurement end: the sensor, the lens, and the bench tool a person uses to aim
+them. The workstation is the operations end: the requests an agent made, the captures that
+came back, the refusals, and the files those became.
+
+The agent sees an operation as a command and its result. The console shows a person the same
+operations from the outside: what was asked, from which project and directory, what came
+back, what was refused, and how many attempts a task took. It is a diagnostic tool about
+DeskCam, and it is the agent's seat: a person sitting there sees what the agent saw and can
+do what the agent did.
+
+Three rules follow.
+
+**It observes, and it is never in the path.** An agent works the same with the console
+stopped. No request to the phone goes through the console in order to be recorded, because
+a recorder in the path turns a fault in the diagnostic tool into a fault in the instrument.
+The console reads what the CLI and the phone already wrote down.
+
+**It acts as the agent acts, through the agent's code.** There are two ways for a person to
+use the camera and they are different jobs. The bench tool aims: continuous gestures on a
+live view, by someone looking at the thing on the bench (D18). The console operates: it
+issues the CLI's own operations, a still, a hunt, a bracket, a tape, a recall, and the
+result lands on disk with a sidecar exactly as an agent's does. To find out why an agent
+failed, a person has to be able to do what the agent did and get what the agent got, and
+that holds only if both go through one code path. The console is the same binary as the CLI,
+so its handlers call the functions the commands call and it has no camera logic of its own.
+What a person does there is recorded beside what the agents did, and marked as a person's.
+
+So the framing gestures go, because they are aiming and the bench tool has them. The live
+view stays, for the reason in D10: a stream is a view, and the seat needs to show what the
+agent sees beside what the agent captured.
+
+**Tooling that does not belong on the measurement end lives here.** Every feature on the
+phone costs heat, memory and an install, and D15 records this phone throttling to `severe`
+under the load it already carries. The phone stores nothing (D14) and processes no image beyond crop, rotate and resize. So
+the test for a new tool is whether it needs the camera or needs the record. A tool that
+needs the record belongs to the console: the history of captures, grouping by project and
+session, comparison of one capture with another, retention, repeating a capture from its
+sidecar, the install and pairing codes, and the access key. None of these may slow a frame.
+
+A session is derived and not managed. It is a run of captures from one project with no long
+gap between them. Nobody creates, names or closes one, and the console keeps no state that
+the files do not hold. The sidecar stays the only index, as in `roll.go`.
+
+This is the target and the code does not meet it yet. On 2026-09-19 the capture roll read
+one directory, the working directory of `deskcam serve`, while 99 of the 100 captures on the
+workstation sat in 11 temporary session directories that agents had chosen for themselves.
+That is a count by `find` of `deskcam-20*.jpg`, thumbnails excluded, under the home
+directory and `/tmp`. The roll cannot show a capture it is not pointed at, so it showed none of those. A sidecar records the camera completely and
+records nothing about who asked: no directory, no project, no command, no purpose. The
+console still carries the framing buttons. Its one operation, "Shoot this again", takes no
+picture: it restores the settings and stops, and it builds them in the page's own
+JavaScript while `recallQuery` in `recall.go` does the same job for the CLI. That is a
+second code path of the kind this decision forbids. Those four are the work it implies.
 
 ## Non-goals
 
