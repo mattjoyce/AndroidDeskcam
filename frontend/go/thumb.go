@@ -42,6 +42,11 @@ func isJPEG(path string) bool {
 // standard library and the downscale below is a box filter, so the round trip was not
 // even buying anything.
 func writeThumb(capture string) error {
+	return writeThumbTo(capture, thumbFor(capture))
+}
+
+// writeThumbTo is writeThumb with the tile's place named, for the journal's own copy.
+func writeThumbTo(capture, out string) error {
 	if !isJPEG(capture) {
 		// A DNG is not decodable here, and roll() lists only JPEGs, so there is nothing
 		// for a thumbnail of one to appear in.
@@ -62,7 +67,6 @@ func writeThumb(capture string) error {
 
 	// Written under another name and moved into place, so the console never serves half a
 	// thumbnail to a page that is refreshing its roll every three seconds.
-	out := thumbFor(capture)
 	temp := out + ".part"
 	w, err := os.Create(temp)
 	if err != nil {

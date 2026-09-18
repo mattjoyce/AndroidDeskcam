@@ -24,6 +24,7 @@ func main() { os.Exit(run(os.Args[1:])) }
 
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "deskcam: "+format+"\n", a...)
+	noteFailure(fmt.Sprintf(format, a...))
 	return 1
 }
 
@@ -31,6 +32,7 @@ func fail(format string, a ...any) int {
 // says that too.
 func failWith(err error) int {
 	fmt.Fprintf(os.Stderr, "deskcam: %v\n", err)
+	noteFailure(err.Error())
 	if next := advice(err); next != "" {
 		fmt.Fprintf(os.Stderr, "  %s\n", next)
 	}
@@ -45,6 +47,8 @@ type invocation struct {
 	cfg     Config
 	client  *Client
 	who     asker // who asked, written into every record this command leaves
+	// The files and directories this command wrote, for the journal.
+	produced []string
 }
 
 func (in *invocation) arg(i int) string {
@@ -120,6 +124,15 @@ func run(argv []string) int {
 	in.client = NewClient(in.cfg)
 	in.who = thisProcess(argv, why)
 
+	started := time.Now()
+	code := dispatch(in)
+	journalRun(in, started, code)
+	return code
+}
+
+// dispatch runs the command. run wraps it so that whatever it did, and however it ended,
+// is written down in one place.
+func dispatch(in *invocation) int {
 	if code := in.checkParams(); code != 0 {
 		return code
 	}
@@ -352,6 +365,7 @@ func capture(in *invocation, path, ext string) int {
 	if err != nil {
 		return failWith(err)
 	}
+	in.produced = append(in.produced, out)
 	if err := writeSidecar(out, reply, in.client, in.cfg.URL, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
 	}
@@ -380,6 +394,7 @@ func burst(in *invocation) int {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("cannot make %s: %v", dir, err)
 	}
+	in.produced = append(in.produced, dir)
 
 	// A full-sensor DNG is about 24 MB, so a burst of them is taken one request at a time
 	// rather than as one archive that will not fit in the phone's heap.
@@ -466,6 +481,7 @@ func stream(in *invocation) int {
 	if _, err := in.client.GetFile("/api/stream", q, out); err != nil {
 		return fail("stream failed: %v", err)
 	}
+	in.produced = append(in.produced, out)
 	fmt.Println(out)
 	return 0
 }
@@ -522,6 +538,7 @@ func aatest(in *invocation) int {
 			return fail("could not write the sidecar: %v", err)
 		}
 		shots = append(shots, name)
+		in.produced = append(in.produced, name)
 	}
 	return runAnalysis([]string{"aatest", shots[0], shots[1], "--write", dir})
 }
@@ -542,6 +559,7 @@ func walkCommand(in *invocation, path, prefix string) int {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("cannot make %s: %v", dir, err)
 	}
+	in.produced = append(in.produced, dir)
 
 	// A walk is many captures, and its slowest step can be seconds long on its own. The
 	// ordinary thirty second budget is for one request and is the wrong shape here: it

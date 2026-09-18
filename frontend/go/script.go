@@ -91,6 +91,7 @@ func scriptCommand(in *invocation) int {
 						return err
 					}
 					made = true
+					in.produced = append(in.produced, dir)
 				}
 				// A part name is still a path, however well the phone behaves. Same
 				// reasoning as the burst and the walk.

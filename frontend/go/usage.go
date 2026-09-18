@@ -100,7 +100,11 @@ into the record beside each capture and is never sent to the phone. The record a
 which directory and project asked. A scratch directory is in no project, so name one with
 DESKCAM_PROJECT, and name a run of work with DESKCAM_SESSION.
 
+Every command that takes a picture or changes the camera is written down in a journal,
+with who asked, what came back, and a thumbnail, wherever the files went. A refusal is
+written down too. It lives in ~/.local/state/deskcam/journal, or DESKCAM_JOURNAL.
+
 Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL,
-             DESKCAM_PROJECT, DESKCAM_SESSION
+             DESKCAM_PROJECT, DESKCAM_SESSION, DESKCAM_JOURNAL
 `)
 }
