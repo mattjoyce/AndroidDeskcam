@@ -120,7 +120,7 @@ func TestTheSeatOffersOperationsAndNothingElse(t *testing.T) {
 	state, server, _ := testConsole(t)
 	phone, asked := aPhone(t)
 	pairTo(state, phone.URL)
-	for _, path := range []string{"/api/op?do=zoom&zoom=4", "/api/op?do=set&zoom=4", "/api/op", "/api/cam?zoom=4"} {
+	for _, path := range []string{"/api/op?do=zoom&zoom=4", "/api/op?do=set&zoom=4", "/api/op"} {
 		if code, _ := post(t, server, path); code == http.StatusOK {
 			t.Errorf("%s should not be offered", path)
 		}

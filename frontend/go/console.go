@@ -272,6 +272,9 @@ func (s *consoleState) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/state", local(s.handleState))
 	mux.HandleFunc("/api/roll", local(s.handleRoll))
 	mux.HandleFunc("/api/stream", local(s.handleStream))
+	// Everything else under /api is the phone's, answered here for the bench tool's page.
+	// The routes named on either side are the console's own and win by being exact.
+	mux.HandleFunc("/api/", local(s.handlePhone))
 	mux.HandleFunc("/img/", local(s.handleFile))
 	mux.HandleFunc("/thumb/", local(s.handleFile))
 	mux.HandleFunc("/sidecar/", local(s.handleFile))
