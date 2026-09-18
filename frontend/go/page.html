@@ -549,8 +549,16 @@ window.addEventListener('mouseup', async e=>{
   setTimeout(()=>{ document.getElementById('markbox').style.display='none'; },1200);
 });
 
+/* The browser's own drag of an <img> picks up a ghost of the picture. The old framing
+   handler stopped it by swallowing every mousedown, and it went when that handler did.
+   -webkit-user-drag in the stylesheet does nothing in Firefox. */
+live.addEventListener('dragstart', e=>e.preventDefault());
+
 live.addEventListener('dblclick', async e=>{
   e.preventDefault();
+  /* Shift is pointing, not focusing. Without this, shift and two clicks made two marks
+     and then moved the lens as well. */
+  if(e.shiftKey) return;
   const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
   if(!b.width||!b.height) return;
   const fx=(e.clientX-b.left)/b.width, fy=(e.clientY-b.top)/b.height;
