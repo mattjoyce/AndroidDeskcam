@@ -420,6 +420,15 @@ deskcam - control the bench camera over HTTP
   deskcam focus at FX,FY               autofocus on a place in the picture you can see,
                                        each from 0 to 1, and leave the framing alone.
                                        Look at a frame, see where it is soft, say where
+  deskcam mark at FX,FY[,FW,FH] [label=TEXT]
+                                       point at a place in the picture you can see, a spot
+                                       or a box by its centre and size. Changes nothing on
+                                       the camera. The phone keeps it at /api/marks
+  deskcam log [N] [via=console|cli] [--json]
+                                       the last N operations from the journal, by anybody
+  deskcam log wait [timeout=120]       return when a person next does something at the
+                                       console, with what they did as JSON: a mark, a
+                                       double tap, a still. Exit 2 if nobody did
   deskcam focus hunt [from=D to=D]     walk the lens on the phone, print the curve, and
                                        leave it at the sharpest position. Fix the exposure
                                        first, or the hunt climbs the exposure loop. Exits

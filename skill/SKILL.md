@@ -82,6 +82,21 @@ img=$(deskcam snap zoom=4 --why "check the solder bridge on U3")
 
 If you cannot run from the project directory, set `DESKCAM_PROJECT` to its path.
 
+**When the person wants to show you something, wait for them.** They have a console with
+the live view, and what they do there is written into the same journal as what you do. If
+they say "watch for my signal" or "I'll point at it", run:
+
+```bash
+deskcam log wait timeout=180        # returns when they act; exit 2 if they did not
+```
+
+It prints one JSON entry. `operation` is `mark` when they drew a box or clicked a spot: the
+box is in `query` as `mark=cx,cy,w,h`, in the same coordinates as `cx`, `cy` and
+`focusbox`, so `deskcam snap zoom=4 cx=CX cy=CY` looks where they pointed, and their words
+are in `label`. It is `focus` when they double tapped to focus, and `snap` when they took a
+still for you, with its path in `files`. `deskcam log 10 --json` is what happened recently,
+by anybody, if you need to catch up.
+
 **There are two web pages and they are not the same.** Confusing them wastes a person's
 time, because the one they are looking at may not be the one you mean.
 

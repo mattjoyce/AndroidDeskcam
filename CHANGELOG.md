@@ -11,6 +11,10 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 - An `asker` block in every sidecar: the directory, the project, the command as typed, the session and the reason. `--why "TEXT"` gives the reason, and `DESKCAM_PROJECT` and `DESKCAM_SESSION` name the project and the session when the directory and the environment cannot. A project is the nearest `.git` above the directory and is never guessed from a name.
 - The console as the agent's seat: **Snap**, **Focus hunt**, **Measure**, **Normal** and **Shoot this again** run the CLI's own commands through the CLI's own code and are journalled as `via: console`.
 - A log of recent commands in the console, as they were typed, newest first.
+- `deskcam focus at FX,FY`: autofocus on a place in the picture you can see, as fractions from the left and the top, leaving the framing alone. A double tap on the console's live view runs it.
+- `deskcam mark at FX,FY[,FW,FH] [label=TEXT]`: point at a place in the picture without changing the camera. Shift-drag or shift-click on the console's live view runs it, with the words typed beside Snap as its label.
+- `deskcam log [N] [via=console|cli] [--json]` reads the journal, and `deskcam log wait [timeout=120]` returns when a person next does something at the console, with what they did as JSON, or exits 2. This is how a person signals an agent: the journal holds what everybody did, so the agent that reads it sees the mark that was drawn, in the sensor's coordinates, and any still that was taken for it.
+- The record of a capture slides in from the right of the console when a row is picked, and away again with the cross, the tab on the edge of the view, or the `i` key.
 
 ### Changed
 

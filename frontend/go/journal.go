@@ -81,6 +81,9 @@ var journalled = map[string]bool{
 	"centre": true, "pan": true, "af": true, "autofocus": true, "focus": true,
 	"exposure": true, "shutter": true, "iso": true, "auto": true, "torch": true,
 	"light": true, "aatest": true,
+	// A mark changes nothing on the camera. It is here because it is how a person points,
+	// and the journal is where an agent looks to see that they did.
+	"mark": true,
 }
 
 // What the command said when it failed. fail and failWith have no invocation to write it

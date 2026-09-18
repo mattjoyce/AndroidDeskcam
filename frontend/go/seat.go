@@ -46,6 +46,17 @@ func (s *consoleState) handleOp(w http.ResponseWriter, r *http.Request) {
 		// A double tap on the live view. The place is a fraction of the picture, and the
 		// CLI's own command turns it into a focus box, so there is one copy of that sum.
 		steps = [][]string{{"focus", "at", q.Get("fx") + "," + q.Get("fy")}}
+	case "markat":
+		// A shift-drag or a shift-click on the live view. It points and changes nothing.
+		at := q.Get("fx") + "," + q.Get("fy")
+		if q.Get("fw") != "" {
+			at += "," + q.Get("fw") + "," + q.Get("fh")
+		}
+		words := []string{"mark", "at", at, "by=person"}
+		if label := strings.TrimSpace(q.Get("label")); label != "" {
+			words = append(words, "label="+label)
+		}
+		steps = [][]string{words}
 	case "measure":
 		steps = [][]string{{"set", "measure=1"}}
 	case "normal":
@@ -70,7 +81,7 @@ func (s *consoleState) handleOp(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false,
-			"error": "the console offers snap, hunt, focusat, measure, normal and again. " +
+			"error": "the console offers snap, hunt, focusat, markat, measure, normal and again. " +
 				"Aiming is on the phone's own page."})
 		return
 	}

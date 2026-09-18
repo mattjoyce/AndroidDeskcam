@@ -128,8 +128,12 @@ func TestTheSeatOffersOperationsAndNothingElse(t *testing.T) {
 	if got := asked(); len(got) != 0 {
 		t.Fatalf("nothing should have reached the phone, got %v", got)
 	}
-	if strings.Contains(consolePage, "zoomby") || strings.Contains(consolePage, "drag a box") {
-		t.Error("the page still carries framing gestures")
+	// What framing is made of. A gesture on the view is allowed, and two exist, a double tap
+	// to focus and a shift-drag to mark, but neither may send a zoom or a pan.
+	for _, framing := range []string{"zoomby", "zoom=", "cx=", "cy=", "rotate="} {
+		if strings.Contains(consolePage, framing) {
+			t.Errorf("the page can still frame the camera: it contains %q", framing)
+		}
 	}
 }
 

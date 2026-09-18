@@ -240,6 +240,15 @@ func dispatch(in *invocation) int {
 		}
 		return printSummary(in, "/api/set", in.with("torch="+in.arg(0)))
 
+	// ------------------------------------------------------------ pointing
+	case "mark":
+		if in.arg(0) != "at" {
+			return fail("usage: deskcam mark at FX,FY[,FW,FH] [label=TEXT] [by=WORD]")
+		}
+		return markAt(in)
+	case "log":
+		return logCommand(in)
+
 	// ----------------------------------------------------------- discovery
 	case "cameras":
 		return printJSON(in, "/api/cameras", in.query)
@@ -330,7 +339,8 @@ func dispatch(in *invocation) int {
 // because the phone will refuse it anyway and a local message names the fix without a
 // round trip. Decision D10.
 func (in *invocation) checkParams() int {
-	if in.query == "" {
+	// log reads the journal and sends nothing, so its words are not camera parameters.
+	if in.query == "" || in.command == "log" {
 		return 0
 	}
 	var refused []string

@@ -86,6 +86,8 @@
  .view img:not([src]){visibility:hidden}
  #ring{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
        border:2px solid #d29922;display:none;pointer-events:none}
+ #markbox{position:absolute;border:2px dashed #d29922;background:rgba(210,153,34,.12);
+          display:none;pointer-events:none}
  #ring.ok{border-color:#3fb950} #ring.bad{border-color:#f85149}
  .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
        border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
@@ -138,8 +140,10 @@
       <img id="live" alt="live view">
       <div id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
       <div id="ring"></div>
-      <div class="hint">what the agent sees &middot; double tap to focus there &middot; to
-        aim, open the phone's page</div>
+      <div id="markbox"></div>
+      <div class="hint">what the agent sees &middot; double tap to focus there &middot;
+        shift-drag or shift-click to point something out to an agent &middot; to aim, open
+        the phone's page</div>
       <div id="streamerr" class="warn"></div>
     </div>
     <div class="btns">
@@ -508,6 +512,43 @@ const live=document.getElementById('live');
    The page sends only where in the picture the tap was. Turning that into a focus box
    needs the crop, and that sum is the CLI's, in focusat.go, so there is one copy of it.
    The img has no box of its own beyond the picture, so its rectangle is the picture's. */
+/* Pointing something out to an agent. Hold shift and drag a box, or shift-click a spot. It
+   makes a mark, which changes nothing on the camera, where a double tap moves the lens.
+   The mark goes into the journal like any other operation, and an agent that was told to
+   watch for your signal is waiting on exactly that: deskcam log wait. Whatever is typed in
+   the box beside Snap goes with it as the mark's words. */
+let mark0=null;
+function inPicture(e){
+  const b=live.getBoundingClientRect();
+  return [(e.clientX-b.left)/b.width,(e.clientY-b.top)/b.height];
+}
+live.addEventListener('mousedown', e=>{
+  if(!e.shiftKey||e.button!==0) return;
+  e.preventDefault();
+  mark0={x:e.clientX,y:e.clientY,f:inPicture(e)};
+});
+window.addEventListener('mousemove', e=>{
+  if(!mark0) return;
+  const w=document.getElementById('wrap').getBoundingClientRect(), m=document.getElementById('markbox');
+  m.style.left=(Math.min(mark0.x,e.clientX)-w.left)+'px'; m.style.top=(Math.min(mark0.y,e.clientY)-w.top)+'px';
+  m.style.width=Math.abs(e.clientX-mark0.x)+'px'; m.style.height=Math.abs(e.clientY-mark0.y)+'px';
+  m.style.display='block';
+});
+window.addEventListener('mouseup', async e=>{
+  if(!mark0) return;
+  const a=mark0.f, b=inPicture(e); mark0=null;
+  const cl=v=>Math.min(1,Math.max(0,v));
+  const x0=cl(Math.min(a[0],b[0])), x1=cl(Math.max(a[0],b[0])), y0=cl(Math.min(a[1],b[1])), y1=cl(Math.max(a[1],b[1]));
+  const label=document.getElementById('why').value.trim();
+  let q='do=markat&fx='+((x0+x1)/2).toFixed(4)+'&fy='+((y0+y1)/2).toFixed(4);
+  /* A drag too small to be a box is a point. */
+  if(x1-x0>0.02&&y1-y0>0.02) q+='&fw='+(x1-x0).toFixed(4)+'&fh='+(y1-y0).toFixed(4);
+  if(label) q+='&label='+encodeURIComponent(label);
+  await op(q);
+  if(document.getElementById('said').className!=='gone') say('marked, and written in the journal');
+  setTimeout(()=>{ document.getElementById('markbox').style.display='none'; },1200);
+});
+
 live.addEventListener('dblclick', async e=>{
   e.preventDefault();
   const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
