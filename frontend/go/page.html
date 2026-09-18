@@ -240,7 +240,10 @@ function stopView(){
   streamUrl='';
   document.getElementById('live').removeAttribute('src');
 }
-const VIEW_IDLE_MS=30000;
+/* Five minutes, not thirty seconds. The fault was a page left open overnight, and minutes
+   cure that as well as seconds do. Thirty seconds paused the view on somebody watching it
+   with both hands on the work, which is what a bench camera is for. */
+const VIEW_IDLE_MS=300000;
 let lastUse=Date.now(), viewAsleep=false;
 function paintAsleep(){ document.getElementById('asleep').hidden=!viewAsleep; }
 function usedTheView(){
