@@ -61,6 +61,9 @@ func usage() {
   deskcam center                       recentre
   deskcam af                           one autofocus sweep
   deskcam focus METRES|auto            manual focus distance
+  deskcam focus at FX,FY               autofocus on a place in the picture you can see,
+                                       each from 0 to 1, and leave the framing alone.
+                                       Look at a frame, see where it is soft, say where
   deskcam focus hunt [from=D to=D]     walk the lens on the phone, print the curve, and
                                        leave it at the sharpest position. Fix the exposure
                                        first, or the hunt climbs the exposure loop. Exits

@@ -42,6 +42,10 @@ func (s *consoleState) handleOp(w http.ResponseWriter, r *http.Request) {
 		steps = [][]string{{"snap"}}
 	case "hunt":
 		steps = [][]string{{"focus", "hunt"}}
+	case "focusat":
+		// A double tap on the live view. The place is a fraction of the picture, and the
+		// CLI's own command turns it into a focus box, so there is one copy of that sum.
+		steps = [][]string{{"focus", "at", q.Get("fx") + "," + q.Get("fy")}}
 	case "measure":
 		steps = [][]string{{"set", "measure=1"}}
 	case "normal":
@@ -66,7 +70,7 @@ func (s *consoleState) handleOp(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false,
-			"error": "the console offers snap, hunt, measure, normal and again. " +
+			"error": "the console offers snap, hunt, focusat, measure, normal and again. " +
 				"Aiming is on the phone's own page."})
 		return
 	}

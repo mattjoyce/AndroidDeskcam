@@ -246,6 +246,7 @@ that frame.
 | Less noise | `deskcam burst 16` | Average the frames. Noise falls by about the square root of the count. |
 | Repeat an old shot | `deskcam recall old.json` | Restores the camera settings, so a comparison is valid. |
 | Find the best focus | `deskcam focus hunt` | The phone walks the lens and stops at the peak. One request, no frames over the network, and it refuses when there is no peak. |
+| Focus on something you can see | `deskcam focus at 0.3,0.6` | Autofocus on that place in the picture, as fractions from the left and from the top of the frame you just looked at. The framing does not move. Use it when a frame is sharp in the wrong place. |
 | Read the sharpness once | `deskcam show sharpness=1` | A number, not a picture. The hunt above is this in a loop on the phone. |
 | Everything sharp at once | `deskcam focussweep from=3 to=6 steps=7` | A still at each lens position, for stacking. Steps are equal in dioptres. |
 | A lit panel in a dark bezel | `deskcam bracket base=1/240 stops=4` | Doubling exposures, each a whole multiple of the panel's PWM period. |

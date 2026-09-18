@@ -70,6 +70,9 @@
            user-select:none;-webkit-user-drag:none}
  /* A paused view has no src, and the browser draws the alt text through the overlay. */
  .view img:not([src]){visibility:hidden}
+ #ring{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
+       border:2px solid #d29922;display:none;pointer-events:none}
+ #ring.ok{border-color:#3fb950} #ring.bad{border-color:#f85149}
  .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
        border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
        color:#8b949e;pointer-events:none}
@@ -124,7 +127,9 @@
     <div class="view" id="wrap">
       <img id="live" alt="live view">
       <div id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
-      <div class="hint">what the agent sees &middot; to aim, open the phone's page</div>
+      <div id="ring"></div>
+      <div class="hint">what the agent sees &middot; double tap to focus there &middot; to
+        aim, open the phone's page</div>
       <div id="streamerr" class="warn"></div>
     </div>
     <div class="btns">
@@ -459,6 +464,23 @@ function again(){
 }
 
 const live=document.getElementById('live');
+/* A double tap focuses there and leaves the framing alone, as it does on the phone's page.
+   The page sends only where in the picture the tap was. Turning that into a focus box
+   needs the crop, and that sum is the CLI's, in focusat.go, so there is one copy of it.
+   The img has no box of its own beyond the picture, so its rectangle is the picture's. */
+live.addEventListener('dblclick', async e=>{
+  e.preventDefault();
+  const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
+  if(!b.width||!b.height) return;
+  const fx=(e.clientX-b.left)/b.width, fy=(e.clientY-b.top)/b.height;
+  if(fx<0||fx>1||fy<0||fy>1) return;
+  const ring=document.getElementById('ring');
+  ring.style.left=(e.clientX-w.left)+'px'; ring.style.top=(e.clientY-w.top)+'px';
+  ring.className=''; ring.style.display='block';
+  await op('do=focusat&fx='+fx.toFixed(4)+'&fy='+fy.toFixed(4));
+  ring.className=document.getElementById('said').className==='gone'?'bad':'ok';
+  setTimeout(()=>{ ring.style.display='none'; },1500);
+});
 live.addEventListener('load', streamOK);
 live.addEventListener('error', ()=>{
   streamFailed(S.stream_error);

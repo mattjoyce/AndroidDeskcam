@@ -210,10 +210,13 @@ func dispatch(in *invocation) int {
 		return printSummary(in, "/api/af", in.query)
 	case "focus":
 		if in.arg(0) == "" {
-			return fail("usage: deskcam focus METRES|auto|hunt")
+			return fail("usage: deskcam focus METRES|auto|hunt|at FX,FY")
 		}
 		if in.arg(0) == "hunt" {
 			return focusHunt(in)
+		}
+		if in.arg(0) == "at" {
+			return focusAt(in)
 		}
 		if in.arg(0) == "auto" {
 			return printSummary(in, "/api/set", in.with("af=continuous&focus=auto"))
