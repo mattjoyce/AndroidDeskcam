@@ -24,6 +24,7 @@ func testConsole(t *testing.T) (*consoleState, *httptest.Server, string) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("DESKCAM_JOURNAL", filepath.Join(dir, "journal"))
 
 	state, err := newConsoleState(Config{Shots: shots}, 9999)
 	if err != nil {
@@ -36,7 +37,7 @@ func testConsole(t *testing.T) (*consoleState, *httptest.Server, string) {
 	return state, server, shots
 }
 
-func writeCapture(t *testing.T, shots, name string, settings map[string]any) {
+func writeCapture(t *testing.T, shots, name string, settings map[string]any) string {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(shots, name), []byte("\xff\xd8\xff\xd9"), 0o644); err != nil {
 		t.Fatal(err)
@@ -53,6 +54,7 @@ func writeCapture(t *testing.T, shots, name string, settings map[string]any) {
 	if err := os.WriteFile(side, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return journalIt(t, journalEntry{Operation: "snap", Ok: true}, filepath.Join(shots, name))
 }
 
 // setToken writes the key where the console reads it. Nothing caches it any more, so the
@@ -238,10 +240,10 @@ func statusFromLAN(t *testing.T, state *consoleState, path string) int {
 
 func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
 	state, _, shots := testConsole(t)
-	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
+	id := writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
 		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
-		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg", "/api/stream?fps=10",
+		"/img/" + id + "/0", "/thumb/" + id + "/0", "/sidecar/" + id + "/0", "/api/stream?fps=10",
 		"/api/cam?zoom=2", "/api/newcode", "/api/token?do=clear",
 	} {
 		if got := statusFromLAN(t, state, path); got != http.StatusForbidden {
@@ -306,45 +308,6 @@ func TestNoPathReachesOutsideTheShotsDirectory(t *testing.T) {
 		}
 		if strings.Contains(body, "package main") {
 			t.Errorf("%s leaked source", path)
-		}
-	}
-}
-
-func TestACaptureAndItsSidecarComeBack(t *testing.T) {
-	_, server, shots := testConsole(t)
-	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 3.0, "cx": 0.5, "cy": 0.5})
-	if code, _ := get(t, server, "/img/one.jpg"); code != http.StatusOK {
-		t.Fatalf("the capture should be served, got %d", code)
-	}
-	code, body := get(t, server, "/sidecar/one.jpg")
-	if code != http.StatusOK || !strings.Contains(body, `"zoom": 3`) {
-		t.Fatalf("the sidecar should be served, got %d %.60q", code, body)
-	}
-}
-
-func TestAMissingSidecarSaysSo(t *testing.T) {
-	_, server, shots := testConsole(t)
-	if err := os.WriteFile(filepath.Join(shots, "lonely.jpg"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, body := get(t, server, "/sidecar/lonely.jpg")
-	if code != http.StatusNotFound || !strings.Contains(body, "no sidecar") {
-		t.Fatalf("want a 404 saying so, got %d %.60q", code, body)
-	}
-}
-
-func TestInShotsAcceptsOnlyWhatTheConsoleWrote(t *testing.T) {
-	_, _, shots := testConsole(t)
-	writeCapture(t, shots, "good.jpg", map[string]any{"zoom": 1.0})
-	if err := os.WriteFile(filepath.Join(shots, "notes.txt"), []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := inShots(shots, "good.jpg"); !ok {
-		t.Error("a capture should be servable")
-	}
-	for _, name := range []string{"notes.txt", "../main.go", "", "missing.jpg", ".hidden.jpg"} {
-		if _, ok := inShots(shots, name); ok {
-			t.Errorf("%q must not be servable", name)
 		}
 	}
 }
@@ -477,52 +440,6 @@ func TestTheStreamCarriesNothingButTheFrameRate(t *testing.T) {
 	}
 	if code, _ := get(t, server, "/api/stream?fps=nonsense"); code != http.StatusBadRequest {
 		t.Error("a frame rate that is not a number should be refused here")
-	}
-}
-
-// --------------------------------------------------------------------- roll
-
-func TestTheRollReadsADirectoryOfCaptures(t *testing.T) {
-	_, _, shots := testConsole(t)
-	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0, "cx": 0.5, "cy": 0.5})
-	time.Sleep(10 * time.Millisecond)
-	writeCapture(t, shots, "two.jpg", map[string]any{"zoom": 6.0, "cx": 0.3, "cy": 0.7, "measure": true})
-	if err := os.WriteFile(filepath.Join(shots, "two.thumb.jpg"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	items := roll(shots, 60)
-	if len(items) != 2 {
-		t.Fatalf("want 2 captures with the thumbnail skipped, got %d", len(items))
-	}
-	if items[0].Name != "two.jpg" {
-		t.Fatalf("newest first, got %q", items[0].Name)
-	}
-	if !strings.Contains(items[0].Summary, "measure") {
-		t.Errorf("the summary should mention measurement mode, got %q", items[0].Summary)
-	}
-	if items[0].Exposure != "8.00ms (1/125)" {
-		t.Errorf("the exposure should come from the sidecar, got %q", items[0].Exposure)
-	}
-}
-
-func TestTheRollSurvivesABrokenSidecar(t *testing.T) {
-	_, _, shots := testConsole(t)
-	if err := os.WriteFile(filepath.Join(shots, "bad.jpg"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(shots, "bad.json"), []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	items := roll(shots, 60)
-	if len(items) != 1 || items[0].Name != "bad.jpg" {
-		t.Fatal("a broken sidecar must not lose the capture")
-	}
-}
-
-func TestTheRollOfADirectoryThatIsNotThere(t *testing.T) {
-	if got := roll(filepath.Join(t.TempDir(), "nowhere"), 60); len(got) != 0 {
-		t.Fatalf("want nothing, got %d", len(got))
 	}
 }
 
@@ -678,10 +595,10 @@ func TestTheOperatorsOwnBrowserStillGetsEverything(t *testing.T) {
 	// only correct if the machine it runs on is still served, and a rule that refuses
 	// everything passes the other test perfectly.
 	_, server, shots := testConsole(t)
-	writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
+	id := writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
 		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
-		"/img/one.jpg", "/thumb/one.jpg", "/sidecar/one.jpg",
+		"/img/" + id + "/0", "/thumb/" + id + "/0", "/sidecar/" + id + "/0",
 	} {
 		if code, _ := get(t, server, path); code != http.StatusOK {
 			t.Errorf("the operator's own browser should get %s, got %d", path, code)
@@ -693,33 +610,6 @@ func TestAnUnknownPathIsA404(t *testing.T) {
 	_, server, _ := testConsole(t)
 	if code, _ := get(t, server, "/nope"); code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", code)
-	}
-}
-
-func TestTheRollHonoursItsLimit(t *testing.T) {
-	_, _, shots := testConsole(t)
-	for i := 0; i < 5; i++ {
-		writeCapture(t, shots, fmt.Sprintf("shot%d.jpg", i), map[string]any{"zoom": 1.0})
-		time.Sleep(2 * time.Millisecond) // so newest-first has something to sort on
-	}
-	if got := len(roll(shots, 3)); got != 3 {
-		t.Fatalf("a limit of 3 returned %d captures", got)
-	}
-}
-
-func TestTheRollSurvivesACaptureWithNoSidecar(t *testing.T) {
-	// A capture with no record of how it was taken is still a capture. Dropping it would
-	// hide the file from the only page that lists it.
-	_, _, shots := testConsole(t)
-	if err := os.WriteFile(filepath.Join(shots, "lonely.jpg"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	items := roll(shots, 60)
-	if len(items) != 1 || items[0].Name != "lonely.jpg" {
-		t.Fatalf("a capture with no sidecar must still be listed, got %v", items)
-	}
-	if items[0].Summary != "" {
-		t.Errorf("and it must not invent a summary, got %q", items[0].Summary)
 	}
 }
 

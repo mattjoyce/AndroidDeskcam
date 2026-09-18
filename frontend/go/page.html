@@ -19,8 +19,8 @@
 
  /* Three columns filling the window. Each scrolls on its own. */
  main{flex:1 1 auto;display:grid;gap:9px;padding:9px;min-height:0;
-      grid-template-columns:166px 286px minmax(0,1fr)}
- @media(max-width:1000px){main{grid-template-columns:132px 240px minmax(0,1fr)}}
+      grid-template-columns:214px 300px minmax(0,1fr)}
+ @media(max-width:1000px){main{grid-template-columns:170px 250px minmax(0,1fr)}}
  @media(max-width:760px){main{grid-template-columns:1fr;overflow:auto}}
  .col{min-height:0;display:flex;flex-direction:column;background:#161b22;
       border:1px solid #21262d;border-radius:9px;overflow:hidden}
@@ -36,13 +36,22 @@
  .shot img{display:block;width:100%;height:auto}
  .shot .m{padding:3px 6px;font:9px/1.3 ui-monospace,monospace;color:#8b949e}
  .shot:hover,.shot.sel{border-color:#2f81f7}
+ .proj{font:600 11px ui-monospace,monospace;color:#e6edf3;padding:6px 2px 0;border-top:1px solid #21262d}
+ .proj:first-child{border-top:0}
+ .sess{font:9px/1.4 ui-monospace,monospace;color:#8b949e;padding:0 2px}
+ .why{color:#c9d1d9;font-style:italic}
+ .op{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:3px 6px;cursor:pointer;
+     font:9px/1.4 ui-monospace,monospace;color:#8b949e;overflow-wrap:anywhere}
+ .op b{color:#c9d1d9} .op.bad{border-color:#8e1519} .op.bad .why{color:#ff7b72;font-style:normal}
+ .op:hover,.op.sel{border-color:#2f81f7}
+ .t{color:#6e7681} .gone{color:#d29922}
 
  details.grp{border-bottom:1px solid #21262d}
  details.grp>summary{cursor:pointer;padding:6px 11px;font:11px ui-monospace,monospace;
         color:#8b949e;list-style:none;display:flex;justify-content:space-between;gap:8px}
  details.grp>summary::-webkit-details-marker{display:none}
  details.grp>summary::after{content:"+";color:#484f58}
- details.grp[open]>summary::after{content:"\\2212"}
+ details.grp[open]>summary::after{content:"\2212"}
  details.grp[open]>summary{color:#e6edf3;background:#0d1117}
  details.grp .body{padding:4px 11px 9px}
  table.kv{width:100%;border-collapse:collapse;font:11px/1.45 ui-monospace,monospace}
@@ -98,10 +107,10 @@
 </header>
 <main>
   <div class="col">
-    <h2>Captures</h2>
+    <h2>Journal</h2>
     <div class="scroll"><div id="roll"></div>
       <p id="empty" class="muted" style="font-size:11px;padding:0 10px">
-        None yet. <code>deskcam snap</code></p></div>
+        Nothing in the journal yet. <code>deskcam snap</code> from anywhere.</p></div>
   </div>
   <div class="col">
     <h2 id="sidetitle">Live</h2>
@@ -168,7 +177,7 @@
 <script>
 let S={}, streamUrl='', ROLL=[], shown=null, selName=null;
 // Which groups are open. Held here so the two second refresh does not shut them.
-const OPEN={Framing:true, Exposure:true};
+const OPEN={Operation:true, Framing:true, Exposure:true};
 
 function esc(v){return String(v).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
 
@@ -303,51 +312,90 @@ async function refresh(){
   }catch(e){}
 }
 
+/* The roll is the journal, grouped by project and then by session. Decision D19.
+   A row is one file, or one operation that made none: a change to the camera, or a refusal.
+   A refusal is shown as fully as a capture, in the phone's own words, because it is the
+   thing an agent is least likely to have mentioned. */
+const rowKey=c=>c.id+'/'+c.n;
+function clock(at){ const d=new Date(at); return isNaN(d)?'':d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+function day(at){ const d=new Date(at); return isNaN(d)?'':d.toLocaleDateString([],{day:'numeric',month:'short'}); }
+function rowOf(c,i){
+  const sel=rowKey(c)===selName?' sel':'';
+  if(c.n<0){
+    return '<div class="op'+(c.ok?'':' bad')+sel+'" onclick="pick('+i+')">'+
+      '<b>'+esc(c.operation)+'</b> '+esc((c.query||'').replace(/&/g,' '))+
+      '<div class="t">'+clock(c.at)+' &middot; '+c.millis+' ms</div>'+
+      (c.ok?'':'<div class="why">'+esc(c.error||'refused')+'</div>')+'</div>';
+  }
+  return '<div class="shot'+sel+'" onclick="pick('+i+')">'+
+    (c.thumb||c.exists?'<img loading="lazy" src="/thumb/'+rowKey(c)+'">':'')+
+    '<div class="m">'+esc(c.summary||c.name)+'<br>'+esc(c.exposure||'')+
+    ' <span class="t">'+clock(c.at)+'</span>'+
+    (c.exists?'':'<br><span class="gone">original gone</span>')+'</div></div>';
+}
 async function loadRoll(){
   try{
-    ROLL=(await (await fetch('/api/roll')).json()).captures;
+    const groups=(await (await fetch('/api/roll')).json()).groups||[];
+    ROLL=[];
+    let html='';
+    for(const g of groups){
+      const name=g.project.split('/').filter(Boolean).pop()||g.project;
+      html+='<div class="proj" title="'+esc(g.project)+'">'+esc(name)+
+        (g.known?'':' <span class="t">directory, no project known</span>')+'</div>';
+      for(const x of g.sessions){
+        html+='<div class="sess">'+day(x.started)+' '+clock(x.started)+
+          (x.ended!==x.started?'&ndash;'+clock(x.ended):'')+' &middot; '+x.count+
+          (x.count===1?' operation':' operations')+
+          (x.refused?' &middot; <span class="gone">'+x.refused+' refused</span>':'')+
+          x.why.map(w=>'<div class="why">'+esc(w)+'</div>').join('')+'</div>';
+        for(const c of x.items){ html+=rowOf(c,ROLL.length); ROLL.push(c); }
+      }
+    }
     document.getElementById('empty').style.display=ROLL.length?'none':'block';
-    document.getElementById('roll').innerHTML=ROLL.map((c,i)=>
-      '<div class="shot'+(c.name===selName?' sel':'')+'" onclick="pick('+i+')">'+
-      '<img loading="lazy" src="/thumb/'+encodeURIComponent(c.name)+'">'+
-      '<div class="m">'+esc(c.summary||c.name)+'<br>'+esc(c.exposure||'')+'</div></div>').join('');
+    document.getElementById('roll').innerHTML=html;
   }catch(e){}
 }
-/* First click loads the capture into the middle column. A second opens it full size. */
+/* First click loads the record into the middle column. A second opens the capture full
+   size, if it made one. */
 function pick(i){
   const c=ROLL[i];
-  if(selName===c.name){ show(c.name,c); return; }
-  selName=c.name;
-  document.getElementById('sidetitle').textContent='Capture';
-  loadSidecar(c.name,'side');
+  if(selName===rowKey(c)){ if(c.n>=0) show(c); return; }
+  selName=rowKey(c);
+  document.getElementById('sidetitle').textContent=c.n<0?'Operation':'Capture';
+  loadRecord(c,'side');
   loadRoll();
 }
 function clearPick(){ selName=null; refresh(); loadRoll(); }
 
-async function loadSidecar(n,target){
+/* What the journal says about the operation, then what the sidecar says about the frame. */
+function operationOf(c){
+  return grp('Operation', kv({operation:c.operation, parameters:c.query, at:c.at,
+    took:c.millis+' ms', result:c.ok?'ok':'refused', error:c.error, why:c.why, via:c.via,
+    directory:c.cwd, file:c.path, original:c.n<0?undefined:(c.exists?'on disk':'gone')}));
+}
+async function loadRecord(c,target){
   const el=document.getElementById(target);
+  const back=target==='side'
+    ? '<div style="padding:6px 10px"><button onclick="clearPick()">Back to live</button></div>' : '';
+  if(c.n<0){ el.innerHTML=back+operationOf(c); return; }
   el.innerHTML='<p class="muted" style="padding:10px;font-size:11px">loading...</p>';
   try{
-    const d=await (await fetch('/sidecar/'+encodeURIComponent(n))).json();
-    if(d.error){
-      el.innerHTML='<p class="muted" style="padding:10px">'+esc(d.error)+'</p>';
-      return;
-    }
-    const head=grp('Capture', kv({image:d.image, at:d.captured_at, bytes:d.bytes}));
-    el.innerHTML=(target==='side'
-      ? '<div style="padding:6px 10px"><button onclick="clearPick()">Back to live</button></div>'
-      : '')+sections(d,head);
-  }catch(e){ el.innerHTML='<p class="muted" style="padding:10px">no sidecar</p>'; }
+    const d=await (await fetch('/sidecar/'+rowKey(c))).json();
+    if(d.error){ el.innerHTML=back+operationOf(c)+'<p class="muted" style="padding:10px">'+esc(d.error)+'</p>'; return; }
+    el.innerHTML=back+sections(d,operationOf(c));
+  }catch(e){ el.innerHTML=back+operationOf(c); }
 }
 
-function show(n,c){
-  shown=c||null;
-  document.getElementById('bigimg').src='/img/'+encodeURIComponent(n);
-  const b=[n];
-  if(c){ if(c.summary)b.push(c.summary); if(c.exposure)b.push(c.exposure);
-         if(c.iso)b.push('iso '+c.iso); if(c.tilt!=null)b.push('tilt '+c.tilt+'\\u00b0'); }
+function show(c){
+  shown=c;
+  /* The journal's thumbnail stands in when a scratch directory has been cleaned away. */
+  document.getElementById('bigimg').src=(c.exists?'/img/':'/thumb/')+rowKey(c);
+  const b=[c.name];
+  if(c.summary)b.push(c.summary); if(c.exposure)b.push(c.exposure);
+  if(c.iso)b.push('iso '+c.iso); if(c.tilt!=null)b.push('tilt '+c.tilt+'°');
+  if(!c.exists)b.push('original gone, showing the thumbnail');
   document.getElementById('biginfo').textContent=b.join('   ');
-  loadSidecar(n,'dside');
+  loadRecord(c,'dside');
   document.getElementById('big').showModal();
 }
 function recall(){

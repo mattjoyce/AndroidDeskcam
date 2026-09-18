@@ -63,8 +63,10 @@ If that fails, refer to **When it does not work** at the end.
 
 A capture is written into `DESKCAM_SHOTS`, or into the current directory when that is
 unset. `snap` prints the full path it wrote, so read that rather than assuming a
-directory. If someone says their capture roll is empty, this is usually why: the captures
-went to whatever directory the command ran in.
+directory. Wherever the file goes, the command is also written into a journal with its
+thumbnail, and the person's console reads that journal. So they can see what you captured,
+what you changed and what was refused, from any directory and after your scratch directory
+is gone.
 
 **Say what each capture is for, and which project it is for.** Every capture leaves a record
 beside it, and the person reads those records later to see what you looked at and why. Add
@@ -86,7 +88,7 @@ time, because the one they are looking at may not be the one you mean.
 | Page | Where | What it is |
 |---|---|---|
 | The bench tool | the phone itself, `http://PHONE:8080` | The live view. Aiming, focus, torch, and the marks of `/api/marks`. Any browser on the network opens it with nothing installed. `deskcam open` opens this one. |
-| The console | the workstation, `http://127.0.0.1:9000`, from `deskcam serve` | The capture roll with thumbnails and sidecars, and the QR codes that install and pair. |
+| The console | the workstation, `http://127.0.0.1:9000`, from `deskcam serve` | The journal of every operation, grouped by project and session: captures with thumbnails and sidecars, changes to the camera, and refusals in the phone's words. Also the QR codes that install and pair. |
 
 The console is **loopback only**. Its banner prints the machine's LAN address on the first
 line, but that address serves the phone `/p/` and `/deskcam.apk` and nothing else, and

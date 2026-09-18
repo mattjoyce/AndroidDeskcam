@@ -50,6 +50,8 @@ type journalEntry struct {
 	Error     string         `json:"error,omitempty"`
 	Asker     map[string]any `json:"asker,omitempty"`
 	Files     []journalFile  `json:"files"`
+
+	id string // the entry's file name without its extension, set when it is read back
 }
 
 // journalDir is where the journal lives. State, in the XDG sense: it is not configuration

@@ -52,5 +52,26 @@ else
     echo ">> go (skipped, no toolchain)"
 fi
 
+# The console's page is a file the Go build embeds without reading, so a script that does
+# not parse builds, passes every Go test, and serves a page that does nothing. It happened:
+# a second declaration of `key` stopped the whole script and no gate noticed. Skipped when
+# there is no node, for the same reason the Go half is.
+if command -v node >/dev/null 2>&1; then
+    echo ">> node --check (the console page's script)"
+    script="$(mktemp --suffix=.js)"
+    "$PY" - "$script" <<'PYEOF'
+import re
+import sys
+from pathlib import Path
+
+page = Path("frontend/go/page.html").read_text()
+Path(sys.argv[1]).write_text("\n".join(re.findall(r"<script>(.*?)</script>", page, re.S)))
+PYEOF
+    node --check "$script"
+    rm -f "$script"
+else
+    echo ">> node --check (skipped, no node)"
+fi
+
 echo
 echo "all gates pass"
