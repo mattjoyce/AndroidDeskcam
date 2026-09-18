@@ -7,6 +7,25 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 ### Added
 
 - The A4 bench mat sheets as print-ready vector PDFs, in `explainer/mats/`: three designs, hybrid, quiet and angles, in both orientations, with a `geometry.json` carrying each sheet's declared geometry for a future detector. `scripts/print-mats.mjs` regenerates them by driving a real Firefox over WebDriver BiDi, which adds no dependency, and prints with margins at zero and shrink-to-fit off so a millimetre in the artwork is a millimetre on the paper. Checked by rasterising each PDF at 600 dpi and decoding it back: all eight markers on all six sheets, with the ids that sheet declares, and marker edges measuring 9.95 to 9.99 mm against the 10 mm declared. The mat is a design study and is not part of the APK.
+- A journal of every operation, kept by the CLI in `~/.local/state/deskcam/journal` or `DESKCAM_JOURNAL`. Every command that takes a picture or changes the camera is written down with who asked, what came back, and a copy of the thumbnail and the sidecar, wherever the files went. A refusal is journalled as fully as a capture, in the phone's own words. Reading the camera is not journalled. The newest 2,000 entries are kept, the access key is scrubbed, and a journal that cannot be written never fails a capture.
+- An `asker` block in every sidecar: the directory, the project, the command as typed, the session and the reason. `--why "TEXT"` gives the reason, and `DESKCAM_PROJECT` and `DESKCAM_SESSION` name the project and the session when the directory and the environment cannot. A project is the nearest `.git` above the directory and is never guessed from a name.
+- The console as the agent's seat: **Snap**, **Focus hunt**, **Measure**, **Normal** and **Shoot this again** run the CLI's own commands through the CLI's own code and are journalled as `via: console`.
+- A log of recent commands in the console, as they were typed, newest first.
+
+### Changed
+
+- The console's roll is the journal, grouped by project and then by session, where it was a listing of the directory `deskcam serve` was started in. On 2026-09-19, 99 of the 100 captures on the workstation were in 11 scratch directories agents had chosen, and the roll showed none of them. `/api/roll` now answers `groups` where it answered `captures`, and `/img/`, `/thumb/` and `/sidecar/` take a journal entry and a number where they took a file name. This changes the console's own routes; the phone's API is untouched.
+- A live view nobody touches pauses after five minutes, where it paused after thirty seconds. The pause exists for a page left open overnight, and thirty seconds paused it on somebody watching with both hands on the work. Both pages.
+- The type in the console is larger.
+
+### Removed
+
+- The console's framing controls: Full sensor, In, Out, Rotate, drag to frame, click to centre and the wheel, with the `/api/cam` route that forwarded any parameter to the phone. Aiming is the bench tool on the phone's own page (D18), and the console refuses it and says where to go. Decision D19.
+
+### Fixed
+
+- **Shoot this again** takes the picture. It restored the settings and stopped, and it built them in the page's own JavaScript from six of the settings the CLI's `recall` knows. Both now run one function, and a recall checked against the phone sent fourteen.
+- The `−` on an open panel in the console, which was drawn as the text `\2212`.
 
 ## [0.2.0] - 2026-09-12
 
