@@ -52,10 +52,13 @@ func (s *consoleState) handleOp(w http.ResponseWriter, r *http.Request) {
 		if q.Get("fw") != "" {
 			at += "," + q.Get("fw") + "," + q.Get("fh")
 		}
-		words := []string{"mark", "at", at, "by=person"}
-		if label := strings.TrimSpace(q.Get("label")); label != "" {
-			words = append(words, "label="+label)
+		// by=you and "look here" are what the phone's own page sends for the same gesture,
+		// so a mark reads the same whichever page it was drawn on.
+		label := strings.TrimSpace(q.Get("label"))
+		if label == "" {
+			label = "look here"
 		}
+		words := []string{"mark", "at", at, "by=you", "label=" + label}
 		steps = [][]string{words}
 	case "measure":
 		steps = [][]string{{"set", "measure=1"}}
