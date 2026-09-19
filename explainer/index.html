@@ -56,7 +56,7 @@
         <a href="#command-playground" class="nav-link">Command Builder <span class="nav-badge">★</span></a>
         <a href="#http-contract" class="nav-link">HTTP API Contract <span class="nav-badge">08</span></a>
         <a href="#metrology-refusal" class="nav-link">Metrology & Refusal <span class="nav-badge">09</span></a>
-        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D19) <span class="nav-badge">10</span></a>
+        <a href="#architectural-decisions" class="nav-link">Decisions (D1–D20) <span class="nav-badge">10</span></a>
       </div>
     </aside>
 
@@ -993,9 +993,9 @@ SNAP</textarea>
         </div>
       </section>
 
-      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D19) -->
+      <!-- SECTION 13: ARCHITECTURAL DECISIONS (D1-D20) -->
       <section id="architectural-decisions">
-        <h2>Architectural Decisions (D1–D19)</h2>
+        <h2>Architectural Decisions (D1–D20)</h2>
         <div class="card-grid">
           <div class="info-card">
             <div class="card-header">
@@ -1166,6 +1166,15 @@ SNAP</textarea>
             </div>
             <div class="card-title">The Console Is the Other View of the Same Operations</div>
             <div class="card-desc">The phone is the measurement end and the workstation is the operations end. The console shows a person what an agent asked for, from which project, what came back and what was refused. It is the agent's seat: it observes without being in the path, it runs the CLI's own operations through the CLI's code, and tooling that needs the record instead of the camera lives there. Aiming stays on the bench tool. Every operation is written into a journal by the CLI, wherever its files went, and the console reads that.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D20</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Surfaces</span>
+            </div>
+            <div class="card-title">One Camera Page, Served From Either End</div>
+            <div class="card-desc">The phone's bench page is one file. Android packages it and the console embeds the same file and serves it at <code>/camera</code>, so both live views share their gestures, marks and focus feedback. On the workstation the console forwards the page's requests with the key on and journals what they change as <code>via: console</code>. Requests made straight to the phone never reach the journal.</div>
           </div>
         </div>
       </section>
