@@ -17,6 +17,7 @@ const phone=createServer((req,res)=>{
  if(u.pathname==='/'){res.setHeader('Content-Type','text/html');res.end(html);return;}
  if(u.pathname==='/api/stream'){res.setHeader('Content-Type','image/png');res.end(png);return;}
  if(u.pathname==='/api/set'&&u.searchParams.has('zoom'))zoom=Number(u.searchParams.get('zoom'));
+ if(u.pathname==='/api/set'&&u.searchParams.has('zoomby'))zoom*=Number(u.searchParams.get('zoomby'));
  res.setHeader('Content-Type','application/json');res.end(JSON.stringify(u.pathname==='/api/marks'?{marks:[]}:status(zoom)));
 });
 phone.listen(0,'127.0.0.1'); await once(phone,'listening');
@@ -31,6 +32,17 @@ try{
  for(let i=0;i<50;i++){if(await b.json(`document.querySelector('#camera').contentDocument.querySelector('#view')?.naturalWidth > 0`))break;await new Promise(r=>setTimeout(r,100));}
  assert.equal(await b.json(`document.querySelector('#camera').contentDocument.querySelector('#view').naturalWidth`),1);
  await b.json(`document.querySelector('#camera').contentWindow.api('/api/set?zoom=2')`);
+ for(let i=0;i<50&&zoom!==2;i++)await new Promise(r=>setTimeout(r,100));
+ assert.equal(zoom,2);
+ // Real keyboard input at the console body is forwarded to the camera frame.
+ await b.send('input.performActions', {context:b.context, actions:[{type:'key',id:'zoom-keys',
+   actions:[{type:'keyDown',value:'+'},{type:'keyUp',value:'+'}]}]});
+ for(let i=0;i<50&&zoom!==2.5;i++)await new Promise(r=>setTimeout(r,100));
+ assert.equal(zoom,2.5);
+ // The same shortcut also works when focus is inside the panel.
+ await b.json(`document.querySelector('#camera').contentWindow.focus()`);
+ await b.send('input.performActions', {context:b.context, actions:[{type:'key',id:'zoom-keys',
+   actions:[{type:'keyDown',value:'-'},{type:'keyUp',value:'-'}]}]});
  for(let i=0;i<50&&zoom!==2;i++)await new Promise(r=>setTimeout(r,100));
  assert.equal(zoom,2);
  const box=await b.json(`(()=>{const f=document.querySelector('#camera'),r=f.getBoundingClientRect(),p=f.contentWindow.picture();return {x:r.x+p.left,y:r.y+p.top,w:p.w,h:p.h}})()`);

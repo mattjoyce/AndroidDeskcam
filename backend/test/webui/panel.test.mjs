@@ -313,3 +313,26 @@ test('a refused reset leaves annotations intact', async () => {
   await reset;
   assert.ok(!p.calls.some(c => c.url.includes('unmark=')));
 });
+
+
+test('plus and minus zoom relatively, while editing and browser shortcuts are untouched', async () => {
+  const p = await panel();
+  for (const [key, factor] of [['+', 1.25], ['=', 1.25], ['-', .8]]) {
+    const event = {key, preventDefault() { this.prevented = true; }};
+    p.context.keyEvent = event;
+    p.run('zoomKey(keyEvent)');
+    await p.flush();
+    assert.equal(event.prevented, true);
+    assert.equal(p.calls.at(-1).url, '/api/set?zoomby=' + factor);
+    p.calls.at(-1).reply();
+    await p.flush();
+  }
+  const before = p.calls.length;
+  for (const extra of [{ctrlKey: true}, {metaKey: true}, {altKey: true},
+      {isComposing: true}, {defaultPrevented: true}, {target: {closest: () => ({})}}]) {
+    p.context.keyEvent = {key: '+', ...extra, preventDefault() { throw new Error('shortcut intercepted'); }};
+    p.run('zoomKey(keyEvent)');
+  }
+  await p.flush();
+  assert.equal(p.calls.length, before);
+});

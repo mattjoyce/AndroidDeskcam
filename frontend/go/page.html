@@ -181,6 +181,11 @@
 
 <script>
 let S={}, ROLL=[], shown=null, selName=null;
+// Key events inside the frame stay there; those elsewhere use its shared handler.
+document.addEventListener('keydown', e=>{
+  const camera=document.getElementById('camera');
+  if(camera && camera.contentWindow && camera.contentWindow.zoomKey) camera.contentWindow.zoomKey(e);
+});
 // Which groups are open. Held here so the two second refresh does not shut them.
 const OPEN={Operation:true, Framing:true, Exposure:true};
 

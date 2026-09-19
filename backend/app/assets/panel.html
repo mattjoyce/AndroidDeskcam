@@ -173,7 +173,7 @@
       <div class="msg" id="msg" hidden></div>
       <div class="working" id="working" hidden></div>
       <div class="hint">double tap to focus &middot; drag a box to frame &middot; hold then drag
-        to pan &middot; scroll to zoom &middot; shift-drag to point &middot; ctrl-shift-drag to add</div>
+        to pan &middot; scroll or +/− to zoom &middot; shift-drag to point &middot; ctrl-shift-drag to add</div>
     </div>
     <div class="btns" style="margin-top:10px">
       <button onclick="still()">Save full-res still</button>
@@ -920,6 +920,19 @@ view.addEventListener('wheel', function (e) {
   usedTheView();
   api('/api/set?zoomby=' + (e.deltaY < 0 ? 1.25 : 0.8));
 }, { passive: false });
+
+// The console also forwards shortcuts from outside this frame to this one handler.
+// Browser zoom (Ctrl/Cmd) and keys used inside controls retain their usual behavior.
+function zoomKey(e) {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable], dialog')) return;
+  const factor = e.key === '+' || e.key === '=' ? 1.25 : e.key === '-' ? 0.8 : null;
+  if (factor === null) return;
+  e.preventDefault();
+  usedTheView();
+  api('/api/set?zoomby=' + factor);
+}
+document.addEventListener('keydown', zoomKey);
 
 /* Marks: what a person or an agent is pointing at. Card 71.
 
