@@ -13,14 +13,18 @@ import (
 
 // deskcam log reads the journal back.
 //
-//	deskcam log [N] [via=console|cli] [--json]     the last N operations, oldest first
-//	deskcam log wait [via=console|cli|any] [timeout=120]
+//	deskcam log [N] [via=console|cli] [op=NAME,...] [--json]     the last N operations, oldest first
+//	deskcam log wait [via=console|cli|any] [op=NAME,...] [timeout=120]
 //
 // The journal holds what everybody did, a person at the console included. So an agent that
 // reads it sees what the person pointed at, the mark they drew and the still they took for
 // it, and the person needs no second channel to signal with. "Watch for my signal" is
 // deskcam log wait: it returns when somebody does something at the console, with what they
 // did, as one JSON entry. Decision D19.
+//
+// Since the console aims (D20), a person framing up writes a set for every zoom and pan, so
+// "wait for them to point" is op=mark: the operations named are the only ones that end the
+// wait. The names are the CLI's, and the console journals the page's requests in them.
 //
 // Exit 0 for an entry, 2 when the time ran out with nothing seen. Nothing here reaches the
 // phone, and reading the journal is not itself journalled.
@@ -43,12 +47,12 @@ func logCommand(in *invocation) int {
 		} else if n, err := strconv.Atoi(word); err == nil && n > 0 {
 			limit = n
 		} else {
-			return fail("usage: deskcam log [N] [via=console|cli] [--json]   or   deskcam log wait [timeout=120]")
+			return fail("usage: deskcam log [N] [via=console|cli] [op=NAME,...] [--json]   or   deskcam log wait [op=NAME,...] [timeout=120]")
 		}
 	}
 	var kept []journalEntry
 	for _, entry := range readJournal(dir, journalCap) {
-		if matches(entry, filter["via"]) {
+		if matches(entry, filter["via"], filter["op"]) {
 			kept = append(kept, entry)
 		}
 	}
@@ -69,8 +73,21 @@ func logCommand(in *invocation) int {
 	return 0
 }
 
-func matches(entry journalEntry, via string) bool {
-	return via == "" || via == "any" || str(entry.Asker, "via") == via
+// matches says whether an entry came by via and is one of the comma separated operations in
+// ops. An empty via or ops matches anything.
+func matches(entry journalEntry, via, ops string) bool {
+	if via != "" && via != "any" && str(entry.Asker, "via") != via {
+		return false
+	}
+	if ops == "" {
+		return true
+	}
+	for _, op := range strings.Split(ops, ",") {
+		if strings.TrimSpace(op) == entry.Operation {
+			return true
+		}
+	}
+	return false
 }
 
 // One line for a person to read. An agent wants --json.
@@ -130,14 +147,18 @@ func logWait(dir string, filter map[string]string) int {
 				continue
 			}
 			var entry journalEntry
-			if json.Unmarshal(raw, &entry) != nil || !matches(entry, via) {
+			if json.Unmarshal(raw, &entry) != nil || !matches(entry, via, filter["op"]) {
 				continue
 			}
 			fmt.Println(strings.TrimSpace(string(raw)))
 			return 0
 		}
 		if time.Now().After(deadline) {
-			fmt.Fprintf(os.Stderr, "deskcam: nothing was done at the %s in %d seconds\n", via, timeout)
+			what := "nothing was done"
+			if filter["op"] != "" {
+				what = "no " + filter["op"] + " was done"
+			}
+			fmt.Fprintf(os.Stderr, "deskcam: %s at the %s in %d seconds\n", what, via, timeout)
 			return 2
 		}
 		time.Sleep(200 * time.Millisecond)

@@ -16,10 +16,14 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 - `deskcam focus at FX,FY`: autofocus on a place in the picture you can see, as fractions from the left and the top, leaving the framing alone. The shared camera panel also supports double-tap focus.
 - `deskcam mark at FX,FY[,FW,FH] [label=TEXT]`: point at a place in the picture without changing the camera. The shared camera panel also supports Shift-drag and Shift-click marks, labelled "look here".
 - `deskcam log [N] [via=console|cli] [--json]` reads the journal, and `deskcam log wait [timeout=120]` returns when a person next does something at the console, with what they did as JSON, or exits 2. This is how a person signals an agent: the journal holds what everybody did, so the agent that reads it sees the mark that was drawn, in the sensor's coordinates, and any still that was taken for it.
+- `op=NAME,...` on `deskcam log` and `deskcam log wait`, which narrows either to the operations named. Since the console aims (D20), a person lining a part up writes a `set` for every zoom and pan, and `log wait` returned on the first one. `deskcam log wait op=mark` returns on their mark.
+- `deskcam mark list` prints every mark on the phone, and `deskcam mark clear [ID|all]` removes them. A mark drawn on the phone's own page never reaches the journal, so the list is the only way an agent sees it.
+- The skill covers pointing in both directions, and names every CLI command, every endpoint and every parameter. A contract test holds it to that.
 - The record of a capture slides in from the right of the console when a row is picked, and away again with the cross, the tab on the edge of the view, or the `i` key.
 
 ### Changed
 
+- The console journals what its camera page does in the CLI's words, where it used the endpoint's. A mark is `mark` and a Clear is `unmark`, where both were `marks`, and a double tap is `focus`, where it was `af`. So a mark reads the same whichever way it was made, and `op=mark` does not wake for a Clear. Entries written before this keep their old names.
 - Shift-drag and Shift-click replace annotations with a new “look here” mark. Ctrl-Shift keeps existing annotations and adds another. Reset all clears annotations after resetting the camera.
 
 - The console embeds the APK's camera panel from one source file, with the same framing, focus, lighting and marking gestures. Camera requests pass through the console's authenticated proxy and changes enter its journal. Workstation capture operations and history remain beside the panel (D20). Shift-click on the phone now points; use Reset all to reset framing.

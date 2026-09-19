@@ -59,7 +59,7 @@ deskcam show      # one line: zoom, framing, focus, exposure, iso
 
 If that fails, refer to **When it does not work** at the end.
 
-## Two pages, and where the files land
+## Where the files land, and who sees what
 
 A capture is written into `DESKCAM_SHOTS`, or into the current directory when that is
 unset. `snap` prints the full path it wrote, so read that rather than assuming a
@@ -82,28 +82,18 @@ img=$(deskcam snap zoom=4 --why "check the solder bridge on U3")
 
 If you cannot run from the project directory, set `DESKCAM_PROJECT` to its path.
 
-**When the person wants to show you something, wait for them.** They have a console with
-the live view, and what they do there is written into the same journal as what you do. If
-they say "watch for my signal" or "I'll point at it", run:
+`deskcam log 10 --json` is what happened recently, by anybody, if you need to catch up.
+`via=console` narrows it to the person, and `op=snap,mark` to the operations named.
 
-```bash
-deskcam log wait timeout=180        # returns when they act; exit 2 if they did not
-```
-
-It prints one JSON entry. `operation` is `mark` when they drew a box or clicked a spot: the
-box is in `query` as `mark=cx,cy,w,h`, in the same coordinates as `cx`, `cy` and
-`focusbox`, so `deskcam snap zoom=4 cx=CX cy=CY` looks where they pointed, and their words
-are in `label`. It is `focus` when they double tapped to focus, and `snap` when they took a
-still for you, with its path in `files`. `deskcam log 10 --json` is what happened recently,
-by anybody, if you need to catch up.
-
-**There are two web pages and they are not the same.** Confusing them wastes a person's
-time, because the one they are looking at may not be the one you mean.
+**There are two places a person sees the camera, and one camera page.** The page is one
+file. The phone serves it, and the console embeds the same file beside its journal
+(decision D20), so the live view, the gestures and the marks are the same on both.
+What differs is what is written down.
 
 | Page | Where | What it is |
 |---|---|---|
-| The bench tool | the phone itself, `http://PHONE:8080` | The live view. Aiming, focus, torch, and the marks of `/api/marks`. Any browser on the network opens it with nothing installed. `deskcam open` opens this one. |
-| The console | the workstation, `http://127.0.0.1:9000`, from `deskcam serve` | The journal of every operation, grouped by project and session: captures with thumbnails and sidecars, changes to the camera, and refusals in the phone's words. Also the QR codes that install and pair. |
+| The bench tool | the phone itself, `http://PHONE:8080` | The camera page alone. Any browser on the network opens it with nothing installed. `deskcam open` opens this one. **Nothing done here reaches the journal.** |
+| The console | the workstation, `http://127.0.0.1:9000`, from `deskcam serve` | The same camera page, with the journal of every operation beside it, grouped by project and session: captures with thumbnails and sidecars, changes to the camera, and refusals in the phone's words. Also **Snap** and the other operation buttons, which run the CLI's own commands, and the QR codes that install and pair. Everything the person does here is journalled as `via: console`. |
 
 The console is **loopback only**. Its banner prints the machine's LAN address on the first
 line, but that address serves the phone `/p/` and `/deskcam.apk` and nothing else, and
@@ -111,9 +101,96 @@ answers 403 for the page itself. Only `http://127.0.0.1:9000` opens the console,
 from the workstation. The banner's `shots:` line says where captures are going.
 
 The consequence for you: **there is no way to put an image in front of the person at the
-bench.** The phone's page shows the live camera and never your files, and the console is
-on the workstation. Give the person the path you printed, or tell them to look at the
-console, and say which page you mean.
+bench.** Both views show the live camera and never your files. Give the person the path
+you printed, or tell them to look at the console, and say which page you mean. What you
+can put in front of them is a mark, which is the next section.
+
+## Pointing, both ways
+
+A **mark** is a point or a box on the picture with a few words on it: "look here", "pin 1",
+"this cap". The page calls them annotations. A mark changes nothing on the camera, which is
+the point of it: a double tap points too, but it moves the lens.
+
+**The person points at something for you.** On either live view:
+
+| Gesture or button | What it does |
+|---|---|
+| shift-drag a box | Replaces every mark with one box labelled "look here" |
+| shift-click | Replaces every mark with one point labelled "look here" |
+| ctrl-shift-drag | Adds a box and keeps the marks already there |
+| **Mark this view** | Replaces every mark with a box the size of what is on screen |
+| **Clear** | Removes every mark |
+| **Reset all** | Resets the camera to the full sensor, then removes every mark |
+| **Fit all** | Frames the camera around every mark. This one moves the camera |
+| double tap | Focuses there and leaves the framing alone. Not a mark |
+| drag a box, hold then drag, scroll, `+` and `-` | Aim: crop to the box, pan, zoom. Not a mark |
+
+If they say "watch for my signal", "I'll point at it" or "I'll show you", wait for the mark
+itself. A person lining a part up zooms and pans first, and every one of those is a `set`
+in the journal, so a wait for anything wakes on the first zoom:
+
+```bash
+deskcam log wait op=mark timeout=180      # returns on their mark; exit 2 if none came
+```
+
+It prints one JSON entry. The place is in `query` as `mark=cx,cy` for a point or
+`mark=cx,cy,w,h` for a box, as fractions of the whole frame, the coordinates `cx`, `cy`
+and `focusbox` use, whatever the framing was when they drew it. So
+`deskcam snap zoom=4 cx=CX cy=CY` looks where they pointed. The query also carries
+`label=look here`, which is what the page always writes. The person's own words are not in
+it, so ask them if the place alone is not enough.
+
+`op` takes a list, and the names are the CLI's own, whichever page the person used:
+
+| `op` | The person |
+|---|---|
+| `mark` | pointed: a shift-drag, a shift-click, or Mark this view |
+| `unmark` | cleared the marks, with Clear or Reset all |
+| `focus` | double tapped to focus. The place is the `focusbox` in `query` |
+| `snap` | pressed Snap to take a still for you. Its path is in `files` |
+| `set`, `reset`, `af` | aimed, reset, or pressed Autofocus |
+
+`deskcam log wait op=mark,snap` returns on whichever comes first. `log wait` watches the
+console only, because another agent's still is not a signal from the person. `via=any`
+widens it.
+
+**A mark drawn on the phone's own page is invisible to `log wait`**, because nothing done
+there is journalled. If the person is at the phone rather than the console, ask them to
+point and tell you when, then read the marks:
+
+```bash
+deskcam mark list      # every mark on the phone, as JSON
+```
+
+Each mark has an `id`, `kind` (`point` or `box`), `cx`, `cy` and for a box `w` and `h`,
+in the same whole-frame coordinates, its `label`, who made it in `by`, when in `at`, and
+`in_crop`, which says whether it is inside what the camera is framing now and so whether
+the person can see it.
+
+**You point at something for the person.** Look at a frame, find the part, and mark it in
+the picture you looked at:
+
+```bash
+deskcam mark at 0.42,0.61 label="pin 1" by=claude             # a point
+deskcam mark at 0.42,0.61,0.2,0.1 label="this cap" by=claude  # a box: centre, then size
+```
+
+`mark at` takes fractions of the picture you can see, 0 to 1 from the left and from the
+top, the same as `focus at`, and turns them into whole-frame coordinates from the framing at
+that moment. So take the frame, read it, and mark before anybody reframes. The mark appears
+on both live views, in a list the person can click to go to it. `label` is at most 80
+characters. `by` is one short word, and `agent` when left out. It is a claim, not a
+proof, and the person's own marks say `you`. Your mark is added to the ones already there;
+it does not replace them.
+
+Tidy up after yourself with `deskcam mark clear ID`, which removes the mark with that `id`
+from `mark list`. `deskcam mark clear` on its own removes every mark, the person's too, so
+use it only when they ask. A clear is journalled as `unmark`.
+
+The phone keeps at most 200 marks. They are stored on the sensor and mapped back through
+`rotate` every time they are read, so a mark stays on its part when the phone is remounted.
+They do not survive a restart of the app, and marking works while a tape holds the camera,
+because a mark does not touch the camera.
 
 
 ## Aiming
@@ -332,12 +409,25 @@ deskcam snap zoom=6 cx=0.3 cy=0.7 focusm=0.15 torch=25 exposure=1/120 iso=100
 ```
 
 **These persist until you change them again:** `camera`, `zoom`, `zoomby`, `cx`, `cy`,
-`dx`, `dy`, `af`, `focus`, `focusm`, `ae`, `exposure`, `iso`, `ev`, `aelock`, `awb`,
-`awblock`, `torch`, `measure`, `shadingmap`, `rotate`.
+`dx`, `dy`, `af`, `focus`, `focusm`, `focusbox`, `ae`, `exposure`, `iso`, `ev`, `aelock`,
+`awb`, `awbgains`, `awblock`, `torch`, `measure`, `shadingmap`, `rotate`, `previewsize`,
+`stillsize`. `cam`, `shutter` and `sensitivity` are other names for `camera`, `exposure`
+and `iso`. `previewsize` and `stillsize` rebuild the capture session, so leave them alone
+unless you know why; `stillsize=max` is the default.
 
 **These apply to the one command that names them and are then forgotten:** `w`, `h`,
-`jpegq`. So `deskcam frame w=320` does not shrink your next `snap`, and a resize never
-quietly disables the untouched-JPEG path.
+`jpegq` (or `quality`). So `deskcam frame w=320` does not shrink your next `snap`, and a
+resize never quietly disables the untouched-JPEG path.
+
+**The rest steer one request and are not camera state.** `reset=1` clears every setting
+before the rest of the request is applied, so `deskcam snap reset=1 zoom=4` starts clean.
+`settle`, `timeout` and `fresh` time a capture (see **The limits are the phone's**). `n` is a
+burst's length or a stream's frame count, and `fps` a stream's rate. `wait` is how long
+`deskcam af` waits after its sweep. `format` set to `raw` makes `deskcam burst` take DNG frames.
+`from`, `to`, `steps`, `coarse`, `fine`, `base`, `stops`, `vary` and `values` belong to the
+sweeps, hunts, brackets and walks, and `mark`, `unmark`, `label` and `by` to marks.
+`sharpness=1` makes `deskcam show` read a fresh frame. `port` is for the network diagnostic
+only.
 
 Exposure accepts what a datasheet says: `1/120`, `8ms`, `250us`, `0.5s`.
 
@@ -447,6 +537,54 @@ exposure is on and 120 otherwise. `timeout` bounds the capture itself, 100 to 60
 settings is never handed back as the new one. After a large change of light, `fresh=2` is
 cheaper than a throwaway capture.
 
+
+## Every command, and what it reaches
+
+The sections above teach the commands in the order you need them. This is the whole
+surface in one place, so nothing the camera answers is a surprise. `deskcam help` prints
+the CLI's own text, and `deskcam api` the phone's.
+
+| Phone endpoint | Command | What for |
+|---|---|---|
+| `/api/still` | `deskcam snap` | A full-resolution still of the crop |
+| `/api/frame` | `deskcam frame` | A fast preview-sized still, for aiming |
+| `/api/raw` | `deskcam raw` | The whole sensor as a DNG |
+| `/api/burst` | `deskcam burst N` | N stills with one set of settings |
+| `/api/focussweep` | `deskcam focussweep` | A still at each lens position, for stacking |
+| `/api/focushunt` | `deskcam focus hunt` | Walks the lens and stops at the sharpest place, or refuses |
+| `/api/bracket` | `deskcam bracket` | Stills at doubling exposures |
+| `/api/walk` | `deskcam walk vary=NAME values=A,B,C` | One still at each value of one setting, e.g. `vary=torch values=0,10,20,45` |
+| `/api/stream` | `deskcam stream` | An MJPEG stream to a file, 30 frames unless `n=` says otherwise. It refuses any setting that would change the camera |
+| `/api/script` | `deskcam script run FILE` | A tape of steps as one operation |
+| `/api/set` | `deskcam set k=v`, and the shorthands `deskcam zoom N`, `deskcam pan up\|down\|left\|right [amt]`, `deskcam center`, `deskcam focus METRES\|auto`, `deskcam exposure VALUE`, `deskcam iso N`, `deskcam torch 0-45\|off\|max`, `deskcam auto`, `deskcam recall FILE.json` | Changes the camera and prints the result. `auto` hands exposure and focus back to the camera |
+| `/api/reset` | `deskcam reset` | Every setting back to its default |
+| `/api/af` | `deskcam af`, `deskcam focus at FX,FY` | One autofocus sweep, on the crop or on a place |
+| `/api/status` | `deskcam status`, `deskcam show` | The whole state as JSON, or one line |
+| `/api/cameras` | `deskcam cameras` | Each camera and what it can do |
+| `/api/marks` | `deskcam mark at`, `mark list`, `mark clear` | Pointing, both ways |
+| `/api/help` | `deskcam api` | The machine-readable reference: every endpoint, parameter and tape verb |
+| `/api/orientation` | none; the same numbers are the `orientation` block of `deskcam status` | Tilt to gravity, roll, pitch and ambient light |
+| `/api/shadingmap` | none | The lens shading map, after `deskcam set shadingmap=on` |
+| `/api/nettest` | none | Diagnostic: the phone opens a connection back to you to prove it can |
+
+For the three with no command, `curl -s "$(deskcam which)/api/orientation"`, adding
+`?token=KEY` with the key from `deskcam token show` when one is set.
+
+These never reach the camera:
+
+| Command | What for |
+|---|---|
+| `deskcam aatest`, `deskcam scale`, `deskcam measure`, `deskcam analyse ...` | The measurement tools. See **Before you report a number** |
+| `deskcam analyse average DIR`, `deskcam analyse stack DIR`, `deskcam analyse hdr DIR` | One 16-bit image from a burst, one image sharp at every depth from a focus sweep, one linear image from a bracket |
+| `deskcam analyse scale FILE` | `deskcam scale` without recording the result |
+| `deskcam log`, `deskcam log wait` | Read the journal, or wait on it. See **Pointing, both ways** |
+| `deskcam open` | Open the phone's camera page in a browser |
+| `deskcam serve` | Start the console, on port 9000 unless another is given |
+| `deskcam which`, `deskcam use URL` | Print the phone's address, or set it |
+| `deskcam wifi`, `deskcam usb` | Reach the phone over Wi-Fi, or over a USB cable through adb |
+| `deskcam start`, `deskcam stop` | Start or stop the service on the phone, through adb |
+| `deskcam token new\|show\|clear` | The access key. `show` is harmless. Change it only when the person asks: `new` and `clear` change the key here and not on the phone, so the camera refuses this CLI until the person pairs the phone again |
+| `deskcam version` | This CLI's version |
 
 ## Judgement
 

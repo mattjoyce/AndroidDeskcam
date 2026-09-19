@@ -166,11 +166,35 @@ func TestWhatThePageChangesIsJournalledAndWhatItReadsIsNot(t *testing.T) {
 	if entries[0].Operation != "set" || entries[0].Query != "zoom=4&cx=0.3" || str(entries[0].Asker, "via") != "console" {
 		t.Errorf("the set is %+v", entries[0])
 	}
-	if entries[1].Operation != "marks" || !entries[1].Ok {
+	if entries[1].Operation != "mark" || !entries[1].Ok {
 		t.Errorf("the mark is %+v", entries[1])
 	}
 	if entries[2].Ok || !strings.Contains(entries[2].Error, "banana") {
 		t.Errorf("the refusal should be in the phone's words, got %+v", entries[2])
+	}
+}
+
+// The journal names what was done, not the route it came by, so a mark drawn on the page
+// reads as deskcam mark at does, and a double tap as deskcam focus at does. An agent waiting
+// with op=mark would otherwise wake for a Clear, which is the same endpoint.
+func TestThePageIsJournalledInTheClisWords(t *testing.T) {
+	state, server, _ := testConsole(t)
+	phone, _ := keyedPhone(t, "")
+	pairTo(state, phone.URL)
+	for _, path := range []string{
+		"/api/marks?unmark=all&by=you&label=look%20here&mark=0.3,0.6",
+		"/api/marks?unmark=all",
+		"/api/af?focusbox=0.5836,0.6321,0.0263,0.0263",
+		"/api/af",
+	} {
+		ask(t, server, http.MethodGet, path, "", fromThePage)
+	}
+	var got []string
+	for _, e := range readJournal(journalDir(), 20) {
+		got = append(got, e.Operation)
+	}
+	if strings.Join(got, " ") != "mark unmark focus af" {
+		t.Errorf("want mark unmark focus af, got %v", got)
 	}
 }
 

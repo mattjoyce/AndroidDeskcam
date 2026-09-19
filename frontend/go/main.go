@@ -242,10 +242,19 @@ func dispatch(in *invocation) int {
 
 	// ------------------------------------------------------------ pointing
 	case "mark":
-		if in.arg(0) != "at" {
-			return fail("usage: deskcam mark at FX,FY[,FW,FH] [label=TEXT] [by=WORD]")
+		switch in.arg(0) {
+		case "at":
+			return markAt(in)
+		case "list":
+			// Reading, so not journalled: a mark made on the phone's own page is not in the
+			// journal, and this is where an agent sees it.
+			in.command = "marks"
+			return printJSON(in, "/api/marks", "")
+		case "clear":
+			in.command = "unmark"
+			return markClear(in)
 		}
-		return markAt(in)
+		return fail("usage: deskcam mark at FX,FY[,FW,FH] [label=TEXT] [by=WORD] | mark list | mark clear [ID|all]")
 	case "log":
 		return logCommand(in)
 

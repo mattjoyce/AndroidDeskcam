@@ -87,6 +87,38 @@ func TestLogWaitReturnsWhatThePersonDidNext(t *testing.T) {
 	}
 }
 
+// "Point at it for me." A person framing up at the console writes a set for every zoom and
+// pan, and the first of those is not the signal the agent is waiting for.
+func TestLogWaitForAnOperationSkipsTheOthers(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DESKCAM_JOURNAL", dir)
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		for _, e := range []journalEntry{
+			{Operation: "set", Query: "zoomby=1.25"},
+			{Operation: "unmark", Query: "unmark=all"},
+			{Operation: "mark", Query: "unmark=all&by=you&label=look here&mark=0.7060,0.6048,0.1021,0.1377"},
+		} {
+			e.Ok, e.Asker = true, map[string]any{"via": "console"}
+			_ = writeJournal(dir, e, nil)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	out, code := captureStdout(t, func() int { return run([]string{"log", "wait", "op=mark,focus", "timeout=5"}) })
+	if code != 0 {
+		t.Fatalf("got %d: %s", code, out)
+	}
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(out), &entry); err != nil || entry["operation"] != "mark" {
+		t.Errorf("want the mark, got %v %s", err, out)
+	}
+	// And the log reads the same way.
+	out, _ = captureStdout(t, func() int { return run([]string{"log", "op=set"}) })
+	if strings.Count(strings.TrimSpace(out), "\n") != 0 || !strings.Contains(out, "zoomby=1.25") {
+		t.Errorf("op=set gave:\n%s", out)
+	}
+}
+
 // Nothing happened is an answer, and it is not a success.
 func TestLogWaitThatSeesNothingExitsTwo(t *testing.T) {
 	t.Setenv("DESKCAM_JOURNAL", t.TempDir())
@@ -133,6 +165,33 @@ func TestMarkAtPointsWithoutMovingAnything(t *testing.T) {
 	if code != 0 || !strings.Contains(strings.ReplaceAll(asked()[3], "%2C", ","), "mark=0.3000,0.7000&") &&
 		!strings.HasSuffix(strings.ReplaceAll(asked()[3], "%2C", ","), "mark=0.3000,0.7000") {
 		t.Errorf("a point mark went as %v (exit %d)", asked()[3:], code)
+	}
+}
+
+// A mark drawn on the phone's own page never reaches the journal (D20), so reading the
+// phone's list is the only way an agent sees it. Clearing is an operation, journalled as
+// unmark as it is from the console; listing is reading, and is not.
+func TestMarkListReadsThePhoneAndMarkClearRemoves(t *testing.T) {
+	t.Setenv("DESKCAM_JOURNAL", t.TempDir())
+	phone, asked := zoomedPhone(t, `{"zoom":1}`)
+	if _, code := captureStdout(t, func() int { return run([]string{"mark", "list", "--url", phone.URL}) }); code != 0 {
+		t.Fatalf("list exited %d", code)
+	}
+	for _, words := range [][]string{{"mark", "clear"}, {"mark", "clear", "7"}} {
+		if _, code := captureStdout(t, func() int { return run(append(words, "--url", phone.URL)) }); code != 0 {
+			t.Fatalf("%v exited %d", words, code)
+		}
+	}
+	want := []string{"/api/marks?", "/api/marks?unmark=all", "/api/marks?unmark=7"}
+	if got := asked(); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("want %v, got %v", want, got)
+	}
+	var ops []string
+	for _, e := range readJournal(journalDir(), 10) {
+		ops = append(ops, e.Operation)
+	}
+	if strings.Join(ops, " ") != "unmark unmark" {
+		t.Errorf("want two unmarks and no list in the journal, got %v", ops)
 	}
 }
 

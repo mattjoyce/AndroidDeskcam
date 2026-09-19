@@ -188,6 +188,22 @@ func (s *consoleState) handlePhone(w http.ResponseWriter, r *http.Request) {
 	s.journalPage(name, r, asked, started, resp.StatusCode < 400, said)
 }
 
+// operationName is what the journal calls a request from the page: the word the CLI uses for
+// the same thing, not the endpoint it went to. One endpoint both adds a mark and clears them
+// all, and an agent waiting with op=mark must not wake for a Clear. A double tap is an af
+// with a focus box, which is what deskcam focus at sends and journals as focus.
+func operationName(endpoint string, q url.Values) string {
+	switch {
+	case endpoint == "marks" && q.Get("mark") != "":
+		return "mark"
+	case endpoint == "marks":
+		return "unmark"
+	case endpoint == "af" && q.Get("focusbox") != "":
+		return "focus"
+	}
+	return endpoint
+}
+
 // journalPage writes down what the page did to the camera, so that a person's reframe at
 // the console is in the same record as an agent's, and an agent waiting on deskcam log wait
 // sees it. Reading is not written down: the page polls status and the marks every two
@@ -218,7 +234,7 @@ func (s *consoleState) journalPage(name string, r *http.Request, query string, s
 	entry := journalEntry{
 		At:        started.UTC().Format(time.RFC3339Nano),
 		Millis:    time.Since(started).Milliseconds(),
-		Operation: name,
+		Operation: operationName(name, q),
 		Query:     keyInCommand.ReplaceAllString(decoded, "token=***"),
 		Ok:        ok,
 		ExitCode:  code,

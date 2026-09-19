@@ -295,6 +295,48 @@ def test_the_documents_name_only_real_endpoints() -> None:
         assert not invented, f"{doc.name} names {invented}, which the server does not answer"
 
 
+def cli_commands() -> set[str]:
+    """Every command the usage text offers, with its subcommand where it has one.
+
+    `deskcam focus at FX,FY` is `focus at`, `deskcam burst N` is `burst`, and
+    `deskcam start | stop` is both.
+    """
+    src = USAGE.read_text()
+    printed = src[src.index("fmt.Print(`") : src.rindex("`)")]
+    found: set[str] = set()
+    for line in re.findall(r"^  deskcam (.+)$", printed, re.MULTILINE):
+        words = re.split(r"\s{2,}", line)[0].split()
+        found.add(words[0])
+        if len(words) > 2 and words[1] == "|":
+            found.add(words[2])
+        elif len(words) > 1 and re.fullmatch(r"[a-z][a-z-]*", words[1]):
+            found.add(f"{words[0]} {words[1]}")
+    return found
+
+
+def test_the_skill_covers_the_whole_surface(declared: dict[str, list[str]]) -> None:
+    """The skill is what an agent reads, and a command it does not name does not exist for it.
+
+    On 2026-09-20 the skill did not name deskcam mark at, a day after it shipped, and told
+    agents to wait for operation names the console had stopped writing the day before. Every
+    CLI command, every endpoint and every parameter is held to appear in it.
+    """
+    text = SKILL.read_text()
+    commands = cli_commands()
+    assert {"snap", "focus at", "mark at", "log wait", "stop"} <= commands, commands
+    missing = sorted(c for c in commands if f"deskcam {c}" not in text)
+    assert not missing, f"the skill never names deskcam {missing}"
+    missing = sorted(r for r in routes() if f"`{r}`" not in text)
+    assert not missing, f"the skill never names {missing}"
+    missing = [
+        name
+        for names in declared.values()
+        for name in names
+        if name not in ("t", "_") and f"`{name}`" not in text
+    ]
+    assert not missing, f"the skill never names the parameters {missing}"
+
+
 # ----------------------------------------------------------------- versions
 
 VERSION_FILE = ROOT / "VERSION"

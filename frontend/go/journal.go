@@ -83,7 +83,7 @@ var journalled = map[string]bool{
 	"light": true, "aatest": true,
 	// A mark changes nothing on the camera. It is here because it is how a person points,
 	// and the journal is where an agent looks to see that they did.
-	"mark": true,
+	"mark": true, "unmark": true,
 }
 
 // What the command said when it failed. fail and failWith have no invocation to write it

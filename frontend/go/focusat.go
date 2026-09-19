@@ -125,6 +125,25 @@ func markAt(in *invocation) int {
 	return 0
 }
 
+// markClear removes one mark by its id, from deskcam mark list, or every mark. It is
+// journalled as unmark, the word the console uses for a Clear, so op=mark never wakes for it.
+//
+//	deskcam mark clear          every mark
+//	deskcam mark clear 7        the mark with id 7
+func markClear(in *invocation) int {
+	id := in.arg(1)
+	if id == "" {
+		id = "all"
+	}
+	in.query = "unmark=" + url.QueryEscape(id)
+	reply, err := in.client.GetJSON("/api/marks", in.query)
+	if err != nil {
+		return failWith(err)
+	}
+	fmt.Printf("cleared, %v left on the phone\n", reply["count"])
+	return 0
+}
+
 // number reads a value the phone may have sent as null, which is how it reports a centre
 // that has never been set.
 func number(m map[string]any, key string, otherwise float64) float64 {
