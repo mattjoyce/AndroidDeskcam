@@ -46,7 +46,7 @@
   .viewport img.grab { cursor:grabbing; }
   /* A paused view has no src, and the browser draws the alt text through the overlay. */
   .viewport img:not([src]) { visibility:hidden; }
-  @media (max-width:900px) {
+  @media (max-width:600px) {
     html, body { height:auto; }
     main { grid-template-columns:1fr; grid-template-rows:none; }
     .viewport { flex:none; min-height:12rem; }
@@ -69,6 +69,8 @@
   @keyframes ringpulse { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(.86); opacity:.72; } }
   .dragbox { position:absolute; border:2px solid #2f81f7; background:rgba(47,129,247,.15);
              border-radius:2px; pointer-events:none; }
+  /* A box that points instead of framing is drawn as a mark is drawn. */
+  .dragbox.marking { border:2px dashed #79c0ff; background:rgba(47,129,247,.10); }
   /* What somebody is pointing at. The phone keeps a mark where it sits on the sensor, so
      these stay on their part through any zoom, pan or remount. Card 71. */
   .marks { position:absolute; inset:0; pointer-events:none; }
@@ -162,7 +164,7 @@
 <main>
   <div class="left">
     <div class="viewport">
-      <img id="view" alt="live view">
+      <img id="view" alt="live view" draggable="false">
       <div class="asleep" id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
       <div class="marks" id="marks"></div>
       <div class="offview" id="offview" hidden></div>
@@ -171,12 +173,12 @@
       <div class="msg" id="msg" hidden></div>
       <div class="working" id="working" hidden></div>
       <div class="hint">double tap to focus &middot; drag a box to frame &middot; hold then drag
-        to pan &middot; scroll to zoom</div>
+        to pan &middot; scroll to zoom &middot; shift-drag to point &middot; ctrl-shift-drag to add</div>
     </div>
     <div class="btns" style="margin-top:10px">
       <button onclick="still()">Save full-res still</button>
       <button onclick="api('/api/af')">Autofocus</button>
-      <button onclick="api('/api/reset')">Reset all</button>
+      <button onclick="resetAll()">Reset all</button>
       <button onclick="restream()">Restart stream</button>
     </div>
   </div>
@@ -295,13 +297,14 @@ function requestUrl(path) {
   return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(accessToken);
 }
 
+// The console requires this header; the phone ignores it. Both hosts use this same page.
 // Keep the deadline active until the body has been read as well as the headers.
 // Aborting a browser request cannot undo an operation already received by the camera.
 async function requestJson(path) {
   const controller = new AbortController();
   const timer = setTimeout(function () { controller.abort(); }, 15000);
   try {
-    const r = await fetch(requestUrl(path), {signal: controller.signal});
+    const r = await fetch(requestUrl(path), {signal: controller.signal, headers: {'X-DeskCam-Console': '1'}});
     const j = await r.json();
     return {r: r, j: j};
   } catch (e) {
@@ -579,7 +582,14 @@ async function refresh() {
    double tap           focus there, and leave the framing alone
    drag a box           that box becomes the crop, then focus on it
    hold, then drag      pan
-   scroll               zoom      shift-click   back to the full sensor
+   scroll               zoom
+   shift-drag a box     replace annotations with a new look-here box
+   ctrl-shift-drag      add a look-here box, keeping existing annotations
+   shift-click          mark that spot
+
+   Shift is pointing, here and on the console, so the same gesture is the same action on
+   both pages. Shift-click used to mean "back to the full sensor", which Reset all does, and
+   a gesture cannot mean aiming on one page and pointing on the other. Decision D19.
 
    A single tap does nothing on purpose. It was the focus gesture for an afternoon and it
    fired while people were lining a part up, which moves the lens under their hand.
@@ -842,15 +852,22 @@ view.addEventListener('pointerdown', function (e) {
   }
   const p = frac(e);
   try { view.setPointerCapture(e.pointerId); } catch (err) { /* works without it */ }
-  if (e.shiftKey) { api('/api/set?zoom=1&cx=0.5&cy=0.5&focusbox=off'); hideRing(); return; }
   const c = crop();
   g = {id: e.pointerId, sx: p[0], sy: p[1], x: p[0], y: p[1], mode: 'pending',
        w0: c.w, left0: c.left, top0: c.top,
        cx0: c.left + c.w / 2, cy0: c.top + c.w / 2};
   clearTimeout(holdTimer);
-  holdTimer = setTimeout(function () {
-    if (g && g.mode === 'pending') { g.mode = 'pan'; view.classList.add('grab'); }
-  }, 420);
+  if (e.shiftKey) {
+    // Pointing. It never becomes a pan or a crop, however long it is held or far it goes.
+    lastTap = {t: 0, x: 0, y: 0};
+    g.mode = 'mark';
+    g.keepMarks = e.ctrlKey;
+    dragbox.classList.add('marking');
+  } else {
+    holdTimer = setTimeout(function () {
+      if (g && g.mode === 'pending') { g.mode = 'pan'; view.classList.add('grab'); }
+    }, 420);
+  }
   e.preventDefault();
 });
 
@@ -863,7 +880,7 @@ view.addEventListener('pointermove', function (e) {
     clearTimeout(holdTimer);
     g.mode = 'box';
   }
-  if (g.mode === 'box') {
+  if (g.mode === 'box' || g.mode === 'mark') {
     drawBox(g);
   } else if (g.mode === 'pan') {
     sendPan(clamp(g.cx0 - (p[0] - g.sx) * g.w0, g.w0 / 2, 1 - g.w0 / 2),
@@ -877,8 +894,10 @@ view.addEventListener('pointerup', function (e) {
   const gg = g;
   g = null;
   dragbox.hidden = true;
+  dragbox.classList.remove('marking');
   view.classList.remove('grab');
   if (gg.mode === 'pan') return;
+  if (gg.mode === 'mark') { markGesture(gg); return; }
   const dx = Math.abs(gg.x - gg.sx), dy = Math.abs(gg.y - gg.sy);
   // Under 2% of the view is a tap and not a box, which is the console's rule.
   if (gg.mode === 'pending' || (dx < 0.02 && dy < 0.02)) tapped(gg.x, gg.y);
@@ -892,6 +911,7 @@ view.addEventListener('pointercancel', function (e) {
   clearTimeout(holdTimer);
   g = null;
   dragbox.hidden = true;
+  dragbox.classList.remove('marking');
   view.classList.remove('grab');
 });
 
@@ -1016,9 +1036,26 @@ async function goToMark(m) {
    /api/status, and this says the same thing out loud with a label on it. */
 async function markView() {
   const c = crop();
-  await api('/api/marks?by=you&label=' + encodeURIComponent('look here')
+  await api('/api/marks?unmark=all&by=you&label=' + encodeURIComponent('look here')
             + '&mark=' + (c.left + c.w / 2).toFixed(4) + ',' + (c.top + c.w / 2).toFixed(4)
             + ',' + c.w.toFixed(4) + ',' + c.w.toFixed(4));
+  loadMarks();
+}
+
+/* A shift-drag or a shift-click. The same gesture and the same result as on the console: a
+   box by its centre and size, or a point when the drag is under 2% of the view, marked
+   by=you. Nothing about the camera changes. */
+async function markGesture(gg) {
+  const c = crop();
+  const x0 = Math.min(gg.sx, gg.x), x1 = Math.max(gg.sx, gg.x);
+  const y0 = Math.min(gg.sy, gg.y), y1 = Math.max(gg.sy, gg.y);
+  var mark = (c.left + (x0 + x1) / 2 * c.w).toFixed(4) + ',' + (c.top + (y0 + y1) / 2 * c.w).toFixed(4);
+  if (x1 - x0 > 0.02 && y1 - y0 > 0.02) {
+    mark += ',' + ((x1 - x0) * c.w).toFixed(4) + ',' + ((y1 - y0) * c.w).toFixed(4);
+  }
+  // Remove and add in one queued request, so rapid gestures cannot interleave them.
+  await api('/api/marks?' + (gg.keepMarks ? '' : 'unmark=all&')
+    + 'by=you&label=' + encodeURIComponent('look here') + '&mark=' + mark);
   loadMarks();
 }
 
@@ -1034,6 +1071,15 @@ async function fitMarks() {
   const z = clamp(Math.min(1 / (x1 - x0), 1 / (y1 - y0)) * 0.92, 1, 20);
   await api('/api/set?zoom=' + z.toFixed(2) + '&cx=' + ((x0 + x1) / 2).toFixed(4)
             + '&cy=' + ((y0 + y1) / 2).toFixed(4));
+  loadMarks();
+}
+
+async function resetAll() {
+  // Queue both now: a later gesture must follow the reset and its annotation cleanup.
+  // The command queue cancels the clear if the camera refuses the reset.
+  const reset = api('/api/reset');
+  const cleared = api('/api/marks?unmark=all');
+  await Promise.all([reset, cleared]);
   loadMarks();
 }
 

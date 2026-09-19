@@ -4,8 +4,7 @@
 <style>
  :root{color-scheme:dark}
  *{box-sizing:border-box}
- /* A rule that sets display beats the browser's own [hidden] rule, so #asleep below was
-    drawn from the first paint, dimmed the view, and took every drag and click. */
+ /* Explicit display rules must still respect hidden elements. */
  [hidden]{display:none!important}
  html,body{height:100%;margin:0;overflow:hidden}      /* the page itself never scrolls */
  body{background:#0d1117;color:#e6edf3;display:flex;flex-direction:column;
@@ -41,9 +40,12 @@
  #infotab{position:absolute;right:0;top:50%;transform:translateY(-50%);padding:14px 5px;
           border-radius:7px 0 0 7px;border-right:0;font-size:14px;line-height:1;opacity:.75}
  #infotab:hover{opacity:1}
- @media(max-width:760px){main.noinfo #infocol{display:none} #infotab{display:none}}
- #asleep{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-         background:rgba(1,4,9,0.82);color:#8b949e;font-size:13px}
+ @media(max-width:760px){
+   main,main.noinfo{grid-template-columns:1fr;grid-auto-rows:max-content;gap:9px}
+   main.noinfo #infocol{display:none} #infotab{display:none}
+   #infocol .scroll{max-height:50vh}
+ }
+
 
  #roll{display:flex;flex-direction:column;gap:7px;padding:8px}
  .shot{background:#0d1117;border:1px solid #21262d;border-radius:6px;overflow:hidden;
@@ -78,23 +80,8 @@
  .raw{width:100%;background:#0d1117;color:#8b949e;border:1px solid #21262d;border-radius:5px;
       font:10px/1.35 ui-monospace,monospace;padding:6px;height:130px;resize:vertical}
 
- .view{position:relative;background:#000;flex:1 1 auto;display:flex;align-items:center;
-       justify-content:center;min-height:0;overflow:hidden}
- .view img{max-width:100%;max-height:100%;object-fit:contain;display:block;
-           user-select:none;-webkit-user-drag:none}
- /* A paused view has no src, and the browser draws the alt text through the overlay. */
- .view img:not([src]){visibility:hidden}
- #ring{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;
-       border:2px solid #d29922;display:none;pointer-events:none}
- #markbox{position:absolute;border:2px dashed #d29922;background:rgba(210,153,34,.12);
-          display:none;pointer-events:none}
- #ring.ok{border-color:#3fb950} #ring.bad{border-color:#f85149}
- .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
-       border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
-       color:#8b949e;pointer-events:none}
- .warn{position:absolute;left:8px;right:8px;top:8px;display:none;white-space:pre-wrap;
-       background:rgba(13,17,23,.92);border:1px solid #f85149;border-radius:5px;
-       padding:5px 8px;font-size:11px;color:#f85149}
+ #camera{width:100%;flex:1 1 auto;min-height:0;border:0;background:#0d1117}
+ @media(max-width:760px){#camera{min-height:75vh}}
  .btns{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:8px;
        border-top:1px solid #21262d}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
@@ -136,25 +123,15 @@
         Nothing in the journal yet. <code>deskcam snap</code> from anywhere.</p></div>
   </div>
   <div class="col">
-    <div class="view" id="wrap">
-      <img id="live" alt="live view" draggable="false">
-      <div id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
-      <div id="ring"></div>
-      <div id="markbox"></div>
-      <div class="hint">what the agent sees &middot; double tap to focus there &middot;
-        shift-drag or shift-click to point something out to an agent &middot; to aim, open
-        the phone's page</div>
-      <div id="streamerr" class="warn"></div>
-    </div>
+    <iframe id="camera" src="/camera" title="Camera controls"></iframe>
     <div class="btns">
       <button class="p" onclick="snapNow()">Snap</button>
       <input id="why" placeholder="what is it for? (optional)" size="26">
       <button onclick="op('do=hunt')">Focus hunt</button>
       <button onclick="op('do=measure')">Measure</button>
       <button onclick="op('do=normal')">Normal</button>
-      <button onclick="restream()">Restream</button>
       <button onclick="document.getElementById('pair').showModal()">Pair</button>
-      <a id="bench" class="muted" target="_blank" rel="noopener" style="font-size:12px">aim on the phone's page</a>
+      <a id="bench" class="muted" target="_blank" rel="noopener" style="font-size:12px">open the phone's page</a>
       <span id="said" class="muted" style="font-size:12px"></span>
     </div>
     <button id="infotab" onclick="info()" title="show or hide the record (i)"></button>
@@ -203,7 +180,7 @@
 </div></dialog>
 
 <script>
-let S={}, streamUrl='', ROLL=[], shown=null, selName=null;
+let S={}, ROLL=[], shown=null, selName=null;
 // Which groups are open. Held here so the two second refresh does not shut them.
 const OPEN={Operation:true, Framing:true, Exposure:true};
 
@@ -254,8 +231,7 @@ document.addEventListener('toggle', e=>{
 function change(path){
   return fetch(path, {method:'POST', headers:{'X-DeskCam-Console':'1'}});
 }
-/* The console is the agent's seat. It runs the CLI's own operations and it does not aim:
-   zoom, pan and rotate are on the phone's page, which is the bench tool. Decision D19.
+/* The console runs CLI operations; the shared camera panel owns aiming (D20).
    Whatever an operation did, or was refused for, lands in the journal like anyone else's. */
 let busy=false;
 async function op(q){
@@ -276,59 +252,6 @@ function snapNow(){
   const why=document.getElementById('why').value.trim();
   op('do=snap'+(why?'&why='+encodeURIComponent(why):''));
 }
-/* The live view comes through the console, not straight from the phone. The browser has
-   no access key on purpose, so pointing an <img> at the phone meant that setting a key
-   turned the video black with nothing on the page saying why. The console has the key and
-   relays the stream.
-
-   The URL carries no camera parameter. A reconnect must not change what an agent is about
-   to capture, and this URL is rebuilt on every reconnect. */
-function restream(){
-  if(!S.phone) return;
-  if(document.hidden) return;
-  const u='/api/stream?fps=10&t='+Date.now();
-  if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
-}
-/* A page nobody is using must not hold the camera awake, and a page can be wide open on a
-   second monitor with nobody in the room. Being visible is not being watched, so the
-   signal is whether anyone is doing anything. An <img> on an MJPEG stream keeps its
-   connection for as long as its src is set, visible or not, and a console left open
-   overnight held this camera at full rate until morning. Cards 59 and 63. */
-function stopView(){
-  streamUrl='';
-  document.getElementById('live').removeAttribute('src');
-}
-/* Five minutes, not thirty seconds. The fault was a page left open overnight, and minutes
-   cure that as well as seconds do. Thirty seconds paused the view on somebody watching it
-   with both hands on the work, which is what a bench camera is for. */
-const VIEW_IDLE_MS=300000;
-let lastUse=Date.now(), viewAsleep=false;
-function paintAsleep(){ document.getElementById('asleep').hidden=!viewAsleep; }
-function usedTheView(){
-  lastUse=Date.now();
-  if(viewAsleep){ viewAsleep=false; paintAsleep(); restream(); }
-}
-function checkViewIdle(){
-  if(document.hidden||viewAsleep) return;
-  if(Date.now()-lastUse>VIEW_IDLE_MS){ viewAsleep=true; stopView(); paintAsleep(); }
-}
-['pointermove','pointerdown','keydown','wheel','touchstart'].forEach(e=>
-  document.addEventListener(e,usedTheView,{passive:true}));
-setInterval(checkViewIdle,2000);
-document.addEventListener('visibilitychange',function(){
-  if(document.hidden){ stopView(); }
-  else { lastUse=Date.now(); viewAsleep=false; paintAsleep(); restream(); }
-});
-window.addEventListener('pagehide',stopView);
-/* An <img> that fails learns only that it failed. The console saw the phone's answer and
-   keeps the reason in /api/state, so the page can say which thing went wrong. */
-let streamRetryAt=0;
-function streamFailed(why){
-  const el=document.getElementById('streamerr');
-  el.textContent=why||'The live view is not running. Press Restream.';
-  el.style.display='block';
-}
-function streamOK(){ document.getElementById('streamerr').style.display='none'; }
 async function refresh(){
   try{
     S=await (await fetch('/api/state')).json();
@@ -343,8 +266,6 @@ async function refresh(){
     document.getElementById('meta').textContent=
       (g.zoom!==undefined?'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ':'')+
       (m.exposure_human||'')+(m.iso?'  iso '+m.iso:'')+(g.measure?'  measure':'');
-    if(S.stream_error) streamFailed(S.stream_error);
-    if(S.online && Date.now()>=streamRetryAt) restream();
     if(!selName){
       document.getElementById('sidetitle').textContent='Live';
       document.getElementById('side').innerHTML = S.online ? sections(S)
@@ -507,76 +428,6 @@ function again(){
   op('do=again&id='+encodeURIComponent(shown.id)+'&n='+shown.n);
 }
 
-const live=document.getElementById('live');
-/* A double tap focuses there and leaves the framing alone, as it does on the phone's page.
-   The page sends only where in the picture the tap was. Turning that into a focus box
-   needs the crop, and that sum is the CLI's, in focusat.go, so there is one copy of it.
-   The img has no box of its own beyond the picture, so its rectangle is the picture's. */
-/* Pointing something out to an agent. Hold shift and drag a box, or shift-click a spot. It
-   makes a mark, which changes nothing on the camera, where a double tap moves the lens.
-   The mark goes into the journal like any other operation, and an agent that was told to
-   watch for your signal is waiting on exactly that: deskcam log wait. Whatever is typed in
-   the box beside Snap goes with it as the mark's words. */
-let mark0=null;
-function inPicture(e){
-  const b=live.getBoundingClientRect();
-  return [(e.clientX-b.left)/b.width,(e.clientY-b.top)/b.height];
-}
-live.addEventListener('mousedown', e=>{
-  if(!e.shiftKey||e.button!==0) return;
-  e.preventDefault();
-  mark0={x:e.clientX,y:e.clientY,f:inPicture(e)};
-});
-window.addEventListener('mousemove', e=>{
-  if(!mark0) return;
-  const w=document.getElementById('wrap').getBoundingClientRect(), m=document.getElementById('markbox');
-  m.style.left=(Math.min(mark0.x,e.clientX)-w.left)+'px'; m.style.top=(Math.min(mark0.y,e.clientY)-w.top)+'px';
-  m.style.width=Math.abs(e.clientX-mark0.x)+'px'; m.style.height=Math.abs(e.clientY-mark0.y)+'px';
-  m.style.display='block';
-});
-window.addEventListener('mouseup', async e=>{
-  if(!mark0) return;
-  const a=mark0.f, b=inPicture(e); mark0=null;
-  const cl=v=>Math.min(1,Math.max(0,v));
-  const x0=cl(Math.min(a[0],b[0])), x1=cl(Math.max(a[0],b[0])), y0=cl(Math.min(a[1],b[1])), y1=cl(Math.max(a[1],b[1]));
-  const label=document.getElementById('why').value.trim();
-  let q='do=markat&fx='+((x0+x1)/2).toFixed(4)+'&fy='+((y0+y1)/2).toFixed(4);
-  /* A drag too small to be a box is a point. */
-  if(x1-x0>0.02&&y1-y0>0.02) q+='&fw='+(x1-x0).toFixed(4)+'&fh='+(y1-y0).toFixed(4);
-  if(label) q+='&label='+encodeURIComponent(label);
-  await op(q);
-  if(document.getElementById('said').className!=='gone') say('marked, and written in the journal');
-  setTimeout(()=>{ document.getElementById('markbox').style.display='none'; },1200);
-});
-
-/* The browser's own drag of an <img> picks up a ghost of the picture. The old framing
-   handler stopped it by swallowing every mousedown, and it went when that handler did.
-   -webkit-user-drag in the stylesheet does nothing in Firefox. */
-live.addEventListener('dragstart', e=>e.preventDefault());
-
-live.addEventListener('dblclick', async e=>{
-  e.preventDefault();
-  /* Shift is pointing, not focusing. Without this, shift and two clicks made two marks
-     and then moved the lens as well. */
-  if(e.shiftKey) return;
-  const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
-  if(!b.width||!b.height) return;
-  const fx=(e.clientX-b.left)/b.width, fy=(e.clientY-b.top)/b.height;
-  if(fx<0||fx>1||fy<0||fy>1) return;
-  const ring=document.getElementById('ring');
-  ring.style.left=(e.clientX-w.left)+'px'; ring.style.top=(e.clientY-w.top)+'px';
-  ring.className=''; ring.style.display='block';
-  await op('do=focusat&fx='+fx.toFixed(4)+'&fy='+fy.toFixed(4));
-  ring.className=document.getElementById('said').className==='gone'?'bad':'ok';
-  setTimeout(()=>{ ring.style.display='none'; },1500);
-});
-live.addEventListener('load', streamOK);
-live.addEventListener('error', ()=>{
-  streamFailed(S.stream_error);
-  /* Retry, but not four hundred times an hour. refresh() runs every two seconds and a
-     dead phone would otherwise be dialled every one of them. */
-  streamUrl=''; streamRetryAt=Date.now()+5000;
-});
 fetch('/api/install').then(r=>r.json()).then(d=>{
   document.getElementById('isrc').textContent=
     'Version '+d.version+' from '+d.source+'. Scan with the phone\'s camera, then open the download.';

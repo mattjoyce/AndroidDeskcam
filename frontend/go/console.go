@@ -266,6 +266,7 @@ func (s *consoleState) routes(mux *http.ServeMux) {
 	local := func(h http.HandlerFunc) http.HandlerFunc { return s.loopbackOnly(h) }
 	// Reading routes: the operator's browser, loopback only.
 	mux.HandleFunc("/", local(s.handlePage))
+	mux.HandleFunc("/camera", local(s.handleCamera))
 	mux.HandleFunc("/qr.svg", local(s.handleQR))
 	mux.HandleFunc("/install.svg", local(s.handleInstallQR))
 	mux.HandleFunc("/api/install", local(s.handleInstall))

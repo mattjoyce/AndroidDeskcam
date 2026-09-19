@@ -8,6 +8,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 class Element {
   constructor() {
+    this.listeners = {};
     this.childNodes = [];
     this.dataset = {};
     this.style = {};
@@ -30,7 +31,7 @@ class Element {
   getAttribute(name) { return this.attrs[name] ?? null; }
   removeAttribute(name) { delete this.attrs[name]; }
   setAttribute(name, value) { this.attrs[name] = value; }
-  addEventListener() {}
+  addEventListener(name, fn) { this.listeners[name] = fn; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 640, height: 480 }; }
 }
 

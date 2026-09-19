@@ -233,3 +233,83 @@ test('a mark is redrawn when the framing changes, not on the next marks poll', a
   near(at(marks.firstChild)[0], -192);
   near(at(marks.firstChild)[1], 624);
 });
+
+
+test('shared panel sends the console header on polls and controls', async () => {
+  const p = await panel();
+  for (const call of p.calls) assert.equal(call.options.headers['X-DeskCam-Console'], '1');
+  p.run("api('/api/set?zoom=2')");
+  await p.flush();
+  assert.equal(p.calls.at(-1).options.headers['X-DeskCam-Console'], '1');
+  p.calls.at(-1).reply();
+  await p.flush();
+});
+
+test('shift gestures mark the cropped sensor without focusing or reframing', async () => {
+  const p = await panel();
+  p.run('last = {zoom: 2, cx: 0.5, cy: 0.5};');
+  const view = p.element('view');
+  view.naturalHeight = 480;
+  const event = (x, y) => ({button: 0, pointerId: 1, shiftKey: true,
+    clientX: x, clientY: y, preventDefault() {}});
+  p.calls.length = 0;
+  view.listeners.pointerdown(event(160, 120));
+  view.listeners.pointermove(event(480, 360));
+  view.listeners.pointerup(event(480, 360));
+  await p.flush();
+  const call = p.calls.find(c => c.url.includes('mark='));
+  assert.ok(call);
+  assert.equal(new URL(call.url, 'http://phone').searchParams.get('mark'), '0.5000,0.5000,0.2500,0.2500');
+  call.reply({marks: []});
+  await p.flush();
+  for (const c of p.calls) assert.ok(!/\/api\/(af|set)/.test(c.url), c.url);
+  assert.equal(p.run('lastTap.t'), 0);
+});
+
+
+test('look-here replaces annotations, while Ctrl-Shift preserves them', async () => {
+  const p = await panel();
+  const view = p.element('view');
+  view.naturalHeight = 480;
+  const event = (x, y, ctrlKey) => ({button: 0, pointerId: 1, shiftKey: true,
+    ctrlKey, clientX: x, clientY: y, preventDefault() {}});
+  for (const keep of [false, true, false]) {
+    view.listeners.pointerdown(event(160, 120, keep));
+    view.listeners.pointermove(event(480, 360, keep));
+    view.listeners.pointerup(event(480, 360, keep));
+    await p.flush();
+    const call = p.calls.filter(c => c.url.includes('mark=')).at(-1);
+    const q = new URL(call.url, 'http://phone').searchParams;
+    assert.equal(q.get('unmark'), keep ? null : 'all');
+    assert.equal(q.get('label'), 'look here');
+    assert.equal(q.get('mark'), '0.5000,0.5000,0.5000,0.5000');
+    call.reply({marks: []});
+    await p.flush();
+  }
+});
+
+test('reset clears annotations before a subsequent additive mark', async () => {
+  const p = await panel();
+  const reset = p.run('resetAll()');
+  p.run('markGesture({sx: .2, sy: .2, x: .4, y: .4, keepMarks: true})');
+  await p.flush();
+  assert.equal(p.calls.at(-1).url, '/api/reset');
+  p.calls.at(-1).reply();
+  await p.flush();
+  assert.equal(p.calls.at(-1).url, '/api/marks?unmark=all');
+  p.calls.at(-1).reply({marks: []});
+  await p.flush();
+  assert.match(p.calls.at(-1).url, /mark=0.3000,0.3000,0.2000,0.2000/);
+  assert.ok(!p.calls.at(-1).url.includes('unmark='));
+  p.calls.at(-1).reply({marks: []});
+  await reset;
+});
+
+test('a refused reset leaves annotations intact', async () => {
+  const p = await panel();
+  const reset = p.run('resetAll()');
+  await p.flush();
+  p.calls.at(-1).reply({error: 'camera busy'}, 409);
+  await reset;
+  assert.ok(!p.calls.some(c => c.url.includes('unmark=')));
+});

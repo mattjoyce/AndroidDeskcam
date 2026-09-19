@@ -11,12 +11,16 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 - An `asker` block in every sidecar: the directory, the project, the command as typed, the session and the reason. `--why "TEXT"` gives the reason, and `DESKCAM_PROJECT` and `DESKCAM_SESSION` name the project and the session when the directory and the environment cannot. A project is the nearest `.git` above the directory and is never guessed from a name.
 - The console as the agent's seat: **Snap**, **Focus hunt**, **Measure**, **Normal** and **Shoot this again** run the CLI's own commands through the CLI's own code and are journalled as `via: console`.
 - A log of recent commands in the console, as they were typed, newest first.
-- `deskcam focus at FX,FY`: autofocus on a place in the picture you can see, as fractions from the left and the top, leaving the framing alone. A double tap on the console's live view runs it.
-- `deskcam mark at FX,FY[,FW,FH] [label=TEXT]`: point at a place in the picture without changing the camera. Shift-drag or shift-click on the console's live view runs it, with the words typed beside Snap as its label.
+- `deskcam focus at FX,FY`: autofocus on a place in the picture you can see, as fractions from the left and the top, leaving the framing alone. The shared camera panel also supports double-tap focus.
+- `deskcam mark at FX,FY[,FW,FH] [label=TEXT]`: point at a place in the picture without changing the camera. The shared camera panel also supports Shift-drag and Shift-click marks, labelled "look here".
 - `deskcam log [N] [via=console|cli] [--json]` reads the journal, and `deskcam log wait [timeout=120]` returns when a person next does something at the console, with what they did as JSON, or exits 2. This is how a person signals an agent: the journal holds what everybody did, so the agent that reads it sees the mark that was drawn, in the sensor's coordinates, and any still that was taken for it.
 - The record of a capture slides in from the right of the console when a row is picked, and away again with the cross, the tab on the edge of the view, or the `i` key.
 
 ### Changed
+
+- Shift-drag and Shift-click replace annotations with a new “look here” mark. Ctrl-Shift keeps existing annotations and adds another. Reset all clears annotations after resetting the camera.
+
+- The console embeds the APK's camera panel from one source file, with the same framing, focus, lighting and marking gestures. Camera requests pass through the console's authenticated proxy and changes enter its journal. Workstation capture operations and history remain beside the panel (D20). Shift-click on the phone now points; use Reset all to reset framing.
 
 - The console's roll is the journal, grouped by project and then by session, where it was a listing of the directory `deskcam serve` was started in. On 2026-09-19, 99 of the 100 captures on the workstation were in 11 scratch directories agents had chosen, and the roll showed none of them. `/api/roll` now answers `groups` where it answered `captures`, and `/img/`, `/thumb/` and `/sidecar/` take a journal entry and a number where they took a file name. This changes the console's own routes; the phone's API is untouched.
 - A live view nobody touches pauses after five minutes, where it paused after thirty seconds. The pause exists for a page left open overnight, and thirty seconds paused it on somebody watching with both hands on the work. Both pages.
@@ -24,7 +28,7 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 
 ### Removed
 
-- The console's framing controls: Full sensor, In, Out, Rotate, drag to frame, click to centre and the wheel, with the `/api/cam` route that forwarded any parameter to the phone. Aiming is the bench tool on the phone's own page (D18), and the console refuses it and says where to go. Decision D19.
+- The console's framing controls: Full sensor, In, Out, Rotate, drag to frame, click to centre and the wheel, with the `/api/cam` route that forwarded any parameter to the phone. The console now embeds the shared bench tool instead of maintaining those controls separately (D20).
 
 ### Fixed
 

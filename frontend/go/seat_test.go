@@ -143,15 +143,3 @@ func TestTheSeatNeedsAPhone(t *testing.T) {
 		t.Fatalf("got %d %s", code, body)
 	}
 }
-
-// Two gestures share the live view, and they must not fire together. Shift is pointing, so
-// a double click with shift held is not a focus. And the browser's own drag of the image is
-// stopped, because the handler that used to stop it went with the framing gestures.
-func TestTheTwoGesturesOnTheViewDoNotFireTogether(t *testing.T) {
-	if !strings.Contains(consolePage, "if(e.shiftKey) return;") {
-		t.Error("a shift double click would mark twice and then move the lens")
-	}
-	if !strings.Contains(consolePage, "addEventListener('dragstart'") {
-		t.Error("a plain drag on the view would start the browser's own image drag")
-	}
-}

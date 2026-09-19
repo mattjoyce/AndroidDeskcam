@@ -697,7 +697,7 @@ A sidecar also says who asked, in an `asker` block. The example above was writte
 
 **The journal.** A capture can be written anywhere, and agents write theirs into scratch directories that are cleaned away. So the CLI also keeps one journal of every command that takes a picture or changes the camera, in `~/.local/state/deskcam/journal` or `DESKCAM_JOURNAL`. Each entry is a JSON file of its own, so two agents writing at once need no lock. It holds the time, the duration, the operation and its parameters, the exit code, the `asker` block, and for each file produced its absolute path, its size, a copy of its sidecar and a copy of its thumbnail. A refusal is journalled as fully as a capture, with the phone's own words in `error`. Reading the camera (`status`, `show`, `api`) is not journalled, because an agent polls those. The access key is replaced by `token=***` wherever it appears. The journal keeps its newest 2,000 entries, and a failure to write it never fails a capture.
 
-**The console reads the journal.** `deskcam serve` shows it two ways: grouped by project and then by session, where a session is a run of operations with no gap over thirty minutes, or as a log of the commands as they were typed, newest first. Select a row to see its record beside the live view. The console is also the agent's seat: **Snap**, **Focus hunt**, **Measure**, **Normal** and **Shoot this again** run the CLI's own commands through the CLI's own code, and land in the journal marked `via: console`. It does not aim. Zoom, pan and rotate are on the phone's page, and the console refuses them.
+**The console reads the journal.** `deskcam serve` shows it two ways: grouped by project and then by session, where a session is a run of operations with no gap over thirty minutes, or as a log of the commands as they were typed, newest first. Select a row to see its record beside the live view. The console is also the agent's seat: **Snap**, **Focus hunt**, **Measure**, **Normal** and **Shoot this again** run the CLI's own commands through the CLI's own code, and land in the journal marked `via: console`. The live camera area embeds the same panel the APK serves: zoom, pan, focus, lighting and marks work identically in either place. Console camera changes are journalled through its authenticated proxy. **Snap** saves a workstation capture with a sidecar; the panel's **Save full-res still** opens a browser download.
 
 HTTP responses also carry headers, and which ones depends on the endpoint (`HttpServer.java` is the source of truth):
 * `X-DeskCam-Provenance`: on `/api/still`, the frame's own record as one line of JSON, the same content as the sidecar. Omitted if it would exceed 7000 bytes.
@@ -1306,9 +1306,15 @@ The backend includes pure Java unit tests (`backend/test/dev/deskcam/Tests.java`
 ./backend/build.sh
 ```
 
+In the shared camera panel, **Shift-drag** (or Shift-click) replaces annotations
+with a new “look here” mark. **Ctrl-Shift-drag** adds a mark while keeping the
+existing annotations. **Reset all** resets the camera and clears annotations.
+
 ### Phone Panel Regression Tests
 
-The APK serves `backend/app/assets/panel.html`. Edit its HTML, CSS and JavaScript directly;
+The APK and console both serve `backend/app/assets/panel.html`. The console embeds it via
+the local Go module in `backend/app`, so an ordinary Go build includes the same source
+without copying it. Edit its HTML, CSS and JavaScript directly;
 `backend/build.sh` packages that file as an asset. `WebUi.java` keeps the API help and asset
 loader. There is no frontend bundler or production JavaScript dependency.
 
@@ -1321,6 +1327,11 @@ node --test backend/test/webui/*.test.mjs
 These exercise authentication, command ordering, timeouts and delayed responses with a
 controlled DOM and network. They do not replace a browser or phone check. Builds without
 Node.js print an explicit skip; run these tests before merging panel changes.
+
+The shared panel and console can be checked together without a phone using
+`node backend/test/webui/shared-console-smoke.mjs` (Go, Node 22 and Firefox required).
+It builds a temporary console and checks authenticated controls and pointing gestures
+against a simulated phone, plus direct access to the panel.
 
 ### End-to-End Surface Parity Check
 

@@ -624,6 +624,31 @@ One thing is still open. The phone keeps a log of the last forty requests and sh
 its own screen only. Serving it would let the console show every client, including one that
 does not use the CLI. That is a change to the phone and has not been made.
 
+**D20. One camera page, served from either end.** D18 and D19 separated the
+bench tool from workstation operations to stop two implementations of camera controls
+from drifting. The console now embeds the phone's actual bench page alongside its journal
+and operation buttons. This revises their restriction on aiming from the console, while
+keeping the phone responsible for the camera and the workstation responsible for files,
+pairing and the operation record.
+
+`backend/app/assets/panel.html` is the single source. Android packages it as an asset;
+a small Go module in `backend/app` embeds that same file into the console binary. The
+console serves it at `/camera` in a same-origin frame. This isolates its layout and script
+from the journal without a generated copy or a runtime dependency on the checkout.
+Both hosts therefore share gestures, marks, focus feedback and stream idle handling.
+Shift-click points; Shift-drag marks a box; neither moves the camera. Reset all replaces
+the phone page's former Shift-click reset gesture.
+
+The panel uses relative `/api/` URLs and supplies the console header on JSON requests.
+On the workstation the proxy supplies the access key, checks request origin and journals
+changes as `via: console`; polls are not journalled. On the phone requests go directly to
+the camera and token links still authenticate at the transport boundary. Direct phone
+requests do not enter the workstation journal. The CLI still works with the console stopped.
+
+The panel's Save full-res still opens a browser download. The console's Snap and other
+operation buttons still use `operate()` and create workstation files and sidecars. They
+are separate actions with separate storage behavior, even though they sit on one screen.
+
 ## Non-goals
 
 **No TLS.** The service is for a trusted LAN. A self-signed certificate would make `-k`

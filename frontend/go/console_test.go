@@ -242,7 +242,7 @@ func TestOnlyPairingIsOfferedToTheNetwork(t *testing.T) {
 	state, _, shots := testConsole(t)
 	id := writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
-		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
+		"/", "/camera", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
 		"/img/" + id + "/0", "/thumb/" + id + "/0", "/sidecar/" + id + "/0", "/api/stream?fps=10",
 		"/api/op?do=snap", "/api/newcode", "/api/token?do=clear",
 	} {
@@ -560,18 +560,24 @@ func TestThePageCarriesNoSecretAndNoCameraParameterInItsStream(t *testing.T) {
 	if strings.Contains(body, "s3cret-token-value") {
 		t.Fatal("the page must not carry the key")
 	}
-	// A reconnecting browser must not rewrite the camera an agent is about to use.
-	if !strings.Contains(body, "'/api/stream?fps=10&t='") {
-		t.Fatal("the stream URL should carry only fps and a cache buster")
+	if !strings.Contains(body, `src="/camera"`) {
+		t.Fatal("the console must embed the shared camera page")
 	}
-	// The live view goes through the console, which holds the key. Pointing it at the
-	// phone is what made an access key turn the video black. Card 54.
-	if strings.Contains(body, "S.phone+'/api/stream") {
-		t.Fatal("the page must not fetch the stream from the phone directly")
+	code, body = get(t, server, "/camera")
+	source, err := os.ReadFile("../../backend/app/assets/panel.html")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(body, "stream?fps=10&rotate=") {
-		t.Fatal("the stream URL must not carry a camera parameter")
+	if code != http.StatusOK || body != string(source) {
+		t.Fatal("the console must serve the exact APK asset")
 	}
+	if strings.Contains(body, "s3cret-token-value") {
+		t.Fatal("camera page leaked the key")
+	}
+	if !strings.Contains(body, "'/api/stream?fps=12&t='") {
+		t.Fatal("stream reconnect must carry only fps and a cache buster")
+	}
+
 }
 
 // ------------------------------------------- ported from the Python console
@@ -597,7 +603,7 @@ func TestTheOperatorsOwnBrowserStillGetsEverything(t *testing.T) {
 	_, server, shots := testConsole(t)
 	id := writeCapture(t, shots, "one.jpg", map[string]any{"zoom": 1.0})
 	for _, path := range []string{
-		"/", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
+		"/", "/camera", "/qr.svg", "/install.svg", "/api/install", "/api/state", "/api/roll",
 		"/img/" + id + "/0", "/thumb/" + id + "/0", "/sidecar/" + id + "/0",
 	} {
 		if code, _ := get(t, server, path); code != http.StatusOK {
