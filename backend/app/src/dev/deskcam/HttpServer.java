@@ -55,7 +55,23 @@ public class HttpServer implements Runnable {
     private final int port;
     private final Key key;
     private final String page;
-    private final Marks marks = new Marks();
+    /**
+     * What is being pointed at, held for as long as the process lives rather than for as
+     * long as this server object does.
+     *
+     * It was an instance field, and CamService builds a new HttpServer every time it
+     * starts. onStartCommand returns START_STICKY, so Android restarts the service on its
+     * own without the process dying, and every mark vanished with the old server. Observed
+     * on 2026-09-23: nine marks placed at 05:49:42, "service up" logged again at 06:20:27
+     * by process 20303 which had been alive since 05:49:07, and the marks were gone. No
+     * unmark in the journal, no error anywhere, and an agent that had just placed them had
+     * no way to tell they were no longer there.
+     *
+     * Static fixes exactly that and nothing more. Marks still do not survive the app being
+     * killed, which is what /api/marks and the skill both say, and is a boundary a person
+     * can reason about. A service restarting underneath them is not.
+     */
+    private static final Marks MARKS = new Marks();
 
     private ServerSocket serverSocket;
     /** Connections being served right now, for the display on the phone. */
@@ -625,8 +641,8 @@ public class HttpServer implements Runnable {
                 String unmark = params.get("unmark");
                 if (unmark != null) {
                     if (unmark.trim().equalsIgnoreCase("all")) {
-                        marks.removeAll();
-                    } else if (!marks.remove(Integer.parseInt(unmark.trim()))) {
+                        MARKS.removeAll();
+                    } else if (!MARKS.remove(Integer.parseInt(unmark.trim()))) {
                         throw new IllegalArgumentException("no mark has id '" + unmark
                                 + "'; GET /api/marks lists the ones there are.");
                     }
@@ -634,9 +650,9 @@ public class HttpServer implements Runnable {
                 String add = params.get("mark");
                 if (add != null) {
                     String by = params.containsKey("by") ? params.get("by") : "agent";
-                    marks.add(Parse.mark(add), params.get("label"), by, s.rotate);
+                    MARKS.add(Parse.mark(add), params.get("label"), by, s.rotate);
                 }
-                JSONObject o = marks.toJson(s);
+                JSONObject o = MARKS.toJson(s);
                 o.put("ok", true);
                 return Answer.json(o);
             }
