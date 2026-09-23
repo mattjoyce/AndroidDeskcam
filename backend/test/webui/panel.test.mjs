@@ -235,6 +235,136 @@ test('a mark is redrawn when the framing changes, not on the next marks poll', a
 });
 
 
+test('labels go to the gutter on their own side and never overlap each other', async () => {
+  const p = await panel();
+  // Four marks, two a side, each pair close enough that labels drawn on the marks would
+  // have sat on top of one another. The double's picture is 640 by 480 at the origin.
+  p.run(`MARKS = [
+    {id: 1, kind: "point", cx: 0.2, cy: 0.50, in_crop: true, by: "agent", label: "left upper"},
+    {id: 2, kind: "point", cx: 0.2, cy: 0.52, in_crop: true, by: "agent", label: "left lower"},
+    {id: 3, kind: "point", cx: 0.8, cy: 0.30, in_crop: true, by: "you",   label: "right upper"},
+    {id: 4, kind: "point", cx: 0.8, cy: 0.31, in_crop: true, by: "you",   label: "right lower"}
+  ]; drawMarks();`);
+
+  const kids = p.element('calls').childNodes;
+  const labels = kids.filter(el => el.className.startsWith('mkcall'));
+  const leads = kids.filter(el => el.className.startsWith('mklead'));
+  assert.equal(labels.length, 4);
+  assert.equal(leads.length, 4, 'every label is joined to its mark');
+
+  // The anchor layer keeps the marks themselves, so a label is never drawn inside one.
+  assert.equal(p.element('marks').childNodes.length, 4);
+  for (const mk of p.element('marks').childNodes) assert.equal(mk.childNodes.length, 0);
+
+  const side = want => labels.filter(el => el.style[want] !== undefined);
+  assert.equal(side('left').length, 2, 'marks left of centre take the left gutter');
+  assert.equal(side('right').length, 2);
+
+  // Within a column the order follows the marks down the picture, and the boxes are clear
+  // of each other. 0.50 and 0.52 of 480 are 9.6 px apart; a 22 px label needs more.
+  for (const want of ['left', 'right']) {
+    const column = side(want).map(el => parseFloat(el.style.top)).sort((a, b) => a - b);
+    assert.ok(column[1] - column[0] >= 22, `${want} labels overlap: ${column}`);
+  }
+  const lefts = side('left').map(el => el.textContent);
+  assert.deepEqual(lefts, ['left upper', 'left lower'], 'higher mark, higher label');
+
+  // Somebody else's text is set as text, never parsed.
+  p.run(`MARKS = [{id: 5, kind: "point", cx: 0.5, cy: 0.5, in_crop: true,
+                   label: "<img src=x onerror=alert(1)>"}]; drawMarks();`);
+  assert.equal(p.element('calls').firstChild.textContent, '<img src=x onerror=alert(1)>');
+  assert.equal(p.element('calls').firstChild.childNodes.length, 0);
+});
+
+test('a column with no room for its labels becomes numbered badges, not cut text', async () => {
+  const p = await panel();
+  // The double's picture is 640 by 480 and a label falls back to 22 px, so a column has
+  // room for about 18. Twenty on one side cannot fit however they are stacked.
+  const many = n => Array.from({length: n}, (_, i) =>
+    `{id: ${i + 1}, kind: "point", cx: 0.8, cy: ${(i + 1) / (n + 1)},
+      in_crop: true, by: "agent", label: "part number ${i + 1}"}`).join(',');
+
+  p.run(`MARKS = [${many(20)}]; drawMarks();`);
+  const kids = () => p.element('calls').childNodes;
+  assert.equal(kids().filter(el => el.className.startsWith('mkcall')).length, 0,
+    'no label is drawn when the column cannot hold them all');
+  assert.equal(kids().filter(el => el.className.startsWith('mklead')).length, 0,
+    'and no leader points at a label that is not there');
+  const badges = kids().filter(el => el.className.startsWith('mkbadge'));
+  assert.equal(badges.length, 20);
+  // The badge carries the mark's place in the list, which is how the two are read together.
+  assert.deepEqual(badges.map(el => el.textContent).slice(0, 3), ['1', '2', '3']);
+  assert.equal(badges[0].title, 'part number 1', 'the full text survives on the badge');
+
+  // The list carries the same numbers, whichever form the picture is in.
+  p.run('listMarks();');
+  const row = p.element('marklist').firstChild;
+  assert.equal(row.firstChild.textContent, '1');
+
+  // Few enough to fit, and the text comes back rather than staying as badges.
+  p.run(`MARKS = [${many(3)}]; drawMarks();`);
+  assert.equal(kids().filter(el => el.className.startsWith('mkbadge')).length, 0);
+  assert.equal(kids().filter(el => el.className.startsWith('mkcall')).length, 3);
+});
+
+test('a label takes more lines rather than being cut, until the column runs out', async () => {
+  const p = await panel();
+  const many = n => Array.from({length: n}, (_, i) =>
+    `{id: ${i + 1}, kind: "point", cx: 0.8, cy: ${(i + 1) / (n + 1)},
+      in_crop: true, by: "agent", label: "part number ${i + 1}"}`).join(',');
+  const clamps = () => [...p.element('calls').childNodes]
+    .filter(el => el.className.startsWith('mkcall'))
+    .map(el => el.style['-webkit-line-clamp']);
+
+  // The double reports no layout, so nothing is ever measured as truncated and two lines
+  // always suffices. That is the point worth pinning: the budget starts at two and only
+  // grows when something was actually cut, never speculatively.
+  p.run(`MARKS = [${many(3)}]; drawMarks();`);
+  assert.deepEqual(clamps(), ['2', '2', '2']);
+
+  // Twenty in one column cannot fit at any allowance, so they become badges. Growing the
+  // budget must not have removed the floor.
+  p.run(`MARKS = [${many(20)}]; drawMarks();`);
+  assert.equal(clamps().length, 0);
+  assert.equal([...p.element('calls').childNodes]
+    .filter(el => el.className.startsWith('mkbadge')).length, 20);
+});
+
+test('registration rings the marks, and says so loudest when the bench has moved', async () => {
+  const p = await panel();
+  const marks = p.element('marks');
+  const chip = p.element('reg');
+  const text = () => [...chip.childNodes].map(n => n.textContent).join(' ');
+
+  // Nothing known. A page that was never told says nothing, rather than showing an empty
+  // tick that reads as "not registered" when it means "nobody asked".
+  p.run('showRegistration(null);');
+  assert.equal(chip.hidden, true);
+  assert.equal(marks.className, 'marks');
+
+  p.run(`showRegistration({state: "fresh", markers: 8, micrometres_per_pixel: 82.6,
+                           rotation_degrees: -1.67, residual_mm: 0.538});`);
+  assert.equal(chip.hidden, false);
+  assert.match(marks.className, /\breg\b/, 'the marks carry the ring, not just the chip');
+  assert.match(text(), /registered/);
+  assert.match(text(), /8 markers/);
+  assert.match(text(), /82\.6/);
+
+  // The state that matters. A mark is stored against the sensor, so after the bench moves
+  // it names the wrong part and looks no different; this is the only warning there is.
+  p.run('showRegistration({state: "moved", moved_mm: 14.93});');
+  assert.match(marks.className, /\bmoved\b/);
+  assert.doesNotMatch(marks.className, /\breg\b/);
+  assert.match(text(), /the bench moved/);
+  assert.match(text(), /14\.9 mm/);
+  assert.match(text(), /wrong parts/, 'it says what it means for the marks, not just the mm');
+
+  // And it can go back to knowing nothing, for instance when the mat leaves the frame.
+  p.run('showRegistration(null);');
+  assert.equal(chip.hidden, true);
+  assert.equal(marks.className, 'marks');
+});
+
 test('shared panel sends the console header on polls and controls', async () => {
   const p = await panel();
   for (const call of p.calls) assert.equal(call.options.headers['X-DeskCam-Console'], '1');

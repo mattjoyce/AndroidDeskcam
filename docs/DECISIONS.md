@@ -649,6 +649,53 @@ The panel's Save full-res still opens a browser download. The console's Snap and
 operation buttons still use `operate()` and create workstation files and sidecars. They
 are separate actions with separate storage behavior, even though they sit on one screen.
 
+**D21. A label lives in the gutter, not on its mark.** Marks were drawn with the label
+pinned to the mark itself, above a box or beside a point. That reads well for one or two.
+It fails at the density the camera is actually used at: ten parts annotated on one board
+put every label over its neighbour, and over the parts they name, so the annotation hid
+the evidence it was pointing at.
+
+Labels are therefore laid out in two columns down the sides of the picture, each mark
+taking the side it sits on, each column ordered by how high its mark is so the lines do
+not cross, and each label joined to its mark by a leader line. Within a column a label
+starts at its mark's height and is pushed past whatever is already placed; a column that
+would run off the bottom is pulled back up from its last label. The gutters are measured
+from the picture rather than the element, because `object-fit` letterboxes a 4:3 frame
+inside a wider box and the element's edge is not the picture's edge.
+
+The mark itself does not move. The anchor layer still holds only boxes and points, which
+is what keeps a label from ever covering the part, and lets the existing geometry tests
+keep asserting against the anchors alone. A label is measured rather than assumed, because
+the text belongs to whoever wrote the mark and wraps to a width this code does not choose;
+before layout has happened there is no height to measure and a constant stands in until
+the next draw. Labels are still set with `textContent`, as D20 requires of anything
+arriving over the wire.
+
+**Height is what a column has spare, so a label spends it before giving up.** A label is
+allowed two lines, then three, up to five, and takes the fewest that shows its text whole.
+Two lines alone was measured at a 110 px gutter and cut every label to `Adafruit
+microSD...`; at five, eight labels of real bench text fit a 522 by 553 picture with none
+truncated. Truncation is detected rather than estimated, because a clamped element reports
+more content than it shows.
+
+**Either the text fits or it is not text.** Gutters were measured at three sizes before
+this was settled. At a 1130 px picture ten labels lay out cleanly. In the console with its
+side panel open the picture is 522 px and the same ten covered 45% of it; on a phone held
+upright, 374x281, they covered 96% and left 14 px of clear picture between them. Two
+answers were rejected. Stacking them anyway reintroduces the overlap the whole arrangement
+exists to cure. Truncating them to `Adafruit microSD...` spends a third of the picture on
+text nobody can read and sends the reader to the list regardless. So a column with no room
+for its labels at two lines each becomes numbered badges on the marks themselves: no
+gutter, no leader, nothing covered but the few pixels under a badge. The number is the
+mark's place in the marks list, which carries that number always so the key does not
+appear and vanish as a window is resized. The choice is per column, so a crowded side
+degrades without taking a sparse one with it.
+
+The general rule this is a case of: a view that cannot show something honestly should
+change form rather than shrink the evidence.
+
+This changes both views at once, because D20 made the panel one file.
+
 ## Non-goals
 
 **No TLS.** The service is for a trusted LAN. A self-signed certificate would make `-k`

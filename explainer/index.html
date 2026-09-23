@@ -273,7 +273,7 @@ echo "Captured inspection image at: $img"
           <div class="callout-title">Three ways to install</div>
           <p>Download the <a href="https://github.com/mattjoyce/AndroidDeskcam/releases/latest">latest release</a> and install the app by scanning the code <code>deskcam serve</code> shows, with no Android SDK at all.
           Or build it yourself and install it the same way, from your own workstation. Or build it and install it with <code>adb</code>, as below.
-          The README's Quick Start walks through all three.</p>
+          <a href="../docs/manual/setup.md">Setting up</a>, in the manual, walks through all three.</p>
         </div>
 
         <h3>Prerequisites</h3>
@@ -1175,6 +1175,15 @@ SNAP</textarea>
             </div>
             <div class="card-title">One Camera Page, Served From Either End</div>
             <div class="card-desc">The phone's bench page is one file. Android packages it and the console embeds the same file and serves it at <code>/camera</code>, so both live views share their gestures, marks and focus feedback. On the workstation the console forwards the page's requests with the key on and journals what they change as <code>via: console</code>. Requests made straight to the phone never reach the journal.</div>
+          </div>
+
+          <div class="info-card">
+            <div class="card-header">
+              <span class="card-badge badge-decision">Decision D21</span>
+              <span style="font-family:var(--font-mono); font-size:0.72rem;">Surfaces</span>
+            </div>
+            <div class="card-title">A Label Lives In The Gutter, Not On Its Mark</div>
+            <div class="card-desc">A label drawn on its own mark covers the part it names as soon as two marks are close, and ten parts annotated on one board hid the board. Labels are laid out in two columns down the sides of the picture instead, each mark taking the side it sits on, ordered by height so the leader lines do not cross, and pushed apart where they would collide. Where a column has no room for its labels at two lines each, that column becomes numbered badges keyed to the marks list rather than truncated text: either the text fits or it is not shown as text. The marks themselves never move, so an annotation never sits on the evidence.</div>
           </div>
         </div>
       </section>

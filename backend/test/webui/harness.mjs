@@ -11,8 +11,14 @@ class Element {
     this.listeners = {};
     this.childNodes = [];
     this.dataset = {};
-    this.style = {};
     this.attrs = {};
+    // A plain bag of properties, plus the one method the panel sets hyphenated custom and
+    // vendor properties through. Assigning style['-webkit-line-clamp'] directly is not a
+    // thing a browser honours, so the page uses setProperty and so must this.
+    this.style = Object.defineProperty({}, "setProperty", {
+      enumerable: false,
+      value(name, value) { this[name] = String(value); },
+    });
     this.hidden = false;
     this.value = '';
     this._text = '';
