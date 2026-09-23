@@ -278,6 +278,10 @@ func dispatch(in *invocation) int {
 		return scaleCommand(in)
 	case "measure":
 		return measureCommand(in)
+	// What the camera knows about the mat, and whether the bench has moved since. The one
+	// thing `scale` cannot check, because a scale is a number and this is a mapping.
+	case "calibration", "calibrate":
+		return calibrationCommand(in)
 	case "analyse", "analysis":
 		if len(in.args) == 0 {
 			return fail("usage: deskcam analyse scale|linearity|burst-noise|aatest ...")
@@ -321,10 +325,30 @@ func dispatch(in *invocation) int {
 	// -------------------------------------------------------------- target
 	case "use":
 		if in.arg(0) == "" {
-			return fail("usage: deskcam use http://host:8080")
+			return fail("usage: deskcam use http://host:8080 [KEY]\n" +
+				"  KEY is the phone's access key, as `deskcam token show` prints it on the\n" +
+				"  machine that paired. Use - to read it from standard input instead of the\n" +
+				"  command line, which every process on this machine can see.")
+		}
+		// A second word used to be dropped without a word, so `deskcam use URL KEY` looked
+		// like it had set the key and the camera then refused every request. The project's
+		// own rule is that a wrong argument is an error and never a silent no-op.
+		if len(in.args) > 2 {
+			return fail("deskcam use takes an address and at most a key, got %d words", len(in.args))
 		}
 		if err := writeConfig(urlFile(), strings.TrimRight(in.arg(0), "/")); err != nil {
 			return fail("%v", err)
+		}
+		if key := in.arg(1); key != "" {
+			value, err := keyFrom(key)
+			if err != nil {
+				return fail("%v", err)
+			}
+			if err := saveToken(value); err != nil {
+				return fail("%v", err)
+			}
+			fmt.Fprintln(os.Stderr, "deskcam: key stored. The phone must already expect "+
+				"this one; pairing is what teaches it.")
 		}
 		fmt.Println("target:", loadConfig("").URL)
 		return 0
@@ -806,6 +830,26 @@ func scaleCommand(in *invocation) int {
 		dir = filepath.Dir(abs)
 	}
 	return runAnalysis(append(append([]string{"scale"}, in.args...), "--write", dir))
+}
+
+// calibrationCommand reports the mapping between the mat's millimetres and the sensor.
+//
+// Unlike a scale, which is one number and cannot notice the bench moving, this is a whole
+// mapping solved from markers printed at known places, so two of them can be compared.
+// `--write` records one to compare later captures against; `--against` does the comparing.
+//
+// The markers are found with OpenCV when the mat extra is installed, which is the
+// recommendation and not the requirement: `--corners` takes them from whoever read them
+// off the picture instead, and the solver is the same either way.
+func calibrationCommand(in *invocation) int {
+	image := in.arg(0)
+	if image == "" {
+		return fail("usage: deskcam calibration FILE [--against RECORD] [--write DIR]\n" +
+			"                          [--corners JSON] [--tolerance-mm N]\n" +
+			"  --against a recorded calibration says how far the view has moved since\n" +
+			"  --corners supplies marker corners when OpenCV is not installed")
+	}
+	return runAnalysis(append([]string{"calibration"}, in.args...))
 }
 
 // measureCommand is the distance between two points of a capture, in millimetres.

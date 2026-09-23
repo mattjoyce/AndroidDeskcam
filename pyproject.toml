@@ -12,6 +12,11 @@ dependencies = []          # the binary needs no runtime; measuring needs [analy
 # base install so the binary stays free of it, and so the boundary between
 # transport and measurement is visible in the packaging as well as in the code.
 analysis = ["numpy>=1.24", "pillow>=10"]
+# Finding the mat's coded markers is a different job from measuring what is in a picture,
+# and a much heavier one: a compiled computer-vision library against two array packages.
+# Kept as its own extra so [analysis] stays what its comment above says it is, and so
+# nobody installs 58 MB of OpenCV to check a linearity series.
+mat = ["numpy>=1.24", "opencv-python-headless>=4.7"]
 
 [tool.ruff]
 line-length = 100
