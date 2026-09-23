@@ -465,6 +465,7 @@ The tools live in `frontend/analysis/` and need `pip install -e '.[analysis]'`:
 | How many pixels per millimetre, in this picture? | `deskcam scale FILE --pitch-mm 1.0` |
 | How far apart are these two points, in mm? | `deskcam measure FILE 412,308 1190,306` |
 | How sharp is what the camera is looking at? | `deskcam show sharpness=1` |
+| Where is the mat, and has the bench moved? | `deskcam calibration FILE` |
 
 Each one prints its value with an interval and a sample count, and refuses rather than
 guessing when its confidence is too low. A refusal exits 2 and carries no number, on
@@ -480,6 +481,44 @@ number in its sidecar while the framing holds. Change the zoom, the pan, the rot
 the camera and the sidecar says which one changed and that the scale no longer describes
 it. What none of it can see is the stand moving, so a sidecar carrying a scale is making a
 claim about the settings and never about the bench.
+
+**The mat can see the bench move, and a scale cannot.** If the printed DeskCam mat is in
+frame, `deskcam calibration FILE` solves the mapping between its millimetres and the
+sensor from the eight coded markers around its edge, whose positions this repository knows
+exactly. That gives the scale, the mat's rotation in the frame, and a fit residual that
+says whether to believe any of it.
+
+```sh
+deskcam calibration shot.jpg --write .          # record this framing
+deskcam calibration later.jpg --against deskcam-calibration.json
+#   the view has moved 71.9 mm on the page since that calibration, over the
+#   2.0 mm tolerance: marks placed against it now name the wrong parts
+```
+
+**This is the answer to the one failure a mark cannot report.** A mark is stored against
+the sensor, so moving the camera or the stand leaves every mark pointing at the wrong
+part with nothing anywhere to say so. Record a calibration when you place marks, and check
+it against a later capture before you trust them. A reading over the tolerance means
+re-read the subject and place the marks again; it does not mean nudge them.
+
+**Finding the markers wants OpenCV, but does not require it.** Install it with
+`uv pip install 'opencv-python-headless>=4.7'`, or `pip install -e '.[mat]'`. That is the
+recommendation, because it locates corners to a fraction of a pixel and does it the same
+way every time. Without it the command refuses and says so. The solver itself needs only
+numpy, so when there is no detector you can read the markers off the picture yourself and
+pass them in:
+
+```sh
+# {"size": [4032, 3024], "markers": {"8": [[x,y],[x,y],[x,y],[x,y]], ...}}
+deskcam calibration shot.jpg --corners corners.json
+```
+
+Corners go clockwise from the marker's top-left as printed, and four markers well spread
+across the sheet are the minimum. The millimetres that come out are the same; only the
+precision of the corners differs, and the residual in the output is where that shows up.
+Both paths refuse when the markers are too few, too bunched together to describe the whole
+page, or fit too badly, rather than returning a mapping that describes one corner of the
+sheet and nothing else.
 
 **The camera sleeps, and waking it is not free.** After 20 seconds with nothing asking
 for a frame the phone stops reading its sensor. The next capture starts it again and waits
@@ -521,7 +560,7 @@ Read live from this bench's Pixel 6a on 2026-09-13:
 | `min_focus_diopters` | 10.2, which is 98 mm | The near end of `focus`, and the default `to=` of a sweep or a hunt. A sweep of `from=3 to=6` leaves most of the range unvisited. |
 | `max_zoom` | 63 | `zoom`. The optical advice above still stands: past about 8 you are cropping to too few pixels. |
 | `max_output_edge`, `max_output_pixels` | 2896, 8388608 | `w` and `h`. A larger resize is refused before anything is captured. |
-| `ev_range`, `ev_step` | -24..24, 0.167 | `ev`, in thirds of a stop, and only while `ae=on`. |
+| `ev_range`, `ev_step` | -24..24, 0.167 | `ev`, in sixths of a stop, and only while `ae=on`. |
 | `torch_max_level` | 45 | `torch`. |
 | `raw_black_level`, `raw_white_level` | 64, 1023 | The floor and the ceiling of a DNG pixel, which is what a linearity check is measured against. |
 
@@ -580,10 +619,10 @@ These never reach the camera:
 | `deskcam log`, `deskcam log wait` | Read the journal, or wait on it. See **Pointing, both ways** |
 | `deskcam open` | Open the phone's camera page in a browser |
 | `deskcam serve` | Start the console, on port 9000 unless another is given |
-| `deskcam which`, `deskcam use URL` | Print the phone's address, or set it |
+| `deskcam which`, `deskcam use URL [KEY]` | Print the phone's address, or set it. A second word is the access key, for a machine that did not pair |
 | `deskcam wifi`, `deskcam usb` | Reach the phone over Wi-Fi, or over a USB cable through adb |
 | `deskcam start`, `deskcam stop` | Start or stop the service on the phone, through adb |
-| `deskcam token new\|show\|clear` | The access key. `show` is harmless. Change it only when the person asks: `new` and `clear` change the key here and not on the phone, so the camera refuses this CLI until the person pairs the phone again |
+| `deskcam token new\|show\|set\|clear` | The access key. `show` is harmless. Change it only when the person asks: `new` and `clear` change the key here and not on the phone, so the camera refuses this CLI until the person pairs the phone again. `set KEY` adopts a key the phone already expects, which is how a second machine joins without pairing; `set -` reads it from standard input, keeping it out of `ps` and the shell history |
 | `deskcam version` | This CLI's version |
 
 ## Judgement

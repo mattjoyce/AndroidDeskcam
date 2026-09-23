@@ -23,6 +23,8 @@ What changed in each release of DeskCam. The format follows [Keep a Changelog](h
 
 ### Changed
 
+- The documentation is a manual, in `docs/manual/`: setting up, the console, the CLI, working with an agent, capture techniques, measuring, troubleshooting, how it works, and a reference. The README, which had grown to 1,362 lines holding all of that at once, is now a landing page. Features that had no how-to of their own, such as marks, `deskcam log wait`, `--why`, the journal, the second-machine key and the mat, now have one. `frontend/test_contract.py` holds the manual's reference to the code where it held the README, and checks that every link between the pages resolves.
+- `deskcam help` lists `deskcam calibration`, which worked but was missing from it.
 - The console journals what its camera page does in the CLI's words, where it used the endpoint's. A mark is `mark` and a Clear is `unmark`, where both were `marks`, and a double tap is `focus`, where it was `af`. So a mark reads the same whichever way it was made, and `op=mark` does not wake for a Clear. Entries written before this keep their old names.
 - Shift-drag and Shift-click replace annotations with a new “look here” mark. Ctrl-Shift keeps existing annotations and adds another. Reset all clears annotations after resetting the camera.
 
