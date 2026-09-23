@@ -49,7 +49,11 @@ func usage() {
                                        carry it in their sidecars
   deskcam measure FILE X1,Y1 X2,Y2     millimetres between two points of a capture, using
                                        the scale in its sidecar
-  deskcam analyse scale FILE           the measurement without recording it
+  deskcam calibration FILE [--write DIR] [--against RECORD]
+                                       the printed mat's millimetres against the sensor,
+                                       from its coded markers. --write records it,
+                                       --against says how far the view has moved since
+  deskcam analyse scale FILE          the measurement without recording it
   deskcam analyse linearity DIR        pixel value against exposure
   deskcam analyse burst-noise DIR      how far averaging a burst lowers the noise
   deskcam analyse average DIR          average a burst into one 16-bit image
@@ -97,9 +101,9 @@ func usage() {
                                        It hands out this clone's build if there is one,
                                        otherwise the latest release; --apk release
                                        always points at the release
-  deskcam token new|show|clear         make, show or remove the access key
+  deskcam token new|show|set|clear     make, show, adopt or remove the access key
 
-  deskcam use URL                      remember a target, e.g. http://192.168.86.120:8080
+  deskcam use URL [KEY]                remember a target, e.g. http://192.168.86.120:8080
   deskcam usb [PORT]                   tunnel over USB via adb and use that
   deskcam wifi                         switch back to the device's Wi-Fi address
   deskcam start | stop                 start or stop the service on the phone (needs adb)
