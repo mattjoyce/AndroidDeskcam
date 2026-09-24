@@ -15,7 +15,7 @@ import (
 // picture, so they describe that frame. The shell version asked /api/status afterwards,
 // which described whatever the camera was doing by then, and two captures running at once
 // could exchange their records. Card 43.
-func writeSidecar(image string, reply *Reply, client *Client, target string) error {
+func writeSidecar(image string, reply *Reply, client *Client, target string, who asker) error {
 	doc := map[string]any{}
 	source := "the capture itself"
 
@@ -41,6 +41,9 @@ func writeSidecar(image string, reply *Reply, client *Client, target string) err
 	doc["image"] = filepath.Base(image)
 	doc["target"] = target
 	doc["from"] = source
+	if block := who.block(); block != nil {
+		doc["asker"] = block
+	}
 	if info, err := os.Stat(image); err == nil {
 		doc["bytes"] = info.Size()
 	}

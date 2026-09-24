@@ -27,6 +27,7 @@ type consoleState struct {
 	mu        sync.Mutex
 	port      int
 	shots     string
+	journal   string // where the journal is read from; the roll is the journal
 	nonce     string
 	nonceBorn time.Time
 	phone     string
@@ -49,7 +50,7 @@ type consoleState struct {
 }
 
 func newConsoleState(cfg Config, port int) (*consoleState, error) {
-	s := &consoleState{port: port, shots: cfg.Shots}
+	s := &consoleState{port: port, shots: cfg.Shots, journal: journalDir()}
 	if saved := readTrimmed(urlFile()); saved != "" {
 		if phoneURLOK(saved) {
 			s.phone = saved
@@ -232,6 +233,7 @@ func serve(cfg Config, port int, apk string) int {
 	fmt.Printf("DeskCam console on http://%s:%d\n", lanAddress(), port)
 	fmt.Printf("  local:  http://127.0.0.1:%d\n", port)
 	fmt.Printf("  shots:  %s\n", state.shots)
+	fmt.Printf("  journal: %s\n", state.journal)
 	fmt.Printf("  the page, the roll and the pairing code are served to this machine only;\n")
 	fmt.Printf("  the phone is offered /p/ and /deskcam.apk and nothing else\n")
 	installAt, installFrom := state.installURL()
@@ -264,17 +266,21 @@ func (s *consoleState) routes(mux *http.ServeMux) {
 	local := func(h http.HandlerFunc) http.HandlerFunc { return s.loopbackOnly(h) }
 	// Reading routes: the operator's browser, loopback only.
 	mux.HandleFunc("/", local(s.handlePage))
+	mux.HandleFunc("/camera", local(s.handleCamera))
 	mux.HandleFunc("/qr.svg", local(s.handleQR))
 	mux.HandleFunc("/install.svg", local(s.handleInstallQR))
 	mux.HandleFunc("/api/install", local(s.handleInstall))
 	mux.HandleFunc("/api/state", local(s.handleState))
 	mux.HandleFunc("/api/roll", local(s.handleRoll))
 	mux.HandleFunc("/api/stream", local(s.handleStream))
+	// Everything else under /api is the phone's, answered here for the bench tool's page.
+	// The routes named on either side are the console's own and win by being exact.
+	mux.HandleFunc("/api/", local(s.handlePhone))
 	mux.HandleFunc("/img/", local(s.handleFile))
 	mux.HandleFunc("/thumb/", local(s.handleFile))
 	mux.HandleFunc("/sidecar/", local(s.handleFile))
 	// Routes that change something: loopback, and a POST the page has to mean.
-	mux.HandleFunc("/api/cam", local(s.mutating(s.handleCam)))
+	mux.HandleFunc("/api/op", local(s.mutating(s.handleOp)))
 	mux.HandleFunc("/api/newcode", local(s.mutating(s.handleNewCode)))
 	mux.HandleFunc("/api/token", local(s.mutating(s.handleToken)))
 }
@@ -388,6 +394,7 @@ func (s *consoleState) handleState(w http.ResponseWriter, r *http.Request) {
 		"phone":            phone,
 		"token_set":        token != "",
 		"shots":            s.shots,
+		"journal":          s.journal,
 		"online":           false,
 	}
 	s.mu.Lock()
@@ -431,7 +438,7 @@ func splitPhone(raw string) (string, int, bool) {
 }
 
 func (s *consoleState) handleRoll(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"captures": roll(s.shots, 60)})
+	writeJSON(w, http.StatusOK, map[string]any{"groups": rollFrom(s.journal, rollLimit, sessionGap)})
 }
 
 // handleNewCode says a new code exists. It does not say what the code is: this endpoint
@@ -449,37 +456,45 @@ func (s *consoleState) handleNewCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *consoleState) handleFile(w http.ResponseWriter, r *http.Request) {
-	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
-	if len(parts) != 2 {
+	// /img/ENTRY/N, /thumb/ENTRY/N, /sidecar/ENTRY/N. A file is asked for by the journal
+	// entry that recorded it and its place in that entry, never by a path or a name.
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if len(parts) != 3 {
 		http.Error(w, "no such capture", http.StatusNotFound)
 		return
 	}
-	kind, raw := parts[0], parts[1]
-	name, err := url.PathUnescape(raw)
-	if err != nil {
-		http.Error(w, "no such capture", http.StatusNotFound)
-		return
-	}
-	if kind == "sidecar" {
-		name = strings.TrimSuffix(name, filepath.Ext(name)) + ".json"
-	}
-	path, ok := inShots(s.shots, name)
+	kind, id := parts[0], parts[1]
+	file, ok := journalledFile(s.journal, id, parts[2])
 	if !ok {
-		if kind == "sidecar" {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no sidecar for " + name})
+		http.Error(w, "no such capture", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+
+	// The sidecar is the journal's own copy, so it is still here when the capture is not.
+	if kind == "sidecar" {
+		if file.Sidecar == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no sidecar for " + filepath.Base(file.Path)})
 			return
 		}
-		http.Error(w, "no such capture", http.StatusNotFound)
+		writeJSON(w, http.StatusOK, file.Sidecar)
 		return
 	}
-	// The thumbnail is written beside the capture, from the capture's own bytes, when the
-	// capture is taken. There is nothing to decode here, and a capture taken before that
-	// existed falls back to the full image.
+
+	path, found := "", false
 	if kind == "thumb" {
-		thumb := strings.TrimSuffix(path, filepath.Ext(path)) + ".thumb.jpg"
-		if info, err := os.Stat(thumb); err == nil && !info.IsDir() {
-			path = thumb
-		}
+		path, found = thumbOf(s.journal, id, file)
+	}
+	if !found {
+		// A capture with no thumbnail of its own, a DNG or one from before there were any,
+		// falls back to the capture.
+		path, found = original(file)
+	}
+	if !found {
+		// Gone, not missing: the journal knows there was one. A scratch directory was
+		// cleaned, which is the ordinary end of an agent's captures.
+		http.Error(w, "the original is gone from "+filepath.Dir(file.Path), http.StatusGone)
+		return
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -489,12 +504,9 @@ func (s *consoleState) handleFile(w http.ResponseWriter, r *http.Request) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".jpg", ".jpeg":
 		w.Header().Set("Content-Type", "image/jpeg")
-	case ".json":
-		w.Header().Set("Content-Type", "application/json")
 	default:
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(body)
 }
 
@@ -626,39 +638,6 @@ func (s *consoleState) handleStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-}
-
-// handleCam forwards a control request to the phone, so the page only ever talks to the
-// console. So does the live view, through handleStream.
-func (s *consoleState) handleCam(w http.ResponseWriter, r *http.Request) {
-	phone, token, _ := s.snapshot()
-	if phone == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "no phone paired"})
-		return
-	}
-	target := phone + "/api/set"
-	if q := r.URL.RawQuery; q != "" {
-		target += "?" + q
-	}
-	if token != "" {
-		if strings.Contains(target, "?") {
-			target += "&token=" + url.QueryEscape(token)
-		} else {
-			target += "?token=" + url.QueryEscape(token)
-		}
-	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Get(target)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(body)
 }
 
 // ------------------------------------------------------------------ install

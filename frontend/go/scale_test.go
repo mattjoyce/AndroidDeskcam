@@ -152,7 +152,7 @@ func TestACaptureCarriesTheScaleMeasuredBeforeIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	reply := &Reply{Header: map[string][]string{"X-Deskcam-Provenance": {string(body)}}}
-	if err := writeSidecar(image, reply, nil, "http://phone"); err != nil {
+	if err := writeSidecar(image, reply, nil, "http://phone", asker{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -201,7 +201,7 @@ func TestASweepGivesEveryFrameItsOwnSidecar(t *testing.T) {
 	    {"file":"focus-01-4.500d.jpg","focus_diopters_asked":4.5,
 	     "measured":{"focus_diopters":4.51},"settings":{"zoom":1}}]}`
 
-	if err := splitWalk(dir, []byte(manifest)); err != nil {
+	if err := splitWalk(dir, []byte(manifest), asker{}); err != nil {
 		t.Fatal(err)
 	}
 	for i, name := range names {
@@ -234,7 +234,7 @@ func TestASweepGivesEveryFrameItsOwnSidecar(t *testing.T) {
 func TestASweepManifestCannotWriteOutsideItsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	manifest := `{"frames":[{"file":"../escaped.json"},{"file":"/etc/passwd"},{"file":""}]}`
-	if err := splitWalk(dir, []byte(manifest)); err != nil {
+	if err := splitWalk(dir, []byte(manifest), asker{}); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -251,10 +251,10 @@ func TestASweepManifestCannotWriteOutsideItsDirectory(t *testing.T) {
 }
 
 func TestASweepWithNoManifestSaysSo(t *testing.T) {
-	if err := splitWalk(t.TempDir(), nil); err == nil {
+	if err := splitWalk(t.TempDir(), nil, asker{}); err == nil {
 		t.Fatal("a walk that carried no record of itself should say so")
 	}
-	if err := splitWalk(t.TempDir(), []byte("{not json")); err == nil {
+	if err := splitWalk(t.TempDir(), []byte("{not json"), asker{}); err == nil {
 		t.Fatal("a record that is not JSON should say so")
 	}
 }

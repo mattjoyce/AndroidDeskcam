@@ -29,6 +29,10 @@ HELP = BACKEND / "WebUi.java"
 PARAMS = BACKEND / "Params.java"
 README = ROOT / "README.md"
 DECISIONS = ROOT / "docs" / "DECISIONS.md"
+MANUAL = ROOT / "docs" / "manual"
+REFERENCE = MANUAL / "reference.md"
+MEASURING = MANUAL / "measuring.md"
+HOW_IT_WORKS = MANUAL / "how-it-works.md"
 
 # The names of one declaration: the run of string literals just before its closing `);`.
 TRAILING_NAMES = re.compile(r'((?:"[a-z_]{1,16}"\s*,\s*)*"[a-z_]{1,16}")\s*\);')
@@ -78,9 +82,12 @@ def test_every_parameter_has_help_text() -> None:
         assert after.startswith('"'), f"a declaration with no help text: {after[:60]!r}"
 
 
-@pytest.mark.parametrize("doc", [README], ids=["README"])
+@pytest.mark.parametrize("doc", [REFERENCE], ids=["reference"])
 def test_the_documents_name_every_parameter(doc: Path, declared: dict[str, list[str]]) -> None:
-    """The README is the only prose that has to name every parameter.
+    """The manual's reference is the only prose that has to name every parameter.
+
+    It was the README until the README became a landing page and the manual took over its
+    reference sections. The skill is held to the same rule separately, below.
 
     docs/SPEC.md used to be checked here too. It was deleted: a specification for a thing
     that already exists is a second copy of it, and this assertion was part of what kept
@@ -97,11 +104,12 @@ def test_the_documents_name_every_parameter(doc: Path, declared: dict[str, list[
     assert not missing, f"{doc.name} does not mention {missing}"
 
 
-def test_the_readme_invents_no_parameter(declared: dict[str, list[str]]) -> None:
-    """A row in the README for something the parser will reject is worse than no row."""
+def test_the_reference_invents_no_parameter(declared: dict[str, list[str]]) -> None:
+    """A row in the reference for something the parser will reject is worse than no row."""
     known = set(declared["camera"] + declared["presentation"] + declared["router"])
-    text = README.read_text()
-    tables = text[text.index("### Camera state") : text.index("### Errors")]
+    text = REFERENCE.read_text()
+    # The limits table that follows the router one names status fields, not parameters.
+    tables = text[text.index("### Camera state") : text.index("### Limits")]
     named = {
         n
         for row in tables.splitlines()
@@ -109,7 +117,9 @@ def test_the_readme_invents_no_parameter(declared: dict[str, list[str]]) -> None
         for n in re.findall(r"`([a-z_]+)`", row.split("|")[1])
     }
     assert named, "the parameter tables have gone"
-    assert named <= known, f"the README names parameters that do not exist: {sorted(named - known)}"
+    assert named <= known, (
+        f"the reference names parameters that do not exist: {sorted(named - known)}"
+    )
 
 
 def test_the_presentation_group_is_exactly_what_the_decision_says(
@@ -177,16 +187,16 @@ def routes() -> set[str]:
     return set(re.findall(r'case "(/api/[a-z]+)"', SERVER.read_text()))
 
 
-def test_the_readme_cli_reference_is_the_usage_text() -> None:
+def test_the_reference_cli_block_is_the_usage_text() -> None:
     """The CLI reference is a copy of what the binary prints, so it is held to be identical."""
     src = USAGE.read_text()
     printed = src[src.index("fmt.Print(`") + len("fmt.Print(`") : src.rindex("`)")]
-    assert fenced_block_after(README.read_text(), "### CLI Reference") == printed
+    assert fenced_block_after(REFERENCE.read_text(), "## CLI") == printed
 
 
-def test_the_readme_endpoint_table_is_the_router() -> None:
-    text = README.read_text()
-    table = text[text.index("### HTTP REST API Endpoints") : text.index("### Camera state")]
+def test_the_reference_endpoint_table_is_the_router() -> None:
+    text = REFERENCE.read_text()
+    table = text[text.index("## Endpoints") : text.index("## Parameters")]
     named = set(re.findall(r"^\| `(/api/[a-z]+)`", table, re.MULTILINE))
     assert named == routes(), (
         f"missing {sorted(routes() - named)}, invented {sorted(named - routes())}"
@@ -208,26 +218,32 @@ def thermal_words() -> list[str]:
     return re.findall(r'return "([a-z]+)";', body)
 
 
-def test_the_readme_lists_every_thermal_word() -> None:
-    """A parser built from the README must not fall through when the phone is in trouble."""
+def test_the_manual_lists_every_thermal_word() -> None:
+    """A parser built from the manual must not fall through when the phone is in trouble."""
     words = thermal_words()
     assert "emergency" in words and "shutdown" in words, "the reader above has lost the enum"
-    text = README.read_text()
+    text = REFERENCE.read_text()
     line = next(row for row in text.splitlines() if "`X-DeskCam-Thermal`" in row)
     for word in words:
         assert f"`{word}`" in line, f"the X-DeskCam-Thermal line does not list `{word}`"
-    ladder = section(text, "### Heat and battery")
+    ladder = section(HOW_IT_WORKS.read_text(), "## Heat and battery")
     for word in words:
         if word != "unknown":
             assert f"`{word}`" in ladder, f"the shedding ladder does not list `{word}`"
 
 
-def test_the_readme_lists_every_response_header() -> None:
+def test_the_reference_lists_every_response_header() -> None:
     emitted = set(re.findall(r"X-DeskCam-[A-Za-z-]+", SERVER.read_text()))
-    documented = set(re.findall(r"`(X-DeskCam-[A-Za-z-]+)`", README.read_text()))
-    assert emitted <= documented, f"the README does not list {sorted(emitted - documented)}"
-    assert documented <= emitted, (
-        f"the README lists {sorted(documented - emitted)}, which nothing sends"
+    text = REFERENCE.read_text()
+    documented = set(re.findall(r"`(X-DeskCam-[A-Za-z-]+)`", section(text, "## Response headers")))
+    assert emitted <= documented, f"the reference does not list {sorted(emitted - documented)}"
+    everywhere = {
+        name
+        for doc in [README, *MANUAL.glob("*.md")]
+        for name in re.findall(r"X-DeskCam-[A-Za-z-]+", doc.read_text())
+    }
+    assert everywhere <= emitted, (
+        f"the documents name {sorted(everywhere - emitted)}, which nothing sends"
     )
 
 
@@ -274,25 +290,66 @@ def test_the_explainer_lists_every_decision() -> None:
 def test_the_documents_quote_one_linearity_figure() -> None:
     """One measurement was published as 2.062x, 2.004x and 2.02x at once. Never again."""
     figure = re.compile(r"\b(\d\.\d{3})x\b")
-    readme_text = README.read_text()
-    readme_section = readme_text[readme_text.index("### Sensor linearity") :]
-    readme_section = readme_section[: readme_section.index("\n### ", 10)]
+    manual_text = MEASURING.read_text()
+    manual_section = section(manual_text, "## Sensor linearity")
     skill_text = SKILL.read_text()
     skill_section = skill_text[skill_text.index("## Measuring, not photographing") :]
     skill_section = skill_section[: skill_section.index("\n## ", 10)]
-    readme = set(figure.findall(readme_section))
+    manual = set(figure.findall(manual_section))
     skill = set(figure.findall(skill_section))
-    assert readme, "the README no longer states the linearity result"
-    assert readme == skill, f"README says {sorted(readme)}, skill says {sorted(skill)}"
+    assert manual, "the manual no longer states the linearity result"
+    assert manual == skill, f"the manual says {sorted(manual)}, skill says {sorted(skill)}"
 
 
 def test_the_documents_name_only_real_endpoints() -> None:
     """A made-up endpoint in a header list is how /api/focuswalk came to be published."""
     known = routes()
-    for doc in (README, SKILL, EXPLAINER, DECISIONS):
+    for doc in (README, SKILL, EXPLAINER, DECISIONS, *MANUAL.glob("*.md")):
         named = set(re.findall(r"/api/[a-z]+", doc.read_text()))
         invented = sorted(named - known)
         assert not invented, f"{doc.name} names {invented}, which the server does not answer"
+
+
+def cli_commands() -> set[str]:
+    """Every command the usage text offers, with its subcommand where it has one.
+
+    `deskcam focus at FX,FY` is `focus at`, `deskcam burst N` is `burst`, and
+    `deskcam start | stop` is both.
+    """
+    src = USAGE.read_text()
+    printed = src[src.index("fmt.Print(`") : src.rindex("`)")]
+    found: set[str] = set()
+    for line in re.findall(r"^  deskcam (.+)$", printed, re.MULTILINE):
+        words = re.split(r"\s{2,}", line)[0].split()
+        found.add(words[0])
+        if len(words) > 2 and words[1] == "|":
+            found.add(words[2])
+        elif len(words) > 1 and re.fullmatch(r"[a-z][a-z-]*", words[1]):
+            found.add(f"{words[0]} {words[1]}")
+    return found
+
+
+def test_the_skill_covers_the_whole_surface(declared: dict[str, list[str]]) -> None:
+    """The skill is what an agent reads, and a command it does not name does not exist for it.
+
+    On 2026-09-20 the skill did not name deskcam mark at, a day after it shipped, and told
+    agents to wait for operation names the console had stopped writing the day before. Every
+    CLI command, every endpoint and every parameter is held to appear in it.
+    """
+    text = SKILL.read_text()
+    commands = cli_commands()
+    assert {"snap", "focus at", "mark at", "log wait", "stop"} <= commands, commands
+    missing = sorted(c for c in commands if f"deskcam {c}" not in text)
+    assert not missing, f"the skill never names deskcam {missing}"
+    missing = sorted(r for r in routes() if f"`{r}`" not in text)
+    assert not missing, f"the skill never names {missing}"
+    missing = [
+        name
+        for names in declared.values()
+        for name in names
+        if name not in ("t", "_") and f"`{name}`" not in text
+    ]
+    assert not missing, f"the skill never names the parameters {missing}"
 
 
 # ----------------------------------------------------------------- versions
@@ -316,8 +373,38 @@ def test_the_manifest_carries_no_version_of_its_own() -> None:
     assert "versionName" not in text
 
 
-def test_no_placeholder_survives_in_the_readme() -> None:
-    assert "{{" not in README.read_text(), "a {{placeholder}} was left in the README"
+@pytest.mark.parametrize("doc", [README, *sorted(MANUAL.glob("*.md"))], ids=lambda p: p.name)
+def test_no_placeholder_survives_in_the_documents(doc: Path) -> None:
+    assert "{{" not in doc.read_text(), f"a {{{{placeholder}}}} was left in {doc.name}"
+
+
+def test_the_manual_links_resolve() -> None:
+    """A page moved or renamed leaves its links pointing at nothing, and nothing else notices.
+
+    Checks relative links to files and, for links into the manual, the heading anchor too,
+    using GitHub's rule: lower case, punctuation dropped, spaces to hyphens.
+    """
+
+    def anchors(path: Path) -> set[str]:
+        out = set()
+        for heading in re.findall(r"^#{1,6} (.+)$", path.read_text(), re.MULTILINE):
+            slug = re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+            out.add(slug)
+        return out
+
+    broken = []
+    for doc in [README, *MANUAL.glob("*.md")]:
+        text = re.sub(r"```.*?```", "", doc.read_text(), flags=re.DOTALL)
+        for target in re.findall(r"\]\(([^)\s]+)\)", text):
+            if re.match(r"[a-z]+:", target):
+                continue
+            file_part, _, anchor = target.partition("#")
+            dest = (doc.parent / file_part).resolve() if file_part else doc
+            if not dest.exists():
+                broken.append(f"{doc.name}: {target}")
+            elif anchor and dest.suffix == ".md" and anchor not in anchors(dest):
+                broken.append(f"{doc.name}: {target} (no such heading)")
+    assert not broken, "broken links: " + ", ".join(broken)
 
 
 # ------------------------------------------------------------------- the panels
@@ -338,3 +425,33 @@ def test_a_panel_hides_what_it_marks_hidden(page: Path) -> None:
     """
     css = re.sub(r"\s+", "", page.read_text())
     assert "[hidden]{display:none!important" in css
+
+
+def test_the_mark_store_outlives_the_server_that_took_it() -> None:
+    """A service restart must not empty the marks.
+
+    CamService builds a new HttpServer every time it starts, and onStartCommand returns
+    START_STICKY, so Android may start it again on its own without the process dying.
+    While the store was an instance field that quietly emptied it: nine marks placed at
+    05:49:42 on 2026-09-23 were gone when the service restarted at 06:20:27 inside the
+    same live process, with no unmark in the journal and no error anywhere.
+
+    Checked as source text because HttpServer imports android.util.Log and so cannot be
+    loaded by the workstation tests, and because the property that matters is one of the
+    field rather than of any behaviour reachable through it: a per-instance store passes
+    every functional test there is.
+    """
+    server = (ROOT / "backend" / "app" / "src" / "dev" / "deskcam" / "HttpServer.java").read_text()
+    field = re.search(r"^\s*(private|final|static|\s)*\s*Marks\s+(\w+)\s*=", server, re.MULTILINE)
+    assert field, "HttpServer no longer declares a Marks field"
+    declaration = field.group(0)
+    assert "static" in declaration, (
+        f"the mark store is per-server ({declaration.strip()}); a service restart rebuilds "
+        "HttpServer and would empty it, silently and with nothing in the journal"
+    )
+
+    service = (ROOT / "backend" / "app" / "src" / "dev" / "deskcam" / "CamService.java").read_text()
+    assert "START_STICKY" in service, (
+        "CamService no longer returns START_STICKY; if the service can no longer be "
+        "restarted under a live process, this test is guarding nothing and should say so"
+    )

@@ -49,7 +49,14 @@ func usage() {
                                        carry it in their sidecars
   deskcam measure FILE X1,Y1 X2,Y2     millimetres between two points of a capture, using
                                        the scale in its sidecar
-  deskcam analyse scale FILE           the measurement without recording it
+  deskcam calibration FILE [--write DIR] [--against RECORD] [--corners JSON]
+                          [--tolerance-mm N]
+                                       the printed mat's millimetres against the sensor,
+                                       from its coded markers. --write records it,
+                                       --against says how far the view has moved since,
+                                       --corners supplies the markers when OpenCV is not
+                                       installed, --tolerance-mm sets what counts as moved
+  deskcam analyse scale FILE          the measurement without recording it
   deskcam analyse linearity DIR        pixel value against exposure
   deskcam analyse burst-noise DIR      how far averaging a burst lowers the noise
   deskcam analyse average DIR          average a burst into one 16-bit image
@@ -61,6 +68,24 @@ func usage() {
   deskcam center                       recentre
   deskcam af                           one autofocus sweep
   deskcam focus METRES|auto            manual focus distance
+  deskcam focus at FX,FY               autofocus on a place in the picture you can see,
+                                       each from 0 to 1, and leave the framing alone.
+                                       Look at a frame, see where it is soft, say where
+  deskcam mark at FX,FY[,FW,FH] [label=TEXT] [by=WORD]
+                                       point at a place in the picture you can see, a spot
+                                       or a box by its centre and size. Changes nothing on
+                                       the camera. Both live views draw it
+  deskcam mark list                    every mark on the phone as JSON, in the coordinates
+                                       cx and cy use, with in_crop. The only way to see one
+                                       drawn on the phone's own page
+  deskcam mark clear [ID|all]          remove one mark, or all of them
+  deskcam log [N] [via=console|cli] [op=NAME,...] [--json]
+                                       the last N operations from the journal, by anybody
+  deskcam log wait [op=NAME,...] [timeout=120]
+                                       return when a person next does something at the
+                                       console, with what they did as JSON. op=mark waits
+                                       for them to point, and skips their zooming and
+                                       panning. Exit 2 if nothing came
   deskcam focus hunt [from=D to=D]     walk the lens on the phone, print the curve, and
                                        leave it at the sharpest position. Fix the exposure
                                        first, or the hunt climbs the exposure loop. Exits
@@ -79,9 +104,9 @@ func usage() {
                                        It hands out this clone's build if there is one,
                                        otherwise the latest release; --apk release
                                        always points at the release
-  deskcam token new|show|clear         make, show or remove the access key
+  deskcam token new|show|set|clear     make, show, adopt or remove the access key
 
-  deskcam use URL                      remember a target, e.g. http://192.168.86.120:8080
+  deskcam use URL [KEY]                remember a target, e.g. http://192.168.86.120:8080
   deskcam usb [PORT]                   tunnel over USB via adb and use that
   deskcam wifi                         switch back to the device's Wi-Fi address
   deskcam start | stop                 start or stop the service on the phone (needs adb)
@@ -95,6 +120,16 @@ Camera state persists until you change it (zoom, cx, cy, focus, exposure, iso, t
 awb, measure, rotate). Presentation applies to one request and is then forgotten
 (w, h, jpegq). deskcam api prints the whole list.
 
-Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL
+Any command also accepts --why "TEXT": what it is for, in your own words. It is written
+into the record beside each capture and is never sent to the phone. The record also says
+which directory and project asked. A scratch directory is in no project, so name one with
+DESKCAM_PROJECT, and name a run of work with DESKCAM_SESSION.
+
+Every command that takes a picture or changes the camera is written down in a journal,
+with who asked, what came back, and a thumbnail, wherever the files went. A refusal is
+written down too. It lives in ~/.local/state/deskcam/journal, or DESKCAM_JOURNAL.
+
+Environment: DESKCAM_URL, DESKCAM_TOKEN, DESKCAM_TIMEOUT, DESKCAM_SHOTS, DESKCAM_SERIAL,
+             DESKCAM_PROJECT, DESKCAM_SESSION, DESKCAM_JOURNAL
 `)
 }

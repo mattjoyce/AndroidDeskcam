@@ -14,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import aatest, average, burstnoise, distance, hdr, linearity, scale, stack
+from . import aatest, average, burstnoise, calibration, distance, hdr, linearity, scale, stack
 from .images import image_size, load_sidecar, parse_region
 from .result import Measurement, Scale
 
@@ -118,6 +118,37 @@ def main(argv: list[str] | None = None) -> int:
     p_dist.add_argument("first", type=str, help="x,y in pixels")
     p_dist.add_argument("second", type=str, help="x,y in pixels")
 
+    p_cal = sub.add_parser(
+        "calibration",
+        parents=[common],
+        help="what the camera knows about the mat, and whether the bench has moved",
+    )
+    p_cal.add_argument("image", type=Path)
+    p_cal.add_argument(
+        "--corners",
+        type=Path,
+        default=None,
+        help="marker corners already located, as JSON, instead of finding them with OpenCV",
+    )
+    p_cal.add_argument(
+        "--against",
+        type=Path,
+        default=None,
+        help="a recorded calibration to measure the drift from",
+    )
+    p_cal.add_argument(
+        "--tolerance-mm",
+        type=float,
+        default=2.0,
+        help="how far the view may move before marks are called stale",
+    )
+    p_cal.add_argument(
+        "--write",
+        type=Path,
+        default=None,
+        help="directory to record this calibration in, to compare a later capture against",
+    )
+
     p_lin = sub.add_parser("linearity", parents=[common], help="pixel value against exposure")
     p_lin.add_argument("directory", type=Path)
 
@@ -180,6 +211,15 @@ def main(argv: list[str] | None = None) -> int:
             result = distance.measure(
                 args.image, distance.parse_point(args.first), distance.parse_point(args.second)
             )
+        elif args.command == "calibration":
+            result = calibration.measure(
+                args.image,
+                corners=args.corners,
+                against=args.against,
+                tolerance_mm=args.tolerance_mm,
+            )
+            if args.write is not None and result.ok:
+                recorded = calibration.record(args.image, args.write, corners=args.corners)
         elif args.command == "linearity":
             result = linearity.measure(args.directory, region=region or linearity.CENTRE)
         elif args.command == "average":

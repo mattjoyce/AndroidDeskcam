@@ -8,10 +8,17 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 class Element {
   constructor() {
+    this.listeners = {};
     this.childNodes = [];
     this.dataset = {};
-    this.style = {};
     this.attrs = {};
+    // A plain bag of properties, plus the one method the panel sets hyphenated custom and
+    // vendor properties through. Assigning style['-webkit-line-clamp'] directly is not a
+    // thing a browser honours, so the page uses setProperty and so must this.
+    this.style = Object.defineProperty({}, "setProperty", {
+      enumerable: false,
+      value(name, value) { this[name] = String(value); },
+    });
     this.hidden = false;
     this.value = '';
     this._text = '';
@@ -30,7 +37,7 @@ class Element {
   getAttribute(name) { return this.attrs[name] ?? null; }
   removeAttribute(name) { delete this.attrs[name]; }
   setAttribute(name, value) { this.attrs[name] = value; }
-  addEventListener() {}
+  addEventListener(name, fn) { this.listeners[name] = fn; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 640, height: 480 }; }
 }
 

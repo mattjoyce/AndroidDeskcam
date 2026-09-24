@@ -46,7 +46,7 @@
   .viewport img.grab { cursor:grabbing; }
   /* A paused view has no src, and the browser draws the alt text through the overlay. */
   .viewport img:not([src]) { visibility:hidden; }
-  @media (max-width:900px) {
+  @media (max-width:600px) {
     html, body { height:auto; }
     main { grid-template-columns:1fr; grid-template-rows:none; }
     .viewport { flex:none; min-height:12rem; }
@@ -69,6 +69,8 @@
   @keyframes ringpulse { 0%,100% { transform:scale(1); opacity:1; } 50% { transform:scale(.86); opacity:.72; } }
   .dragbox { position:absolute; border:2px solid #2f81f7; background:rgba(47,129,247,.15);
              border-radius:2px; pointer-events:none; }
+  /* A box that points instead of framing is drawn as a mark is drawn. */
+  .dragbox.marking { border:2px dashed #79c0ff; background:rgba(47,129,247,.10); }
   /* What somebody is pointing at. The phone keeps a mark where it sits on the sensor, so
      these stay on their part through any zoom, pan or remount. Card 71. */
   .marks { position:absolute; inset:0; pointer-events:none; }
@@ -78,11 +80,51 @@
           border:2px solid #d2a8ff; background:rgba(210,168,255,.18); }
   .mk.mine { border-style:solid; border-color:#2f81f7; background:rgba(47,129,247,.10); }
   .mkpt.mine { border-color:#2f81f7; background:rgba(47,129,247,.18); }
-  .mklbl { position:absolute; left:-2px; bottom:100%; margin-bottom:3px; white-space:nowrap;
-           background:rgba(13,17,23,.88); border:1px solid #30363d; border-radius:4px;
-           padding:2px 6px; font:11px ui-monospace,monospace; color:#d2a8ff; }
-  .mine .mklbl { color:#79c0ff; }
-  .mkpt .mklbl { left:18px; bottom:auto; top:-5px; margin:0; }
+  /* Registration, drawn outside the mark rather than instead of it. The inner colour still
+     says who pointed, purple for an agent and blue for you; the ring says whether the mat
+     was solved and has stayed put, so a mark never has to give up one fact to carry the
+     other. Dotted as well as coloured, because green against purple is exactly the pair a
+     colour-blind reader cannot separate.
+
+     Green is the quiet state and amber is the one that matters: a mark is stored against
+     the sensor, so once the bench moves it names the wrong part and looks no different.
+     The ring turning is the only warning there is. */
+  .marks.reg .mk, .marks.reg .mkpt { outline:2px dotted #3fb950; outline-offset:3px; }
+  .marks.moved .mk, .marks.moved .mkpt { outline:2px dotted #d29922; outline-offset:3px; }
+  /* Callouts. A label sat on its own mark collides with the next one as soon as two parts
+     are close, and ten of them on one board is unreadable. So a label is not drawn on its
+     mark at all: it goes into the gutter down the side it belongs to, stacked so no two
+     overlap, with a line back to the thing it names. Decision D21. */
+  /* The layer takes no pointer events, so a drag across the picture still frames it. The
+     labels and badges take their own, because a badge whose text you cannot read is only
+     useful if hovering it tells you, and a title on an element nothing can hover never
+     appears. Both sit in the gutters or on a mark, clear of where a framing drag starts. */
+  .calls { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+  .mkcall, .mkbadge { pointer-events:auto; cursor:help; }
+  /* The gutter is narrow on purpose. A label wide enough to hold 80 characters on one line
+     reaches back into the middle of the picture and covers the very part it names, which
+     is the fault this whole arrangement exists to cure. Wrapping costs height, and height
+     is the one thing a column has to spare. */
+  .mkcall { position:absolute; box-sizing:border-box; width:21%; max-width:230px;
+            background:rgba(13,17,23,.88); border:1px solid #30363d; border-radius:4px;
+            padding:2px 6px; font:11px ui-monospace,monospace; color:#d2a8ff;
+            line-height:1.35; overflow-wrap:break-word;
+            display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden; }
+  .mkcall.mine { color:#79c0ff; border-color:#1f6feb; }
+  /* Two lines is the label's budget. A column that cannot afford even that for all of its
+     marks drops to badges instead of to smaller text. */
+  .mkcall { -webkit-line-clamp:2; }
+  .mkbadge { position:absolute; min-width:18px; height:18px; margin:-9px 0 0 -9px;
+             border-radius:9px; box-sizing:border-box; padding:0 4px; text-align:center;
+             background:rgba(13,17,23,.92); border:1px solid #d2a8ff; color:#d2a8ff;
+             font:11px/16px ui-monospace,monospace; }
+  .mkbadge.mine { border-color:#2f81f7; color:#79c0ff; }
+  /* A hairline vanishes over a bright subject, and a leader nobody can follow is the same
+     as no leader. Two pixels, and a dark halo so it reads over paper as well as over a
+     black board. */
+  .mklead { position:absolute; height:0; border-top:2px dashed #d2a8ff;
+            box-shadow:0 0 0 1px rgba(1,4,9,.55); transform-origin:0 50%; }
+  .mklead.mine { border-top-color:#2f81f7; }
   .offview { position:absolute; right:8px; top:8px; display:flex; gap:6px; align-items:center;
              background:rgba(13,17,23,.88); border:1px solid #30363d; border-radius:5px;
              padding:3px 5px 3px 8px; font:11px ui-monospace,monospace; color:#8b949e; }
@@ -90,6 +132,16 @@
           background:#0d1117; border:1px solid #21262d; border-radius:5px; padding:4px 7px;
           font-size:12px; color:#e6edf3; cursor:pointer; }
   .mrow:hover { background:#161b22; border-color:#30363d; }
+  .reg { display:flex; gap:6px; align-items:baseline; margin-bottom:6px; padding:4px 7px;
+         border:1px solid #21262d; border-left-width:3px; border-radius:5px;
+         background:#0d1117; font:11px ui-monospace,monospace; color:#8b949e; }
+  .reg .what { color:#e6edf3; }
+  .reg.fresh { border-left-color:#3fb950; }
+  .reg.fresh .what { color:#3fb950; }
+  .reg.moved { border-left-color:#d29922; }
+  .reg.moved .what { color:#d29922; }
+  .mrow .mnum { flex:0 0 auto; width:16px; text-align:right; color:#8b949e;
+                font:10px ui-monospace,monospace; }
   .mrow .who { flex:0 0 auto; font:10px ui-monospace,monospace; border:1px solid #30363d;
                border-radius:3px; padding:1px 4px; color:#d2a8ff; }
   .mrow .who.mine { color:#79c0ff; }
@@ -162,21 +214,22 @@
 <main>
   <div class="left">
     <div class="viewport">
-      <img id="view" alt="live view">
+      <img id="view" alt="live view" draggable="false">
       <div class="asleep" id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
       <div class="marks" id="marks"></div>
+      <div class="calls" id="calls"></div>
       <div class="offview" id="offview" hidden></div>
       <div class="ring" id="ring" hidden><span id="ringlbl"></span></div>
       <div class="dragbox" id="dragbox" hidden></div>
       <div class="msg" id="msg" hidden></div>
       <div class="working" id="working" hidden></div>
       <div class="hint">double tap to focus &middot; drag a box to frame &middot; hold then drag
-        to pan &middot; scroll to zoom</div>
+        to pan &middot; scroll or +/− to zoom &middot; shift-drag to point &middot; ctrl-shift-drag to add</div>
     </div>
     <div class="btns" style="margin-top:10px">
       <button onclick="still()">Save full-res still</button>
       <button onclick="api('/api/af')">Autofocus</button>
-      <button onclick="api('/api/reset')">Reset all</button>
+      <button onclick="resetAll()">Reset all</button>
       <button onclick="restream()">Restart stream</button>
     </div>
   </div>
@@ -266,6 +319,7 @@
 
     <div class="sep"></div>
     <h2>Marks</h2>
+    <div class="reg" id="reg" hidden></div>
     <div id="marklist"></div>
     <div class="btns">
       <button onclick="markView()">Mark this view</button>
@@ -295,13 +349,14 @@ function requestUrl(path) {
   return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(accessToken);
 }
 
+// The console requires this header; the phone ignores it. Both hosts use this same page.
 // Keep the deadline active until the body has been read as well as the headers.
 // Aborting a browser request cannot undo an operation already received by the camera.
 async function requestJson(path) {
   const controller = new AbortController();
   const timer = setTimeout(function () { controller.abort(); }, 15000);
   try {
-    const r = await fetch(requestUrl(path), {signal: controller.signal});
+    const r = await fetch(requestUrl(path), {signal: controller.signal, headers: {'X-DeskCam-Console': '1'}});
     const j = await r.json();
     return {r: r, j: j};
   } catch (e) {
@@ -579,7 +634,14 @@ async function refresh() {
    double tap           focus there, and leave the framing alone
    drag a box           that box becomes the crop, then focus on it
    hold, then drag      pan
-   scroll               zoom      shift-click   back to the full sensor
+   scroll               zoom
+   shift-drag a box     replace annotations with a new look-here box
+   ctrl-shift-drag      add a look-here box, keeping existing annotations
+   shift-click          mark that spot
+
+   Shift is pointing, here and on the console, so the same gesture is the same action on
+   both pages. Shift-click used to mean "back to the full sensor", which Reset all does, and
+   a gesture cannot mean aiming on one page and pointing on the other. Decision D19.
 
    A single tap does nothing on purpose. It was the focus gesture for an afternoon and it
    fired while people were lining a part up, which moves the lens under their hand.
@@ -842,15 +904,22 @@ view.addEventListener('pointerdown', function (e) {
   }
   const p = frac(e);
   try { view.setPointerCapture(e.pointerId); } catch (err) { /* works without it */ }
-  if (e.shiftKey) { api('/api/set?zoom=1&cx=0.5&cy=0.5&focusbox=off'); hideRing(); return; }
   const c = crop();
   g = {id: e.pointerId, sx: p[0], sy: p[1], x: p[0], y: p[1], mode: 'pending',
        w0: c.w, left0: c.left, top0: c.top,
        cx0: c.left + c.w / 2, cy0: c.top + c.w / 2};
   clearTimeout(holdTimer);
-  holdTimer = setTimeout(function () {
-    if (g && g.mode === 'pending') { g.mode = 'pan'; view.classList.add('grab'); }
-  }, 420);
+  if (e.shiftKey) {
+    // Pointing. It never becomes a pan or a crop, however long it is held or far it goes.
+    lastTap = {t: 0, x: 0, y: 0};
+    g.mode = 'mark';
+    g.keepMarks = e.ctrlKey;
+    dragbox.classList.add('marking');
+  } else {
+    holdTimer = setTimeout(function () {
+      if (g && g.mode === 'pending') { g.mode = 'pan'; view.classList.add('grab'); }
+    }, 420);
+  }
   e.preventDefault();
 });
 
@@ -863,7 +932,7 @@ view.addEventListener('pointermove', function (e) {
     clearTimeout(holdTimer);
     g.mode = 'box';
   }
-  if (g.mode === 'box') {
+  if (g.mode === 'box' || g.mode === 'mark') {
     drawBox(g);
   } else if (g.mode === 'pan') {
     sendPan(clamp(g.cx0 - (p[0] - g.sx) * g.w0, g.w0 / 2, 1 - g.w0 / 2),
@@ -877,8 +946,10 @@ view.addEventListener('pointerup', function (e) {
   const gg = g;
   g = null;
   dragbox.hidden = true;
+  dragbox.classList.remove('marking');
   view.classList.remove('grab');
   if (gg.mode === 'pan') return;
+  if (gg.mode === 'mark') { markGesture(gg); return; }
   const dx = Math.abs(gg.x - gg.sx), dy = Math.abs(gg.y - gg.sy);
   // Under 2% of the view is a tap and not a box, which is the console's rule.
   if (gg.mode === 'pending' || (dx < 0.02 && dy < 0.02)) tapped(gg.x, gg.y);
@@ -892,6 +963,7 @@ view.addEventListener('pointercancel', function (e) {
   clearTimeout(holdTimer);
   g = null;
   dragbox.hidden = true;
+  dragbox.classList.remove('marking');
   view.classList.remove('grab');
 });
 
@@ -900,6 +972,19 @@ view.addEventListener('wheel', function (e) {
   usedTheView();
   api('/api/set?zoomby=' + (e.deltaY < 0 ? 1.25 : 0.8));
 }, { passive: false });
+
+// The console also forwards shortcuts from outside this frame to this one handler.
+// Browser zoom (Ctrl/Cmd) and keys used inside controls retain their usual behavior.
+function zoomKey(e) {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable], dialog')) return;
+  const factor = e.key === '+' || e.key === '=' ? 1.25 : e.key === '-' ? 0.8 : null;
+  if (factor === null) return;
+  e.preventDefault();
+  usedTheView();
+  api('/api/set?zoomby=' + factor);
+}
+document.addEventListener('keydown', zoomKey);
 
 /* Marks: what a person or an agent is pointing at. Card 71.
 
@@ -934,6 +1019,7 @@ function drawMarks() {
   const c = crop();
   host.textContent = '';
   var off = 0;
+  const callouts = [];
   MARKS.forEach(function (m) {
     if (!m.in_crop) { off++; return; }
     const x = (m.cx - c.left) / c.w, y = (m.cy - c.top) / c.w;
@@ -952,13 +1038,19 @@ function drawMarks() {
       el.style.top = (b.oy + y * b.h) + 'px';
     }
     if (m.label) {
-      const lbl = document.createElement('span');
-      lbl.className = 'mklbl';
-      lbl.textContent = m.label;
-      el.appendChild(lbl);
+      /* Where the leader should land: the edge of a box facing its gutter, so the line
+         stops at the part instead of being drawn across it, and the centre of a point. */
+      var ax = b.ox + x * b.w, ay = b.oy + y * b.h;
+      if (m.kind === 'box') {
+        const half = ((m.w || 0) / c.w) * b.w / 2;
+        ax += (x < 0.5) ? -half : half;
+      }
+      callouts.push({label: m.label, mine: mine, ax: ax, ay: ay, left: x < 0.5,
+                     n: MARKS.indexOf(m) + 1});
     }
     host.appendChild(el);
   });
+  layoutCalls(callouts, b);
   /* A mark you cannot see is the failure case of the whole idea, so the ones outside the
      crop are counted where you are looking, with one press that brings them back. */
   chip.textContent = '';
@@ -973,6 +1065,187 @@ function drawMarks() {
   chip.hidden = !off;
 }
 
+/* Put the labels in the gutters and run a line from each one back to its part. Decision D21.
+
+   Two columns, chosen by which half of the picture the mark sits in, each sorted by how
+   high its mark is so the lines do not cross. Within a column a label is placed at its
+   mark's height and then pushed down past whatever is already there, which is the standard
+   greedy pass; if that runs off the bottom the column is pulled back up from the last
+   label, so a crowded column compresses towards the middle rather than sliding off.
+
+   A label is measured, not assumed, because the text is somebody else's and wraps to a
+   width this code does not control. Where nothing has been laid out yet, offsetHeight is 0
+   and ROW stands in, which is what happens under the test harness and on a first paint
+   before the fonts land; the next draw corrects it. */
+var CALL_ROW = 22, CALL_GAP = 4, CALL_PAD = 6, CALL_MAX_LINES = 5;
+
+/* Registration: whether the mat has been solved, and whether it has stayed put since.
+   Card 81.
+
+   It is not part of a mark and is deliberately not stored with one. A mark is a place on
+   the sensor; registration is a fact about the whole view, and the phone cannot work it
+   out at all, because finding the mat's markers wants a computer-vision library that the
+   APK does not and should not carry. So the host supplies this or it does not, and a page
+   that is not told anything says nothing rather than showing an empty tick, which reads
+   as "not registered" when it means "nobody asked".
+
+   Shapes: null when unknown, otherwise {state: "fresh"|"moved", moved_mm, markers,
+   micrometres_per_pixel, rotation_degrees, residual_mm, age_s}. */
+var REGISTRATION = null;
+
+function showRegistration(r) {
+  REGISTRATION = r || null;
+  const host = document.getElementById('marks');
+  const chip = document.getElementById('reg');
+  const state = REGISTRATION && REGISTRATION.state;
+  if (host) host.className = 'marks' + (state === 'fresh' ? ' reg'
+                                      : state === 'moved' ? ' moved' : '');
+  if (!chip) return;
+  chip.textContent = '';
+  chip.className = 'reg' + (state ? ' ' + state : '');
+  chip.hidden = !state;
+  if (!state) return;
+
+  const what = document.createElement('span');
+  what.className = 'what';
+  /* The wording says what it means for the marks, not what the solver did. "moved 14.9 mm"
+     is a fact about the bench; "the marks name the wrong parts" is the consequence, and
+     the consequence is the reason anybody looks at this. */
+  what.textContent = state === 'fresh' ? 'registered' : 'the bench moved';
+  chip.appendChild(what);
+
+  const detail = document.createElement('span');
+  detail.textContent = state === 'fresh'
+    ? REGISTRATION.markers + ' markers · '
+      + REGISTRATION.micrometres_per_pixel + ' µm/px · '
+      + Number(REGISTRATION.rotation_degrees).toFixed(1) + '°'
+    : Number(REGISTRATION.moved_mm).toFixed(1) + ' mm since · the marks name the '
+      + 'wrong parts now';
+  chip.appendChild(detail);
+}
+
+function layoutCalls(calls, b) {
+  const host = document.getElementById('calls');
+  if (!host) return;
+  host.textContent = '';
+  if (!calls.length) return;
+  const top = b.oy + CALL_PAD, bottom = b.oy + b.h - CALL_PAD;
+  /* The gutter belongs to the picture, not to the element. object-fit letterboxes a 4:3
+     frame inside a wider box, so pinning a label to the element's edge would float it out
+     over the grey. */
+  const vw = view.parentNode.getBoundingClientRect().width;
+  const inset = {left: b.ox + CALL_PAD, right: vw - (b.ox + b.w) + CALL_PAD};
+
+  [true, false].forEach(function (side) {
+    const column = calls.filter(function (c) { return c.left === side; })
+                        .sort(function (p, q) { return p.ay - q.ay; });
+    if (!column.length) return;
+
+    // Build them first: a height cannot be measured before the text is in the document.
+    column.forEach(function (c) {
+      const el = document.createElement('div');
+      el.className = 'mkcall' + (c.mine ? ' mine' : '');
+      el.textContent = c.label;
+      el.title = c.label;
+      el.style[side ? 'left' : 'right'] = (side ? inset.left : inset.right) + 'px';
+      host.appendChild(el);
+      c.el = el;
+      c.h = el.offsetHeight || CALL_ROW;
+    });
+
+    /* Either the text fits or it is not shown as text at all. A short frame, a phone held
+       upright, or simply a lot of marks will not take a column of two-line labels, and the
+       answers that suggest themselves are both worse than the problem: stacking them makes
+       the overlap this arrangement exists to cure, and truncating them to "Adafruit
+       microSD..." spends a third of the picture on text nobody can read. So a column that
+       does not fit becomes numbered badges on the marks themselves. The number keys to the
+       marks list beside the picture, which holds every label in full and is where the
+       reading happens. Nothing is hidden and nothing is cut in half. */
+    /* Two lines was the budget, and at a narrow gutter it was not enough: seven labels fit
+       the console's height easily and every one of them read "Adafruit microSD..." because
+       the gutter is only 110 px wide. Height is the thing a column has spare, so spend it.
+       Take the fewest lines that shows every label whole, and only give up when even the
+       tallest allowance cannot do it.
+
+       A clamped label reports more content than it shows, which is how truncation is
+       detected rather than guessed at. */
+    const room = function () {
+      const tallest = Math.max.apply(null, column.map(function (c) { return c.h; }));
+      return column.length <= Math.floor((bottom - top + CALL_GAP) / (tallest + CALL_GAP));
+    };
+    const measure = function (lines) {
+      column.forEach(function (c) {
+        c.el.style.setProperty('-webkit-line-clamp', String(lines));
+        c.h = c.el.offsetHeight || CALL_ROW;
+      });
+      return !column.some(function (c) { return c.el.scrollHeight > c.el.clientHeight + 1; });
+    };
+
+    var laid = false;
+    for (var lines = 2; lines <= CALL_MAX_LINES; lines++) {
+      const whole = measure(lines);
+      if (!room()) break;              // taller will only be worse
+      if (whole) { laid = true; break; }
+    }
+    /* Still cut, or still too tall. Numbered badges on the marks themselves, keyed to the
+       marks list beside the picture, which holds every label in full. Nothing is hidden
+       and nothing is cut in half. */
+    if (!laid) {
+      column.forEach(function (c) { host.removeChild(c.el); badge(host, c); });
+      return;
+    }
+
+    var y = top;
+    column.forEach(function (c) {
+      y = Math.max(y, Math.min(c.ay - c.h / 2, bottom - c.h));
+      c.y = y;
+      y += c.h + CALL_GAP;
+    });
+    // Pushing down can overrun the bottom. Pull the tail back up, never above the top.
+    var limit = bottom;
+    for (var i = column.length - 1; i >= 0; i--) {
+      column[i].y = Math.max(top, Math.min(column[i].y, limit - column[i].h));
+      limit = column[i].y - CALL_GAP;
+    }
+
+    column.forEach(function (c) {
+      c.el.style.top = c.y + 'px';
+      lead(host, c, side, inset, b);
+    });
+  });
+}
+
+/* The crowded form: the mark's number, on the mark. No gutter, no leader, nothing covered
+   but the few pixels the badge sits on. The number is the mark's place in the list. */
+function badge(host, c) {
+  const el = document.createElement('div');
+  el.className = 'mkbadge' + (c.mine ? ' mine' : '');
+  el.textContent = String(c.n);
+  el.title = c.label;
+  el.style.left = c.ax + 'px';
+  el.style.top = c.ay + 'px';
+  host.appendChild(el);
+}
+
+/* The line from a label's inner edge to the part. One element rotated about that edge,
+   so there is no second overlay to keep in step with the first. */
+function lead(host, c, side, inset, b) {
+  const box = c.el.getBoundingClientRect ? c.el.getBoundingClientRect() : null;
+  const width = (box && box.width) || 0;
+  const x0 = side ? (inset.left + width) : (b.ox + b.w - CALL_PAD - width);
+  const y0 = c.y + c.h / 2;
+  const dx = c.ax - x0, dy = c.ay - y0;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1) return;
+  const el = document.createElement('div');
+  el.className = 'mklead' + (c.mine ? ' mine' : '');
+  el.style.left = x0 + 'px';
+  el.style.top = y0 + 'px';
+  el.style.width = len + 'px';
+  el.style.transform = 'rotate(' + Math.atan2(dy, dx) + 'rad)';
+  host.appendChild(el);
+}
+
 function listMarks() {
   const host = document.getElementById('marklist');
   if (!host) return;
@@ -985,10 +1258,16 @@ function listMarks() {
     host.appendChild(p);
     return;
   }
-  MARKS.forEach(function (m) {
+  MARKS.forEach(function (m, i) {
     const row = document.createElement('div');
     row.className = 'mrow';
     row.onclick = function () { goToMark(m); };
+    /* The same number the badge carries when a column is too crowded for its text. It is
+       always shown, so the key does not appear and disappear as the window is resized. */
+    const num = document.createElement('span');
+    num.className = 'mnum';
+    num.textContent = String(i + 1);
+    row.appendChild(num);
     const who = document.createElement('span');
     who.className = 'who' + (m.by === 'you' ? ' mine' : '');
     who.textContent = m.by || 'agent';
@@ -1016,9 +1295,26 @@ async function goToMark(m) {
    /api/status, and this says the same thing out loud with a label on it. */
 async function markView() {
   const c = crop();
-  await api('/api/marks?by=you&label=' + encodeURIComponent('look here')
+  await api('/api/marks?unmark=all&by=you&label=' + encodeURIComponent('look here')
             + '&mark=' + (c.left + c.w / 2).toFixed(4) + ',' + (c.top + c.w / 2).toFixed(4)
             + ',' + c.w.toFixed(4) + ',' + c.w.toFixed(4));
+  loadMarks();
+}
+
+/* A shift-drag or a shift-click. The same gesture and the same result as on the console: a
+   box by its centre and size, or a point when the drag is under 2% of the view, marked
+   by=you. Nothing about the camera changes. */
+async function markGesture(gg) {
+  const c = crop();
+  const x0 = Math.min(gg.sx, gg.x), x1 = Math.max(gg.sx, gg.x);
+  const y0 = Math.min(gg.sy, gg.y), y1 = Math.max(gg.sy, gg.y);
+  var mark = (c.left + (x0 + x1) / 2 * c.w).toFixed(4) + ',' + (c.top + (y0 + y1) / 2 * c.w).toFixed(4);
+  if (x1 - x0 > 0.02 && y1 - y0 > 0.02) {
+    mark += ',' + ((x1 - x0) * c.w).toFixed(4) + ',' + ((y1 - y0) * c.w).toFixed(4);
+  }
+  // Remove and add in one queued request, so rapid gestures cannot interleave them.
+  await api('/api/marks?' + (gg.keepMarks ? '' : 'unmark=all&')
+    + 'by=you&label=' + encodeURIComponent('look here') + '&mark=' + mark);
   loadMarks();
 }
 
@@ -1034,6 +1330,15 @@ async function fitMarks() {
   const z = clamp(Math.min(1 / (x1 - x0), 1 / (y1 - y0)) * 0.92, 1, 20);
   await api('/api/set?zoom=' + z.toFixed(2) + '&cx=' + ((x0 + x1) / 2).toFixed(4)
             + '&cy=' + ((y0 + y1) / 2).toFixed(4));
+  loadMarks();
+}
+
+async function resetAll() {
+  // Queue both now: a later gesture must follow the reset and its annotation cleanup.
+  // The command queue cancels the clear if the camera refuses the reset.
+  const reset = api('/api/reset');
+  const cleared = api('/api/marks?unmark=all');
+  await Promise.all([reset, cleared]);
   loadMarks();
 }
 
@@ -1105,7 +1410,10 @@ function stopView() {
   view.removeAttribute('src');
 }
 
-var VIEW_IDLE_MS = 30000;
+/* Five minutes, not thirty seconds. The fault was a page left open overnight, and minutes
+   cure that as well as seconds do. Thirty seconds paused the view on somebody watching it
+   with both hands on the work, which is what a bench camera is for. */
+var VIEW_IDLE_MS = 300000;
 var lastUse = Date.now();
 var viewAsleep = false;
 

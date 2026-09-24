@@ -24,6 +24,7 @@ func main() { os.Exit(run(os.Args[1:])) }
 
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "deskcam: "+format+"\n", a...)
+	noteFailure(fmt.Sprintf(format, a...))
 	return 1
 }
 
@@ -31,6 +32,7 @@ func fail(format string, a ...any) int {
 // says that too.
 func failWith(err error) int {
 	fmt.Fprintf(os.Stderr, "deskcam: %v\n", err)
+	noteFailure(err.Error())
 	if next := advice(err); next != "" {
 		fmt.Fprintf(os.Stderr, "  %s\n", next)
 	}
@@ -44,6 +46,9 @@ type invocation struct {
 	out     string
 	cfg     Config
 	client  *Client
+	who     asker // who asked, written into every record this command leaves
+	// The files and directories this command wrote, for the journal.
+	produced []string
 }
 
 func (in *invocation) arg(i int) string {
@@ -73,7 +78,7 @@ func run(argv []string) int {
 	}
 
 	in := &invocation{command: argv[0]}
-	var urlFlag string
+	var urlFlag, why string
 	rest := argv[1:]
 	for i := 0; i < len(rest); i++ {
 		switch a := rest[i]; {
@@ -89,6 +94,14 @@ func run(argv []string) int {
 			}
 			i++
 			urlFlag = rest[i]
+		// What the capture is for, in the caller's words. It goes into the record and
+		// nowhere near the phone. Decision D19.
+		case a == "--why":
+			if i+1 >= len(rest) {
+				return fail("--why needs a value")
+			}
+			i++
+			why = rest[i]
 		case a == "-h" || a == "--help":
 			usage()
 			return 0
@@ -109,7 +122,24 @@ func run(argv []string) int {
 
 	in.cfg = loadConfig(urlFlag)
 	in.client = NewClient(in.cfg)
+	in.who = thisProcess(argv, why)
 
+	code, _ := operate(in)
+	return code
+}
+
+// operate runs one command and writes down what it did, however it ended. The CLI and the
+// console both come through here, which is what makes an operation from the console the
+// same operation: one dispatch, one journal, one set of refusals. Decision D19.
+func operate(in *invocation) (int, string) {
+	started := time.Now()
+	code := dispatch(in)
+	return code, journalRun(in, started, code)
+}
+
+// dispatch runs the command. run wraps it so that whatever it did, and however it ended,
+// is written down in one place.
+func dispatch(in *invocation) int {
 	if code := in.checkParams(); code != 0 {
 		return code
 	}
@@ -180,10 +210,13 @@ func run(argv []string) int {
 		return printSummary(in, "/api/af", in.query)
 	case "focus":
 		if in.arg(0) == "" {
-			return fail("usage: deskcam focus METRES|auto|hunt")
+			return fail("usage: deskcam focus METRES|auto|hunt|at FX,FY")
 		}
 		if in.arg(0) == "hunt" {
 			return focusHunt(in)
+		}
+		if in.arg(0) == "at" {
+			return focusAt(in)
 		}
 		if in.arg(0) == "auto" {
 			return printSummary(in, "/api/set", in.with("af=continuous&focus=auto"))
@@ -207,6 +240,24 @@ func run(argv []string) int {
 		}
 		return printSummary(in, "/api/set", in.with("torch="+in.arg(0)))
 
+	// ------------------------------------------------------------ pointing
+	case "mark":
+		switch in.arg(0) {
+		case "at":
+			return markAt(in)
+		case "list":
+			// Reading, so not journalled: a mark made on the phone's own page is not in the
+			// journal, and this is where an agent sees it.
+			in.command = "marks"
+			return printJSON(in, "/api/marks", "")
+		case "clear":
+			in.command = "unmark"
+			return markClear(in)
+		}
+		return fail("usage: deskcam mark at FX,FY[,FW,FH] [label=TEXT] [by=WORD] | mark list | mark clear [ID|all]")
+	case "log":
+		return logCommand(in)
+
 	// ----------------------------------------------------------- discovery
 	case "cameras":
 		return printJSON(in, "/api/cameras", in.query)
@@ -227,6 +278,10 @@ func run(argv []string) int {
 		return scaleCommand(in)
 	case "measure":
 		return measureCommand(in)
+	// What the camera knows about the mat, and whether the bench has moved since. The one
+	// thing `scale` cannot check, because a scale is a number and this is a mapping.
+	case "calibration", "calibrate":
+		return calibrationCommand(in)
 	case "analyse", "analysis":
 		if len(in.args) == 0 {
 			return fail("usage: deskcam analyse scale|linearity|burst-noise|aatest ...")
@@ -270,10 +325,30 @@ func run(argv []string) int {
 	// -------------------------------------------------------------- target
 	case "use":
 		if in.arg(0) == "" {
-			return fail("usage: deskcam use http://host:8080")
+			return fail("usage: deskcam use http://host:8080 [KEY]\n" +
+				"  KEY is the phone's access key, as `deskcam token show` prints it on the\n" +
+				"  machine that paired. Use - to read it from standard input instead of the\n" +
+				"  command line, which every process on this machine can see.")
+		}
+		// A second word used to be dropped without a word, so `deskcam use URL KEY` looked
+		// like it had set the key and the camera then refused every request. The project's
+		// own rule is that a wrong argument is an error and never a silent no-op.
+		if len(in.args) > 2 {
+			return fail("deskcam use takes an address and at most a key, got %d words", len(in.args))
 		}
 		if err := writeConfig(urlFile(), strings.TrimRight(in.arg(0), "/")); err != nil {
 			return fail("%v", err)
+		}
+		if key := in.arg(1); key != "" {
+			value, err := keyFrom(key)
+			if err != nil {
+				return fail("%v", err)
+			}
+			if err := saveToken(value); err != nil {
+				return fail("%v", err)
+			}
+			fmt.Fprintln(os.Stderr, "deskcam: key stored. The phone must already expect "+
+				"this one; pairing is what teaches it.")
 		}
 		fmt.Println("target:", loadConfig("").URL)
 		return 0
@@ -297,7 +372,8 @@ func run(argv []string) int {
 // because the phone will refuse it anyway and a local message names the fix without a
 // round trip. Decision D10.
 func (in *invocation) checkParams() int {
-	if in.query == "" {
+	// log reads the journal and sends nothing, so its words are not camera parameters.
+	if in.query == "" || in.command == "log" {
 		return 0
 	}
 	var refused []string
@@ -342,7 +418,8 @@ func capture(in *invocation, path, ext string) int {
 	if err != nil {
 		return failWith(err)
 	}
-	if err := writeSidecar(out, reply, in.client, in.cfg.URL); err != nil {
+	in.produced = append(in.produced, out)
+	if err := writeSidecar(out, reply, in.client, in.cfg.URL, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
 	}
 	if err := writeThumb(out); err != nil {
@@ -370,6 +447,7 @@ func burst(in *invocation) int {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("cannot make %s: %v", dir, err)
 	}
+	in.produced = append(in.produced, dir)
 
 	// A full-sensor DNG is about 24 MB, so a burst of them is taken one request at a time
 	// rather than as one archive that will not fit in the phone's heap.
@@ -437,7 +515,7 @@ func burst(in *invocation) int {
 		fmt.Fprintf(os.Stderr, "deskcam: short burst, %d of %d frames (HTTP %d)\n",
 			got, n, reply.Status)
 	}
-	if err := writeSidecar(filepath.Join(dir, "burst.jpg"), reply, in.client, in.cfg.URL); err != nil {
+	if err := writeSidecar(filepath.Join(dir, "burst.jpg"), reply, in.client, in.cfg.URL, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecar:", err)
 	}
 	fmt.Println(dir)
@@ -456,6 +534,7 @@ func stream(in *invocation) int {
 	if _, err := in.client.GetFile("/api/stream", q, out); err != nil {
 		return fail("stream failed: %v", err)
 	}
+	in.produced = append(in.produced, out)
 	fmt.Println(out)
 	return 0
 }
@@ -508,10 +587,11 @@ func aatest(in *invocation) int {
 		if err != nil {
 			return fail("%s capture failed: %v", suffix, err)
 		}
-		if err := writeSidecar(name, reply, in.client, in.cfg.URL); err != nil {
+		if err := writeSidecar(name, reply, in.client, in.cfg.URL, in.who); err != nil {
 			return fail("could not write the sidecar: %v", err)
 		}
 		shots = append(shots, name)
+		in.produced = append(in.produced, name)
 	}
 	return runAnalysis([]string{"aatest", shots[0], shots[1], "--write", dir})
 }
@@ -532,6 +612,7 @@ func walkCommand(in *invocation, path, prefix string) int {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fail("cannot make %s: %v", dir, err)
 	}
+	in.produced = append(in.produced, dir)
 
 	// A walk is many captures, and its slowest step can be seconds long on its own. The
 	// ordinary thirty second budget is for one request and is the wrong shape here: it
@@ -596,7 +677,7 @@ func walkCommand(in *invocation, path, prefix string) int {
 		fmt.Fprintf(os.Stderr, "deskcam: the phone sent %d frames and %d were written\n",
 			got, written)
 	}
-	if err := splitWalk(dir, manifest); err != nil {
+	if err := splitWalk(dir, manifest, in.who); err != nil {
 		fmt.Fprintln(os.Stderr, "deskcam: could not write the sidecars:", err)
 	}
 	fmt.Println(dir)
@@ -608,7 +689,7 @@ const walkManifest = "walk.json"
 
 // splitWalk turns the one manifest into a sidecar beside each frame, and keeps the
 // manifest too, because the order and the range of the walk belong to the set.
-func splitWalk(dir string, manifest []byte) error {
+func splitWalk(dir string, manifest []byte, who asker) error {
 	if len(manifest) == 0 {
 		return fmt.Errorf("the walk carried no %s", walkManifest)
 	}
@@ -641,6 +722,9 @@ func splitWalk(dir string, manifest []byte) error {
 		if width > 0 {
 			frame["width_px"] = width
 			frame["height_px"] = height
+		}
+		if block := who.block(); block != nil {
+			frame["asker"] = block
 		}
 		out, err := json.MarshalIndent(frame, "", "  ")
 		if err != nil {
@@ -746,6 +830,26 @@ func scaleCommand(in *invocation) int {
 		dir = filepath.Dir(abs)
 	}
 	return runAnalysis(append(append([]string{"scale"}, in.args...), "--write", dir))
+}
+
+// calibrationCommand reports the mapping between the mat's millimetres and the sensor.
+//
+// Unlike a scale, which is one number and cannot notice the bench moving, this is a whole
+// mapping solved from markers printed at known places, so two of them can be compared.
+// `--write` records one to compare later captures against; `--against` does the comparing.
+//
+// The markers are found with OpenCV when the mat extra is installed, which is the
+// recommendation and not the requirement: `--corners` takes them from whoever read them
+// off the picture instead, and the solver is the same either way.
+func calibrationCommand(in *invocation) int {
+	image := in.arg(0)
+	if image == "" {
+		return fail("usage: deskcam calibration FILE [--against RECORD] [--write DIR]\n" +
+			"                          [--corners JSON] [--tolerance-mm N]\n" +
+			"  --against a recorded calibration says how far the view has moved since\n" +
+			"  --corners supplies marker corners when OpenCV is not installed")
+	}
+	return runAnalysis(append([]string{"calibration"}, in.args...))
 }
 
 // measureCommand is the distance between two points of a capture, in millimetres.

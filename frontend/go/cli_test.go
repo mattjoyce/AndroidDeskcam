@@ -667,3 +667,52 @@ func TestRecallLeavesAnAbsentFocusBoxAbsent(t *testing.T) {
 		}
 	}
 }
+
+// `deskcam use URL KEY` used to drop the key without a word, so it looked like it had been
+// set and every later request was refused by the phone. There was also no way at all to
+// adopt a key somebody else generated, which is the second machine at a bench: the only
+// route was editing the file under ~/.config by hand.
+func TestUseAndTokenSetStoreAKeyRatherThanDroppingIt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	if _, code := captureStdout(t, func() int {
+		return run([]string{"use", "http://10.0.0.5:8080/", "a-known-key"})
+	}); code != 0 {
+		t.Fatalf("use with a key exited %d", code)
+	}
+	if got := readTrimmed(tokenFile()); got != "a-known-key" {
+		t.Errorf("the key was not stored, got %q", got)
+	}
+	// The trailing slash is still trimmed, which is the behaviour that already existed.
+	if got := readTrimmed(urlFile()); got != "http://10.0.0.5:8080" {
+		t.Errorf("address, got %q", got)
+	}
+
+	// A word nobody can account for is an error, never a silent no-op.
+	if _, code := captureStdout(t, func() int {
+		return run([]string{"use", "http://10.0.0.5:8080", "key", "extra"})
+	}); code == 0 {
+		t.Error("a third word was accepted; it used to be dropped in silence")
+	}
+
+	if _, code := captureStdout(t, func() int {
+		return run([]string{"token", "set", "adopted-key"})
+	}); code != 0 {
+		t.Fatalf("token set exited %d", code)
+	}
+	if got := readTrimmed(tokenFile()); got != "adopted-key" {
+		t.Errorf("token set did not store the key, got %q", got)
+	}
+
+	// Naming no key is a usage error rather than a key of empty string, which would open
+	// the camera to the network while looking like it had been secured.
+	if _, code := captureStdout(t, func() int {
+		return run([]string{"token", "set"})
+	}); code == 0 {
+		t.Error("token set with no key was accepted")
+	}
+	if got := readTrimmed(tokenFile()); got != "adopted-key" {
+		t.Errorf("a refused set changed the stored key to %q", got)
+	}
+}

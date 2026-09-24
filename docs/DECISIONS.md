@@ -13,7 +13,7 @@ records what was chosen. It cannot record what was rejected, or what was measure
 bench at a particular hour to settle an argument, and a reader who does not have those
 re-litigates every one of them.
 
-The rules are `R1` to `R8` and the decisions are `D1` to `D17`. Both are referred to by
+The rules are `R1` to `R8` and the decisions are `D1` to `D19`. Both are referred to by
 number throughout the repository, in the code comments, in the kanban cards and in the
 commit messages, so the numbers are stable and are never reused.
 
@@ -464,10 +464,13 @@ distinguishable from outside instead of both being a frame counter that stopped.
 **A page that nobody is looking at does not hold the camera awake.** An `<img>` on an MJPEG
 stream keeps its connection for as long as its `src` is set, whether the tab is visible,
 buried, or on a machine with the lid shut. Both panels stop their stream on
-`visibilitychange`, and again after 30 seconds with no pointer, key, wheel or touch,
-starting it on the next thing anyone does. **Being visible is not the same as being
-watched**: a page open on a second monitor with nobody in the room is the case most likely
-to be left running, and the first version of this covered every case except that one.
+`visibilitychange`, and again after five minutes with no pointer, key, wheel or touch,
+starting it on the next thing anyone does. The first value was 30 seconds, and in use it
+paused the view on someone watching it with both hands on the work. The fault it guards
+against is a page left overnight, which minutes cure as well as seconds. **Being visible is
+not the same as being watched**: a page open on a second monitor with nobody in the room is
+the case most likely to be left running, and the first version of this covered every case
+except that one.
 Idling the engine achieves nothing while a forgotten page holds it awake.
 
 **D17. The crop and the focus region are two rectangles, not one.** `meteringForRoi()`
@@ -541,6 +544,157 @@ One consequence comes first. The access check covers every path, the page includ
 page's own requests carry no key, so with a key set the bench tool fails. The console's relay
 exists to get around that. The fix belongs on the phone, and until it lands the console keeps
 its live view.
+
+D19 revises one part of this. The split between the phone and the workstation stands. The
+line that the console has no live view does not, because D18 judged the console as a second
+bench tool and it is not one.
+
+**D19. The console is the other view of the same operations.** The system has two ends. The
+phone is the measurement end: the sensor, the lens, and the bench tool a person uses to aim
+them. The workstation is the operations end: the requests an agent made, the captures that
+came back, the refusals, and the files those became.
+
+The agent sees an operation as a command and its result. The console shows a person the same
+operations from the outside: what was asked, from which project and directory, what came
+back, what was refused, and how many attempts a task took. It is a diagnostic tool about
+DeskCam, and it is the agent's seat: a person sitting there sees what the agent saw and can
+do what the agent did.
+
+Three rules follow.
+
+**It observes, and it is never in the path.** An agent works the same with the console
+stopped. No request to the phone goes through the console in order to be recorded, because
+a recorder in the path turns a fault in the diagnostic tool into a fault in the instrument.
+The console reads what the CLI and the phone already wrote down.
+
+**It acts as the agent acts, through the agent's code.** There are two ways for a person to
+use the camera and they are different jobs. The bench tool aims: continuous gestures on a
+live view, by someone looking at the thing on the bench (D18). The console operates: it
+issues the CLI's own operations, a still, a hunt, a bracket, a tape, a recall, and the
+result lands on disk with a sidecar exactly as an agent's does. To find out why an agent
+failed, a person has to be able to do what the agent did and get what the agent got, and
+that holds only if both go through one code path. The console is the same binary as the CLI,
+so its handlers call the functions the commands call and it has no camera logic of its own.
+What a person does there is recorded beside what the agents did, and marked as a person's.
+
+So the framing gestures go, because they are aiming and the bench tool has them. The live
+view stays, for the reason in D10: a stream is a view, and the seat needs to show what the
+agent sees beside what the agent captured.
+
+**Tooling that does not belong on the measurement end lives here.** Every feature on the
+phone costs heat, memory and an install, and D15 records this phone throttling to `severe`
+under the load it already carries. The phone stores nothing (D14) and processes no image beyond crop, rotate and resize. So
+the test for a new tool is whether it needs the camera or needs the record. A tool that
+needs the record belongs to the console: the history of captures, grouping by project and
+session, comparison of one capture with another, retention, repeating a capture from its
+sidecar, the install and pairing codes, and the access key. None of these may slow a frame.
+
+A session is derived and not managed. It is a run of captures from one project with no long
+gap between them. Nobody creates, names or closes one, and the console keeps no state that
+the files do not hold. The sidecar stays the only index, as in `roll.go`.
+
+The code met none of this on the morning of 2026-09-19, and the four faults are worth
+keeping because each is the general one in a small form.
+
+The capture roll read one directory, the working directory of `deskcam serve`, while 99 of
+the 100 captures on the workstation sat in 11 temporary session directories that agents had
+chosen for themselves. That is a count by `find` of `deskcam-20*.jpg`, thumbnails excluded,
+under the home directory and `/tmp`. The roll cannot show a capture it is not pointed at,
+so it showed none of those. The CLI now writes every operation into a journal that does
+not move, with a copy of the thumbnail and the sidecar, and the roll is that journal. A
+refusal is journalled as fully as a capture.
+
+A sidecar recorded the camera completely and nothing about who asked. It now carries an
+`asker` block: the directory, the project, the command as typed, the session and the reason
+given to `--why`. A scratch directory is in no repository, so the project is found from the
+directory the command ran in or stated in `DESKCAM_PROJECT`, and it is never guessed.
+
+The console carried framing buttons and gestures, a second copy of the bench tool. They are
+gone, and so is the route that forwarded any parameter to the phone. The console offers
+named operations and refuses the rest.
+
+Its one operation, "Shoot this again", took no picture. It restored the settings and
+stopped, and it built them in the page's own JavaScript from six of the keys that
+`recallQuery` in `recall.go` knows, so the two had already drifted. Both now run
+`recallFrom`, and a recall checked against the phone sent fourteen. `operate()` in
+`main.go` is the one door: the CLI and the console both go through it, to one dispatch and
+one journal.
+
+One thing is still open. The phone keeps a log of the last forty requests and shows it on
+its own screen only. Serving it would let the console show every client, including one that
+does not use the CLI. That is a change to the phone and has not been made.
+
+**D20. One camera page, served from either end.** D18 and D19 separated the
+bench tool from workstation operations to stop two implementations of camera controls
+from drifting. The console now embeds the phone's actual bench page alongside its journal
+and operation buttons. This revises their restriction on aiming from the console, while
+keeping the phone responsible for the camera and the workstation responsible for files,
+pairing and the operation record.
+
+`backend/app/assets/panel.html` is the single source. Android packages it as an asset;
+a small Go module in `backend/app` embeds that same file into the console binary. The
+console serves it at `/camera` in a same-origin frame. This isolates its layout and script
+from the journal without a generated copy or a runtime dependency on the checkout.
+Both hosts therefore share gestures, marks, focus feedback and stream idle handling.
+Shift-click points; Shift-drag marks a box; neither moves the camera. Reset all replaces
+the phone page's former Shift-click reset gesture.
+
+The panel uses relative `/api/` URLs and supplies the console header on JSON requests.
+On the workstation the proxy supplies the access key, checks request origin and journals
+changes as `via: console`; polls are not journalled. On the phone requests go directly to
+the camera and token links still authenticate at the transport boundary. Direct phone
+requests do not enter the workstation journal. The CLI still works with the console stopped.
+
+The panel's Save full-res still opens a browser download. The console's Snap and other
+operation buttons still use `operate()` and create workstation files and sidecars. They
+are separate actions with separate storage behavior, even though they sit on one screen.
+
+**D21. A label lives in the gutter, not on its mark.** Marks were drawn with the label
+pinned to the mark itself, above a box or beside a point. That reads well for one or two.
+It fails at the density the camera is actually used at: ten parts annotated on one board
+put every label over its neighbour, and over the parts they name, so the annotation hid
+the evidence it was pointing at.
+
+Labels are therefore laid out in two columns down the sides of the picture, each mark
+taking the side it sits on, each column ordered by how high its mark is so the lines do
+not cross, and each label joined to its mark by a leader line. Within a column a label
+starts at its mark's height and is pushed past whatever is already placed; a column that
+would run off the bottom is pulled back up from its last label. The gutters are measured
+from the picture rather than the element, because `object-fit` letterboxes a 4:3 frame
+inside a wider box and the element's edge is not the picture's edge.
+
+The mark itself does not move. The anchor layer still holds only boxes and points, which
+is what keeps a label from ever covering the part, and lets the existing geometry tests
+keep asserting against the anchors alone. A label is measured rather than assumed, because
+the text belongs to whoever wrote the mark and wraps to a width this code does not choose;
+before layout has happened there is no height to measure and a constant stands in until
+the next draw. Labels are still set with `textContent`, as D20 requires of anything
+arriving over the wire.
+
+**Height is what a column has spare, so a label spends it before giving up.** A label is
+allowed two lines, then three, up to five, and takes the fewest that shows its text whole.
+Two lines alone was measured at a 110 px gutter and cut every label to `Adafruit
+microSD...`; at five, eight labels of real bench text fit a 522 by 553 picture with none
+truncated. Truncation is detected rather than estimated, because a clamped element reports
+more content than it shows.
+
+**Either the text fits or it is not text.** Gutters were measured at three sizes before
+this was settled. At a 1130 px picture ten labels lay out cleanly. In the console with its
+side panel open the picture is 522 px and the same ten covered 45% of it; on a phone held
+upright, 374x281, they covered 96% and left 14 px of clear picture between them. Two
+answers were rejected. Stacking them anyway reintroduces the overlap the whole arrangement
+exists to cure. Truncating them to `Adafruit microSD...` spends a third of the picture on
+text nobody can read and sends the reader to the list regardless. So a column with no room
+for its labels at two lines each becomes numbered badges on the marks themselves: no
+gutter, no leader, nothing covered but the few pixels under a badge. The number is the
+mark's place in the marks list, which carries that number always so the key does not
+appear and vanish as a window is resized. The choice is per column, so a crowded side
+degrades without taking a sparse one with it.
+
+The general rule this is a case of: a view that cannot show something honestly should
+change form rather than shrink the evidence.
+
+This changes both views at once, because D20 made the panel one file.
 
 ## Non-goals
 

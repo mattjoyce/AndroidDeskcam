@@ -161,6 +161,26 @@ export async function browser({ binary = process.env.FIREFOX || 'firefox',
       await pointer([move(x0, y0), down, pause(30), ...path, up]);
     },
 
+    /** A drag with shift held, which is how a person points something out. The key and the
+        pointer are two input sources ticking together, so shift goes down a tick before
+        the button and comes up a tick after it. */
+    async shiftDrag(x0, y0, x1, y1, steps = 6) {
+      const path = [];
+      for (let i = 1; i <= steps; i++) {
+        path.push(move(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps));
+      }
+      const mouse = [pause(0), move(x0, y0), down, ...path, up, pause(0)];
+      const keys = [{ type: 'keyDown', value: '\uE008' },
+        ...mouse.slice(2).map(() => pause(16)), { type: 'keyUp', value: '\uE008' }];
+      await send('input.performActions', {
+        context,
+        actions: [
+          { type: 'key', id: 'keys', actions: keys },
+          { type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' }, actions: mouse },
+        ],
+      });
+    },
+
     async screenshot(path) {
       const r = await send('browsingContext.captureScreenshot', { context });
       const { writeFileSync } = await import('node:fs');

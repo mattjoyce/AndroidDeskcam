@@ -4,8 +4,7 @@
 <style>
  :root{color-scheme:dark}
  *{box-sizing:border-box}
- /* A rule that sets display beats the browser's own [hidden] rule, so #asleep below was
-    drawn from the first paint, dimmed the view, and took every drag and click. */
+ /* Explicit display rules must still respect hidden elements. */
  [hidden]{display:none!important}
  html,body{height:100%;margin:0;overflow:hidden}      /* the page itself never scrolls */
  body{background:#0d1117;color:#e6edf3;display:flex;flex-direction:column;
@@ -19,59 +18,77 @@
 
  /* Three columns filling the window. Each scrolls on its own. */
  main{flex:1 1 auto;display:grid;gap:9px;padding:9px;min-height:0;
-      grid-template-columns:166px 286px minmax(0,1fr)}
- @media(max-width:1000px){main{grid-template-columns:132px 240px minmax(0,1fr)}}
+      grid-template-columns:260px minmax(0,1fr) 360px;
+      transition:grid-template-columns .22s ease}
+ @media(max-width:1000px){main{grid-template-columns:200px minmax(0,1fr) 290px}}
  @media(max-width:760px){main{grid-template-columns:1fr;overflow:auto}}
  .col{min-height:0;display:flex;flex-direction:column;background:#161b22;
       border:1px solid #21262d;border-radius:9px;overflow:hidden}
- .col>h2{flex:0 0 auto;margin:0;padding:7px 11px;font-size:10px;text-transform:uppercase;
+ .col>h2{flex:0 0 auto;margin:0;padding:7px 11px;font-size:11.5px;text-transform:uppercase;
          letter-spacing:.07em;color:#8b949e;font-weight:600;border-bottom:1px solid #21262d}
- .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0}
- #asleep{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-         background:rgba(1,4,9,0.82);color:#8b949e;font-size:13px}
+ .scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;min-height:0;
+         scrollbar-color:#30363d transparent;scrollbar-width:thin}
+ /* The record slides in from the right when a row is picked and slides away to give the
+    view the room. The column goes to nothing, and the gap with it, so the view really does
+    get the space. */
+ main.noinfo{grid-template-columns:260px minmax(0,1fr) 0px;column-gap:0}
+ @media(max-width:1000px){main.noinfo{grid-template-columns:200px minmax(0,1fr) 0px}}
+ main.noinfo #infocol{border-width:0;visibility:hidden}
+ #infocol{min-width:0;transition:visibility 0s linear .22s}
+ main:not(.noinfo) #infocol{transition:none}
+ .col{position:relative}
+ #infotab{position:absolute;right:0;top:50%;transform:translateY(-50%);padding:14px 5px;
+          border-radius:7px 0 0 7px;border-right:0;font-size:14px;line-height:1;opacity:.75}
+ #infotab:hover{opacity:1}
+ @media(max-width:760px){
+   main,main.noinfo{grid-template-columns:1fr;grid-auto-rows:max-content;gap:9px}
+   main.noinfo #infocol{display:none} #infotab{display:none}
+   #infocol .scroll{max-height:50vh}
+ }
+
 
  #roll{display:flex;flex-direction:column;gap:7px;padding:8px}
  .shot{background:#0d1117;border:1px solid #21262d;border-radius:6px;overflow:hidden;
        cursor:pointer;flex:0 0 auto}
  .shot img{display:block;width:100%;height:auto}
- .shot .m{padding:3px 6px;font:9px/1.3 ui-monospace,monospace;color:#8b949e}
+ .shot .m{padding:4px 7px;font:11.5px/1.35 ui-monospace,monospace;color:#8b949e}
  .shot:hover,.shot.sel{border-color:#2f81f7}
+ .proj{font:600 13px ui-monospace,monospace;color:#e6edf3;padding:6px 2px 0;border-top:1px solid #21262d}
+ .proj:first-child{border-top:0}
+ .sess{font:11.5px/1.4 ui-monospace,monospace;color:#8b949e;padding:0 2px}
+ .why{color:#c9d1d9;font-style:italic}
+ .op{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:3px 6px;cursor:pointer;
+     font:11.5px/1.4 ui-monospace,monospace;color:#8b949e;overflow-wrap:anywhere}
+ .op b{color:#c9d1d9} .op.bad{border-color:#8e1519} .op.bad .why{color:#ff7b72;font-style:normal}
+ .op:hover,.op.sel{border-color:#2f81f7}
+ .op code{word-break:normal;overflow-wrap:anywhere}
+ .t{color:#6e7681} .gone{color:#d29922}
+ .col>h2 a{color:#8b949e;text-decoration:none} .col>h2 a:hover{color:#e6edf3}
+ #why{background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:5px 8px;font-size:13px}
 
  details.grp{border-bottom:1px solid #21262d}
- details.grp>summary{cursor:pointer;padding:6px 11px;font:11px ui-monospace,monospace;
+ details.grp>summary{cursor:pointer;padding:6px 11px;font:12.5px ui-monospace,monospace;
         color:#8b949e;list-style:none;display:flex;justify-content:space-between;gap:8px}
  details.grp>summary::-webkit-details-marker{display:none}
  details.grp>summary::after{content:"+";color:#484f58}
- details.grp[open]>summary::after{content:"\\2212"}
+ details.grp[open]>summary::after{content:"\2212"}
  details.grp[open]>summary{color:#e6edf3;background:#0d1117}
  details.grp .body{padding:4px 11px 9px}
- table.kv{width:100%;border-collapse:collapse;font:11px/1.45 ui-monospace,monospace}
+ table.kv{width:100%;border-collapse:collapse;font:12.5px/1.45 ui-monospace,monospace}
  table.kv td{padding:1px 0;vertical-align:top;word-break:break-word}
  table.kv td:first-child{color:#8b949e;width:46%;padding-right:6px}
  .raw{width:100%;background:#0d1117;color:#8b949e;border:1px solid #21262d;border-radius:5px;
       font:10px/1.35 ui-monospace,monospace;padding:6px;height:130px;resize:vertical}
 
- .view{position:relative;background:#000;flex:1 1 auto;display:flex;align-items:center;
-       justify-content:center;min-height:0;overflow:hidden}
- .view img{max-width:100%;max-height:100%;object-fit:contain;display:block;
-           cursor:crosshair;user-select:none;-webkit-user-drag:none}
- /* A paused view has no src, and the browser draws the alt text through the overlay. */
- .view img:not([src]){visibility:hidden}
- #box{position:absolute;border:2px solid #2f81f7;background:rgba(47,129,247,.15);
-      display:none;pointer-events:none}
- .hint{position:absolute;left:8px;bottom:8px;background:rgba(13,17,23,.85);
-       border:1px solid #30363d;border-radius:5px;padding:2px 7px;font-size:10px;
-       color:#8b949e;pointer-events:none}
- .warn{position:absolute;left:8px;right:8px;top:8px;display:none;white-space:pre-wrap;
-       background:rgba(13,17,23,.92);border:1px solid #f85149;border-radius:5px;
-       padding:5px 8px;font-size:11px;color:#f85149}
+ #camera{width:100%;flex:1 1 auto;min-height:0;border:0;background:#0d1117}
+ @media(max-width:760px){#camera{min-height:75vh}}
  .btns{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px;padding:8px;
        border-top:1px solid #21262d}
  button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;
-        padding:4px 10px;font-size:11px;cursor:pointer}
+        padding:5px 11px;font-size:13px;cursor:pointer}
  button:hover{background:#30363d}
  button.p{background:#1f6feb;border-color:#1f6feb} button.p:hover{background:#388bfd}
- code{font:11px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
+ code{font:12px ui-monospace,monospace;color:#79c0ff;word-break:break-all}
 
  dialog{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:10px;
         padding:0;width:min(1150px,94vw);max-height:92vh;overflow:hidden}
@@ -85,7 +102,7 @@
  .frame img{max-width:100%;max-height:66vh;object-fit:contain;display:block;border-radius:4px}
  .dlgbar{display:flex;gap:8px;align-items:center;padding:8px 12px;flex-wrap:wrap;
          border-top:1px solid #21262d}
- .dlgbar .info{font:11px ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
+ .dlgbar .info{font:12.5px ui-monospace,monospace;color:#8b949e;flex:1;min-width:0}
  .qr img{width:100%;max-width:170px;display:block;margin:6px auto}
  .qrpair{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
  .qrpair>div{flex:1 1 170px;max-width:230px}
@@ -98,34 +115,31 @@
 </header>
 <main>
   <div class="col">
-    <h2>Captures</h2>
+    <h2>Journal <span style="float:right;text-transform:none;letter-spacing:0">
+      <a href="#" id="vGroups" onclick="return view('groups')">by project</a> &middot;
+      <a href="#" id="vLog" onclick="return view('log')">command log</a></span></h2>
     <div class="scroll"><div id="roll"></div>
       <p id="empty" class="muted" style="font-size:11px;padding:0 10px">
-        None yet. <code>deskcam snap</code></p></div>
+        Nothing in the journal yet. <code>deskcam snap</code> from anywhere.</p></div>
   </div>
   <div class="col">
-    <h2 id="sidetitle">Live</h2>
-    <div class="scroll" id="side"></div>
-  </div>
-  <div class="col">
-    <div class="view" id="wrap">
-      <img id="live" alt="live view">
-      <div id="asleep" hidden>live view paused &middot; move the mouse to wake it</div>
-      <div id="box"></div>
-      <div class="hint">drag a box to frame &middot; click to centre
-        &middot; shift-click resets</div>
-      <div id="streamerr" class="warn"></div>
-    </div>
+    <iframe id="camera" src="/camera" title="Camera controls"></iframe>
     <div class="btns">
-      <button class="p" onclick="cam('zoom=1&cx=0.5&cy=0.5')">Full sensor</button>
-      <button onclick="cam('zoomby=1.5')">In</button>
-      <button onclick="cam('zoomby=0.667')">Out</button>
-      <button onclick="cam('measure=1')">Measure</button>
-      <button onclick="cam('measure=0')">Normal</button>
-      <button onclick="rot()">Rotate</button>
-      <button onclick="restream()">Restream</button>
+      <button class="p" onclick="snapNow()">Snap</button>
+      <input id="why" placeholder="what is it for? (optional)" size="26">
+      <button onclick="op('do=hunt')">Focus hunt</button>
+      <button onclick="op('do=measure')">Measure</button>
+      <button onclick="op('do=normal')">Normal</button>
       <button onclick="document.getElementById('pair').showModal()">Pair</button>
+      <a id="bench" class="muted" target="_blank" rel="noopener" style="font-size:12px">open the phone's page</a>
+      <span id="said" class="muted" style="font-size:12px"></span>
     </div>
+    <button id="infotab" onclick="info()" title="show or hide the record (i)"></button>
+  </div>
+  <div class="col" id="infocol">
+    <h2><span id="sidetitle">Live</span>
+      <a href="#" onclick="return info(false)" style="float:right" title="slide away (i)">&times;</a></h2>
+    <div class="scroll" id="side"></div>
   </div>
 </main>
 
@@ -136,7 +150,7 @@
   </div>
   <div class="dlgbar">
     <div class="info" id="biginfo"></div>
-    <button onclick="recall()">Shoot this again</button>
+    <button onclick="again()">Shoot this again</button>
     <button onclick="document.getElementById('big').close()">Close</button>
   </div>
 </div></dialog>
@@ -166,9 +180,14 @@
 </div></dialog>
 
 <script>
-let S={}, streamUrl='', ROLL=[], shown=null, selName=null;
+let S={}, ROLL=[], shown=null, selName=null;
+// Key events inside the frame stay there; those elsewhere use its shared handler.
+document.addEventListener('keydown', e=>{
+  const camera=document.getElementById('camera');
+  if(camera && camera.contentWindow && camera.contentWindow.zoomKey) camera.contentWindow.zoomKey(e);
+});
 // Which groups are open. Held here so the two second refresh does not shut them.
-const OPEN={Framing:true, Exposure:true};
+const OPEN={Operation:true, Framing:true, Exposure:true};
 
 function esc(v){return String(v).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
 
@@ -217,68 +236,31 @@ document.addEventListener('toggle', e=>{
 function change(path){
   return fetch(path, {method:'POST', headers:{'X-DeskCam-Console':'1'}});
 }
-async function cam(q){ try{ await change('/api/cam?'+q); }catch(e){} refresh(); }
-/* The live view comes through the console, not straight from the phone. The browser has
-   no access key on purpose, so pointing an <img> at the phone meant that setting a key
-   turned the video black with nothing on the page saying why. The console has the key and
-   relays the stream.
-
-   The URL carries no camera parameter. A reconnect must not change what an agent is about
-   to capture, and this URL is rebuilt on every reconnect. */
-function restream(){
-  if(!S.phone) return;
-  if(document.hidden) return;
-  const u='/api/stream?fps=10&t='+Date.now();
-  if(u!==streamUrl){ streamUrl=u; document.getElementById('live').src=u; }
+/* The console runs CLI operations; the shared camera panel owns aiming (D20).
+   Whatever an operation did, or was refused for, lands in the journal like anyone else's. */
+let busy=false;
+async function op(q){
+  if(busy) return;
+  busy=true; say('working...');
+  try{
+    const d=await (await change('/api/op?'+q)).json();
+    const bad=(d.steps||[]).find(x=>!x.ok);
+    say(d.ok?'':(bad?bad.operation+': '+bad.error:(d.error||'refused')), !d.ok);
+  }catch(e){ say('the console did not answer', true); }
+  busy=false; refresh(); loadRoll();
 }
-/* A page nobody is using must not hold the camera awake, and a page can be wide open on a
-   second monitor with nobody in the room. Being visible is not being watched, so the
-   signal is whether anyone is doing anything. An <img> on an MJPEG stream keeps its
-   connection for as long as its src is set, visible or not, and a console left open
-   overnight held this camera at full rate until morning. Cards 59 and 63. */
-function stopView(){
-  streamUrl='';
-  document.getElementById('live').removeAttribute('src');
+function say(text,bad){
+  const el=document.getElementById('said');
+  el.textContent=text||''; el.className=bad?'gone':'muted';
 }
-const VIEW_IDLE_MS=30000;
-let lastUse=Date.now(), viewAsleep=false;
-function paintAsleep(){ document.getElementById('asleep').hidden=!viewAsleep; }
-function usedTheView(){
-  lastUse=Date.now();
-  if(viewAsleep){ viewAsleep=false; paintAsleep(); restream(); }
+function snapNow(){
+  const why=document.getElementById('why').value.trim();
+  op('do=snap'+(why?'&why='+encodeURIComponent(why):''));
 }
-function checkViewIdle(){
-  if(document.hidden||viewAsleep) return;
-  if(Date.now()-lastUse>VIEW_IDLE_MS){ viewAsleep=true; stopView(); paintAsleep(); }
-}
-['pointermove','pointerdown','keydown','wheel','touchstart'].forEach(e=>
-  document.addEventListener(e,usedTheView,{passive:true}));
-setInterval(checkViewIdle,2000);
-document.addEventListener('visibilitychange',function(){
-  if(document.hidden){ stopView(); }
-  else { lastUse=Date.now(); viewAsleep=false; paintAsleep(); restream(); }
-});
-window.addEventListener('pagehide',stopView);
-/* An <img> that fails learns only that it failed. The console saw the phone's answer and
-   keeps the reason in /api/state, so the page can say which thing went wrong. */
-let streamRetryAt=0;
-function streamFailed(why){
-  const el=document.getElementById('streamerr');
-  el.textContent=why||'The live view is not running. Press Restream.';
-  el.style.display='block';
-}
-function streamOK(){ document.getElementById('streamerr').style.display='none'; }
-/* Rotation is how the phone is bolted down, so it is camera state and a deliberate
-   press changes it. The stream then shows it because the camera has it. */
-async function rot(){
-  const now=(S.settings&&S.settings.rotate)||0;
-  await cam('rotate='+((now+180)%360));
-  streamUrl=''; restream();
-}
-
 async function refresh(){
   try{
     S=await (await fetch('/api/state')).json();
+    { const b=document.getElementById('bench'); b.hidden=!S.phone; if(S.phone) b.href=S.phone; }
     const dot=S.online?'<span class="dot on"></span>':'<span class="dot off"></span>';
     document.getElementById('hdr').innerHTML=dot+
       (S.phone?(S.online?S.phone:'paired, not answering'):'no phone paired');
@@ -289,8 +271,6 @@ async function refresh(){
     document.getElementById('meta').textContent=
       (g.zoom!==undefined?'zoom '+g.zoom+'x  '+g.cx+','+g.cy+'   ':'')+
       (m.exposure_human||'')+(m.iso?'  iso '+m.iso:'')+(g.measure?'  measure':'');
-    if(S.stream_error) streamFailed(S.stream_error);
-    if(S.online && Date.now()>=streamRetryAt) restream();
     if(!selName){
       document.getElementById('sidetitle').textContent='Live';
       document.getElementById('side').innerHTML = S.online ? sections(S)
@@ -300,116 +280,158 @@ async function refresh(){
   }catch(e){}
 }
 
+/* The roll is the journal, grouped by project and then by session. Decision D19.
+   A row is one file, or one operation that made none: a change to the camera, or a refusal.
+   A refusal is shown as fully as a capture, in the phone's own words, because it is the
+   thing an agent is least likely to have mentioned. */
+const rowKey=c=>c.id+'/'+c.n;
+function clock(at){ const d=new Date(at); return isNaN(d)?'':d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+function day(at){ const d=new Date(at); return isNaN(d)?'':d.toLocaleDateString([],{day:'numeric',month:'short'}); }
+function rowOf(c,i){
+  const sel=rowKey(c)===selName?' sel':'';
+  if(c.n<0){
+    return '<div class="op'+(c.ok?'':' bad')+sel+'" onclick="pick('+i+')">'+
+      /* The command as typed says more than the parameters do: "focus at 0.3,0.6" has no
+         parameters at all. The reason is shown on the session, so it is left off the row. */
+      (c.command
+        ? '<b>'+esc(c.operation)+'</b> '+esc(c.command.replace(/^deskcam \S+ ?/,'').replace(/ ?--why ('[^']*'|\S+)/,''))
+        : '<b>'+esc(c.operation)+'</b> '+esc((c.query||'').replace(/&/g,' ')))+
+      '<div class="t">'+clock(c.at)+' &middot; '+c.millis+' ms</div>'+
+      (c.ok?'':'<div class="why">'+esc(c.error||'refused')+'</div>')+'</div>';
+  }
+  return '<div class="shot'+sel+'" onclick="pick('+i+')">'+
+    (c.thumb||c.exists?'<img loading="lazy" src="/thumb/'+rowKey(c)+'">':'')+
+    '<div class="m">'+esc(c.summary||c.name)+'<br>'+esc(c.exposure||'')+
+    ' <span class="t">'+clock(c.at)+'</span>'+
+    (c.exists?'':'<br><span class="gone">original gone</span>')+'</div></div>';
+}
+/* Two views of one journal. By project, for what a piece of work looked at. The command
+   log, for what was typed: newest first, one line for each command, as it was typed, so it
+   can be copied and run. */
+let VIEW='groups';
+try{ VIEW=localStorage.getItem('deskcam.view')||'groups'; }catch(e){}
+function view(v){
+  VIEW=v; try{ localStorage.setItem('deskcam.view',v); }catch(e){}
+  loadRoll(); return false;
+}
+function logOf(groups){
+  const seen={}, rows=[];
+  for(const g of groups) for(const x of g.sessions) for(const c of x.items){
+    if(seen[c.id]) continue;
+    seen[c.id]=true; rows.push([c, g]);
+  }
+  rows.sort((a,b)=>a[0].at<b[0].at?1:-1);
+  return rows.map(([c,g])=>{
+    const i=ROLL.length; ROLL.push(c);
+    const name=g.project.split('/').filter(Boolean).pop()||g.project;
+    return '<div class="op'+(c.ok?'':' bad')+(rowKey(c)===selName?' sel':'')+'" onclick="pick('+i+')">'+
+      '<div class="t">'+day(c.at)+' '+clock(c.at)+' &middot; '+esc(name)+' &middot; '+
+      esc(c.via||'')+' &middot; '+c.millis+' ms</div>'+
+      '<code>'+esc(c.command||(c.operation+' '+(c.query||'')))+'</code>'+
+      (c.ok?'':'<div class="why">'+esc(c.error||'refused')+'</div>')+'</div>';
+  }).join('');
+}
 async function loadRoll(){
   try{
-    ROLL=(await (await fetch('/api/roll')).json()).captures;
+    const groups=(await (await fetch('/api/roll')).json()).groups||[];
+    ROLL=[];
+    document.getElementById('vGroups').style.color=VIEW==='groups'?'#e6edf3':'';
+    document.getElementById('vLog').style.color=VIEW==='log'?'#e6edf3':'';
+    if(VIEW==='log'){
+      const html=logOf(groups);
+      document.getElementById('empty').style.display=ROLL.length?'none':'block';
+      document.getElementById('roll').innerHTML=html;
+      return;
+    }
+    let html='';
+    for(const g of groups){
+      const name=g.project.split('/').filter(Boolean).pop()||g.project;
+      html+='<div class="proj" title="'+esc(g.project)+'">'+esc(name)+
+        (g.known?'':' <span class="t">directory, no project known</span>')+'</div>';
+      for(const x of g.sessions){
+        html+='<div class="sess">'+day(x.started)+' '+clock(x.started)+
+          (x.ended!==x.started?'&ndash;'+clock(x.ended):'')+' &middot; '+x.count+
+          (x.count===1?' operation':' operations')+
+          (x.refused?' &middot; <span class="gone">'+x.refused+' refused</span>':'')+
+          x.why.map(w=>'<div class="why">'+esc(w)+'</div>').join('')+'</div>';
+        for(const c of x.items){ html+=rowOf(c,ROLL.length); ROLL.push(c); }
+      }
+    }
     document.getElementById('empty').style.display=ROLL.length?'none':'block';
-    document.getElementById('roll').innerHTML=ROLL.map((c,i)=>
-      '<div class="shot'+(c.name===selName?' sel':'')+'" onclick="pick('+i+')">'+
-      '<img loading="lazy" src="/thumb/'+encodeURIComponent(c.name)+'">'+
-      '<div class="m">'+esc(c.summary||c.name)+'<br>'+esc(c.exposure||'')+'</div></div>').join('');
+    document.getElementById('roll').innerHTML=html;
   }catch(e){}
 }
-/* First click loads the capture into the middle column. A second opens it full size. */
+/* First click loads the record into the middle column. A second opens the capture full
+   size, if it made one. */
 function pick(i){
   const c=ROLL[i];
-  if(selName===c.name){ show(c.name,c); return; }
-  selName=c.name;
-  document.getElementById('sidetitle').textContent='Capture';
-  loadSidecar(c.name,'side');
+  if(selName===rowKey(c)){ if(c.n>=0) show(c); return; }
+  selName=rowKey(c);
+  info(true);
+  document.getElementById('sidetitle').textContent=c.n<0?'Operation':'Capture';
+  loadRecord(c,'side');
   loadRoll();
 }
 function clearPick(){ selName=null; refresh(); loadRoll(); }
 
-async function loadSidecar(n,target){
+/* The record panel. Picking a row brings it in, because that is asking to see the record.
+   The tab on the edge of the view, the cross, and the i key send it away or bring it back,
+   and the choice is remembered. */
+let INFO=true;
+try{ INFO=localStorage.getItem('deskcam.info')!=='0'; }catch(e){}
+function info(want){
+  INFO=(want===undefined)?!INFO:!!want;
+  try{ localStorage.setItem('deskcam.info',INFO?'1':'0'); }catch(e){}
+  document.querySelector('main').classList.toggle('noinfo',!INFO);
+  document.getElementById('infotab').textContent=INFO?'›':'‹';
+  return false;
+}
+document.addEventListener('keydown',e=>{
+  if(e.key!=='i'||e.ctrlKey||e.metaKey||e.altKey) return;
+  const t=e.target.tagName; if(t==='INPUT'||t==='TEXTAREA') return;
+  info();
+});
+info(INFO);
+
+/* What the journal says about the operation, then what the sidecar says about the frame. */
+function operationOf(c){
+  return grp('Operation', kv({operation:c.operation, parameters:c.query, at:c.at,
+    took:c.millis+' ms', result:c.ok?'ok':'refused', error:c.error, why:c.why, via:c.via,
+    directory:c.cwd, file:c.path, original:c.n<0?undefined:(c.exists?'on disk':'gone')}));
+}
+async function loadRecord(c,target){
   const el=document.getElementById(target);
+  const back=target==='side'
+    ? '<div style="padding:6px 10px"><button onclick="clearPick()">Back to live</button></div>' : '';
+  if(c.n<0){ el.innerHTML=back+operationOf(c); return; }
   el.innerHTML='<p class="muted" style="padding:10px;font-size:11px">loading...</p>';
   try{
-    const d=await (await fetch('/sidecar/'+encodeURIComponent(n))).json();
-    if(d.error){
-      el.innerHTML='<p class="muted" style="padding:10px">'+esc(d.error)+'</p>';
-      return;
-    }
-    const head=grp('Capture', kv({image:d.image, at:d.captured_at, bytes:d.bytes}));
-    el.innerHTML=(target==='side'
-      ? '<div style="padding:6px 10px"><button onclick="clearPick()">Back to live</button></div>'
-      : '')+sections(d,head);
-  }catch(e){ el.innerHTML='<p class="muted" style="padding:10px">no sidecar</p>'; }
+    const d=await (await fetch('/sidecar/'+rowKey(c))).json();
+    if(d.error){ el.innerHTML=back+operationOf(c)+'<p class="muted" style="padding:10px">'+esc(d.error)+'</p>'; return; }
+    el.innerHTML=back+sections(d,operationOf(c));
+  }catch(e){ el.innerHTML=back+operationOf(c); }
 }
 
-function show(n,c){
-  shown=c||null;
-  document.getElementById('bigimg').src='/img/'+encodeURIComponent(n);
-  const b=[n];
-  if(c){ if(c.summary)b.push(c.summary); if(c.exposure)b.push(c.exposure);
-         if(c.iso)b.push('iso '+c.iso); if(c.tilt!=null)b.push('tilt '+c.tilt+'\\u00b0'); }
+function show(c){
+  shown=c;
+  /* The journal's thumbnail stands in when a scratch directory has been cleaned away. */
+  document.getElementById('bigimg').src=(c.exists?'/img/':'/thumb/')+rowKey(c);
+  const b=[c.name];
+  if(c.summary)b.push(c.summary); if(c.exposure)b.push(c.exposure);
+  if(c.iso)b.push('iso '+c.iso); if(c.tilt!=null)b.push('tilt '+c.tilt+'°');
+  if(!c.exists)b.push('original gone, showing the thumbnail');
   document.getElementById('biginfo').textContent=b.join('   ');
-  loadSidecar(n,'dside');
+  loadRecord(c,'dside');
   document.getElementById('big').showModal();
 }
-function recall(){
-  if(!shown||!shown.settings) return;
-  const g=shown.settings, q=['reset=1','zoom='+g.zoom,'cx='+g.cx,'cy='+g.cy,'rotate='+g.rotate];
-  if(g.measure) q.push('measure=1');
-  if(g.torch) q.push('torch='+g.torch);
-  if(g.focus_diopters!=null) q.push('focus='+g.focus_diopters);
-  if(g.ae==='manual'){ if(g.exposure_ns)q.push('exposure='+g.exposure_ns);
-                       if(g.iso)q.push('iso='+g.iso); }
-  cam(q.join('&'));
+/* "Shoot this again" used to rebuild the settings here, from six of the keys the CLI's
+   recall knows, and then take no picture. The console now recalls through the CLI's own
+   code and shoots. */
+function again(){
+  if(!shown) return;
   document.getElementById('big').close();
+  op('do=again&id='+encodeURIComponent(shown.id)+'&n='+shown.n);
 }
-
-const live=document.getElementById('live'), box=document.getElementById('box');
-live.addEventListener('load', streamOK);
-live.addEventListener('error', ()=>{
-  streamFailed(S.stream_error);
-  /* Retry, but not four hundred times an hour. refresh() runs every two seconds and a
-     dead phone would otherwise be dialled every one of them. */
-  streamUrl=''; streamRetryAt=Date.now()+5000;
-});
-let sx=0, sy=0, dragging=false;
-function frac(e){
-  const b=live.getBoundingClientRect();
-  return [(e.clientX-b.left)/b.width,(e.clientY-b.top)/b.height];
-}
-live.addEventListener('mousedown', e=>{
-  if(e.shiftKey){ cam('zoom=1&cx=0.5&cy=0.5'); return; }
-  [sx,sy]=frac(e); dragging=true;
-  const b=live.getBoundingClientRect(), w=document.getElementById('wrap').getBoundingClientRect();
-  box.style.display='block';
-  box.dataset.ox=b.left-w.left; box.dataset.oy=b.top-w.top;
-  box.dataset.bw=b.width; box.dataset.bh=b.height;
-  e.preventDefault();
-});
-window.addEventListener('mousemove', e=>{
-  if(!dragging) return;
-  const [x,y]=frac(e), ox=+box.dataset.ox, oy=+box.dataset.oy,
-        bw=+box.dataset.bw, bh=+box.dataset.bh;
-  box.style.left=(ox+Math.min(sx,x)*bw)+'px';
-  box.style.top=(oy+Math.min(sy,y)*bh)+'px';
-  box.style.width=(Math.abs(x-sx)*bw)+'px';
-  box.style.height=(Math.abs(y-sy)*bh)+'px';
-});
-window.addEventListener('mouseup', e=>{
-  if(!dragging) return;
-  dragging=false; box.style.display='none';
-  const [x,y]=frac(e), g=S.settings||{};
-  const z=Math.max(1,g.zoom||1), w=1/z;
-  const left=Math.min(Math.max((g.cx!=null?g.cx:0.5)-w/2,0),1-w);
-  const top =Math.min(Math.max((g.cy!=null?g.cy:0.5)-w/2,0),1-w);
-  const dx=Math.abs(x-sx), dy=Math.abs(y-sy);
-  if(dx<0.02&&dy<0.02){
-    cam('cx='+(left+Math.min(sx,x)*w).toFixed(4)+'&cy='+(top+Math.min(sy,y)*w).toFixed(4));
-    return;
-  }
-  const nz=Math.min(1/(dx*w),1/(dy*w));
-  cam('zoom='+Math.min(nz,20).toFixed(2)+
-      '&cx='+(left+(Math.min(sx,x)+dx/2)*w).toFixed(4)+
-      '&cy='+(top+(Math.min(sy,y)+dy/2)*w).toFixed(4));
-});
-live.addEventListener('wheel', e=>{
-  e.preventDefault(); cam('zoomby='+(e.deltaY<0?1.25:0.8));
-},{passive:false});
 
 fetch('/api/install').then(r=>r.json()).then(d=>{
   document.getElementById('isrc').textContent=

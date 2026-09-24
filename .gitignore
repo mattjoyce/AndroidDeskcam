@@ -36,3 +36,6 @@ HANDOFF.md
 
 # release builds, made by scripts/release.sh
 dist/
+
+# The graphify knowledge graph, rebuilt from the sources on demand
+graphify-out/

@@ -21,6 +21,14 @@ func recallQuery(sidecar string) (string, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return "", fmt.Errorf("%s is not a sidecar: %w", sidecar, err)
 	}
+	return recallFrom(doc), nil
+}
+
+// recallFrom is recallQuery for a record already in hand, which is how the console has it:
+// the journal keeps a copy of every sidecar. One function, so the CLI and the console
+// cannot come to recall different things. They did: the page built its own query in
+// JavaScript from six of these keys, and the rest were silently dropped. Decision D19.
+func recallFrom(doc map[string]any) string {
 	settings, ok := doc["settings"].(map[string]any)
 	if !ok {
 		settings = doc
@@ -89,5 +97,5 @@ func recallQuery(sidecar string) (string, error) {
 		q = append(q, "ae=on")
 		add("ev", settings["ev"])
 	}
-	return strings.Join(q, "&"), nil
+	return strings.Join(q, "&")
 }
