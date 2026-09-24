@@ -614,6 +614,7 @@ These never reach the camera:
 | Command | What for |
 |---|---|
 | `deskcam aatest`, `deskcam scale`, `deskcam measure`, `deskcam analyse ...` | The measurement tools. See **Before you report a number** |
+| `deskcam calibration FILE` | Where the mat is, and whether the bench has moved since a recorded one. See **The mat can see the bench move** |
 | `deskcam analyse average DIR`, `deskcam analyse stack DIR`, `deskcam analyse hdr DIR` | One 16-bit image from a burst, one image sharp at every depth from a focus sweep, one linear image from a bracket |
 | `deskcam analyse scale FILE` | `deskcam scale` without recording the result |
 | `deskcam log`, `deskcam log wait` | Read the journal, or wait on it. See **Pointing, both ways** |

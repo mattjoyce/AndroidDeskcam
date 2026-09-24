@@ -10,9 +10,48 @@ Each camera control is an HTTP GET or POST request. You can control the camera f
 deskcam snap zoom=6 cx=0.32 cy=0.68 torch=25 focusm=0.12
 ```
 
+![The console's camera page, with an agent's annotations on a bench mat](docs/media/camera-page.png)
+
+*An agent looked at the mat, identified each part, and marked them. The labels sit in the
+gutters with leader lines so they never cover the thing they name.*
+
+---
+
+## Quick start
+
+You need an Android 13 or newer phone with a Camera2 `LEVEL_FULL` camera (DeskCam is built on a Pixel 6a) and a Linux or macOS workstation. This is the release route. [Setting up](docs/manual/setup.md) also covers building it yourself and installing with adb.
+
+1. Download the CLI for your workstation from the [latest release](https://github.com/mattjoyce/AndroidDeskcam/releases/latest) and put it on your path. The files are `deskcam-linux-amd64`, `deskcam-linux-arm64`, `deskcam-darwin-amd64` and `deskcam-darwin-arm64`, and `SHA256SUMS` lists their checksums.
+   ```sh
+   mkdir -p ~/.local/bin
+   curl -L -o ~/.local/bin/deskcam https://github.com/mattjoyce/AndroidDeskcam/releases/latest/download/deskcam-linux-amd64
+   chmod +x ~/.local/bin/deskcam
+   ```
+2. Run `deskcam serve`, open `http://127.0.0.1:9000` in a browser, and click **Pair**.
+3. Scan the install code with the phone's camera, and allow the browser to install the app.
+4. Open DeskCam on the phone, accept its permission prompts, and tap **Start**.
+5. Scan the pairing code, and tap **Pair** on the phone.
+
+Then:
+
+```sh
+deskcam show         # one line of live state: proves the connection
+deskcam snap         # prints the path of a full-resolution still, with a .json sidecar beside it
+```
+
+To give Claude Code the camera, link the skill: `ln -sf "$PWD/skill" ~/.claude/skills/deskcam`.
+
+---
+
 ## The manual
 
 The full manual is in [docs/manual/](docs/manual/README.md). It is written for the person at the bench and for the agent at the shell alike.
+
+![The console: the journal of every operation on the left, the shared camera page in the middle, live camera state on the right](docs/media/console.png)
+
+*The console at `http://127.0.0.1:9000`. Everything anyone did is on the left, with the
+reason it was done and a thumbnail; the camera page in the middle is the same file the
+phone serves, so both views share their gestures and marks.*
 
 | Page | Read it for |
 |---|---|
@@ -57,36 +96,10 @@ A home build signs with a key that `backend/build.sh` generates on first run: `b
 |---|---|---|---|
 | `backend/` | Android Phone | Pure Java (SDK API 33–37) | Foreground camera service, `HttpServer`, raw sensor readout, software ROI crop |
 | `frontend/go/` | Workstation | Static Go binary | `deskcam` CLI, browser workbench console, USB/Wi-Fi pairing |
-| `frontend/analysis/` | Workstation | Python 3.11 (`numpy`, `pillow`) | Optional measurement tools (linearity, scale, HDR, focus stacking) |
+| `frontend/analysis/` | Workstation | Python 3.11 (`numpy`, `pillow`; `opencv-python-headless` for the mat) | Optional measurement tools (linearity, scale, HDR, focus stacking, mat calibration) |
 | `explainer/` | Browser | Static HTML / CSS / JS | Interactive visual guide to optics, PWM synchronization, and API mechanics |
 | `skill/` | Workstation | Claude Code Skill | Agent integration definition and tool calling instructions |
 | `docs/` | Workstation | Markdown | Architecture decisions, the decisions and their reasoning, and DSL documentation |
-
----
-
-## Quick start
-
-You need an Android 13 or newer phone with a Camera2 `LEVEL_FULL` camera (DeskCam is built on a Pixel 6a) and a Linux or macOS workstation. This is the release route. [Setting up](docs/manual/setup.md) also covers building it yourself and installing with adb.
-
-1. Download the CLI for your workstation from the [latest release](https://github.com/mattjoyce/AndroidDeskcam/releases/latest) and put it on your path. The files are `deskcam-linux-amd64`, `deskcam-linux-arm64`, `deskcam-darwin-amd64` and `deskcam-darwin-arm64`, and `SHA256SUMS` lists their checksums.
-   ```sh
-   mkdir -p ~/.local/bin
-   curl -L -o ~/.local/bin/deskcam https://github.com/mattjoyce/AndroidDeskcam/releases/latest/download/deskcam-linux-amd64
-   chmod +x ~/.local/bin/deskcam
-   ```
-2. Run `deskcam serve`, open `http://127.0.0.1:9000` in a browser, and click **Pair**.
-3. Scan the install code with the phone's camera, and allow the browser to install the app.
-4. Open DeskCam on the phone, accept its permission prompts, and tap **Start**.
-5. Scan the pairing code, and tap **Pair** on the phone.
-
-Then:
-
-```sh
-deskcam show         # one line of live state: proves the connection
-deskcam snap         # prints the path of a full-resolution still, with a .json sidecar beside it
-```
-
-To give Claude Code the camera, link the skill: `ln -sf "$PWD/skill" ~/.claude/skills/deskcam`.
 
 ---
 
